@@ -223,14 +223,16 @@ public final class SettingsPanePlugin: GlobalPlugin {
         return !x.isSame(e)
     }
 
-    static func holdVirtual(_ target: AXUIElement, speak: Bool = true) {
+    /// `ownTab`: false when an app module runs Tab itself and only wants the held place (System Settings' pane,
+    /// 10 Nov 2026): this plugin's own Tab, a global plugin's, would otherwise come first and go round its own list.
+    static func holdVirtual(_ target: AXUIElement, speak: Bool = true, ownTab: Bool = true) {
         // A control the app has thrown away meanwhile is no place to hold: the keys would go nowhere from it.
         guard target.role != "?" else { Log.io("settings: the control moved to is gone; not held"); return }
         virtual = target
         lock.lock(); _holding = true; lock.unlock()
         let obj = ObjectFactory.make(target)
         API.setFocusObject(obj, ancestors: API.focusAncestors)
-        lock.lock(); _inPane = true; lock.unlock()
+        lock.lock(); _inPane = ownTab; lock.unlock()
         Log.io("settings: \(target.role) will not keep the focus; TurnOver holds the place on it")
         if speak { Speech.cancel(); Speech.speakObject(obj, reason: .focus) }
     }

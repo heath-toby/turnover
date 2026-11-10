@@ -64,7 +64,7 @@ package enum SystemSettingsPaneFocus {
         while let x = p, here == nil, hops < 8 { here = ring.firstIndex { $0.isSame(x) }; p = x.element(kAXParentAttribute); hops += 1 }
         let n = here.map { (forward ? $0 + 1 : $0 - 1 + ring.count) % ring.count } ?? (forward ? 0 : ring.count - 1)
         Log.io("system settings: \(forward ? "Tab" : "Shift+Tab") to stop \(n + 1) of \(ring.count), \(ring[n].role)")
-        if n >= paneStart { SettingsPanePlugin.holdVirtual(ring[n]) } else { SettingsPanePlugin.focus(ring[n]) }
+        if n >= paneStart { SettingsPanePlugin.holdVirtual(ring[n], ownTab: false) } else { SettingsPanePlugin.focus(ring[n]) }
         return true
     }
 
