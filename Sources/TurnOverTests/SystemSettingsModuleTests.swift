@@ -100,11 +100,14 @@ func systemSettingsModuleTests() {
         check(!SystemSettingsPaneFocus.isPaneFrame(role: "AXGroup", subrole: nil, parentRole: "AXSplitGroup", afterSplitter: true), "not a plain group")
         check(!SystemSettingsPaneFocus.isPaneFrame(role: "AXButton", subrole: nil, parentRole: "AXGroup", afterSplitter: true), "not a control")
     }
-    test("System Settings: registered part commands leave native Tab arrows and fields alone") {
+    test("System Settings: Tab and Shift Tab are the module's; arrows and fields stay native") {
         AXReplay.load(settingsControlFixture()); defer { AXReplay.unload() }
         guard let rig = SettingsModuleRig() else { return }; defer { rig.stop() }
         for part in ["sidebar", "pane", "search"] { check(rig.module.script(named: "systemSettings_" + part) != nil, "explicit part command") }
-        for key in ["kb:tab", "kb:shift+tab", "kb:downArrow", "kb:upArrow", "kb:enter", "kb:space", "kb:command+f"] {
+        // With VoiceOver off, System Settings' own Tab never enters the pane (SystemSettingsPaneFocus, 10 Nov 2026).
+        check(rig.module.script(for: KeyboardGesture(identifier: "kb:tab")!)?.name == "systemSettings_tab", "Tab goes round the window")
+        check(rig.module.script(for: KeyboardGesture(identifier: "kb:shift+tab")!)?.name == "systemSettings_shiftTab", "Shift Tab goes round it backwards")
+        for key in ["kb:downArrow", "kb:upArrow", "kb:enter", "kb:space", "kb:command+f"] {
             check(rig.module.script(for: KeyboardGesture(identifier: key)!) == nil, "native command was not rebound: \(key)")
         }
     }

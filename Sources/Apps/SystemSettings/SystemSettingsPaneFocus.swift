@@ -8,10 +8,14 @@
 // to go only between the sidebar and the search field, and the frame said nothing (a tester, 10 Nov 2026).
 // VoiceOver users meet this less: VoiceOver moves with its own keys.
 //
-// Also observed: the pane's controls take the keyboard focus when it is set through accessibility (AXFocused), and
-// from there the system's own Tab goes on through the pane, VoiceOver, Zoom, Hover Text and on. So when Tab or
-// Shift Tab leaves the focus on the frame, the focus is put on the pane's first control (its last for Shift Tab),
-// and the system's Tab takes over again.
+// Then the cause (10 Nov 2026, same script): with VoiceOver running, System Settings puts Back and the pane in its
+// Tab order (search field, Back, VoiceOver, Zoom, Hover Text...); with no screen reader running it goes only sidebar,
+// search field, sidebar, and Tab on a control inside the pane goes to the sidebar. TurnOver turns VoiceOver off, so
+// System Settings always behaved as with no screen reader. The pane's controls do take the focus when AXFocused is set.
+//
+// So in System Settings' main window, Tab and Shift Tab are TurnOver's: round the sidebar, the search field and the
+// pane's controls in the pane's own order, each focused through SettingsPanePlugin.focus (which holds the place on a
+// control that refuses it, as in other settings windows).
 import Foundation
 import ApplicationServices
 import TurnOverAX
@@ -28,29 +32,36 @@ package enum SystemSettingsPaneFocus {
         role == "AXGroup" && subrole == "AXHostingView" && parentRole == "AXSplitGroup" && afterSplitter
     }
 
-    /// Where the keyboard really went, when Tab or Shift Tab has just left it on the pane's frame: the pane's first
-    /// (or last) control, now focused. Nil leaves the report as it is.
-    static func intoPane(settingsPid: pid_t) -> AXUIElement? {
-        let key = InputManager.lastKeyIdentifier
-        guard key == "kb:tab" || key == "kb:shift+tab", Date().timeIntervalSince(InputManager.lastKeyDownAt) < 1.0,
-              let focus = AXUIElementCreateApplication(settingsPid).element(kAXFocusedUIElementAttribute),
-              let parent = focus.element(kAXParentAttribute) else { return nil }
-        let siblings = parent.elements(kAXChildrenAttribute)
-        let splitter = siblings.firstIndex { $0.role == "AXSplitter" }
-        let mine = siblings.firstIndex { $0.isSame(focus) }
-        let after = splitter.flatMap { s in mine.map { $0 > s } } ?? false
-        guard isPaneFrame(role: focus.role, subrole: focus.string(kAXSubroleAttribute), parentRole: parent.role, afterSplitter: after) else { return nil }
-        var controls = controlsInOrder(focus)
-        if key == "kb:shift+tab" { controls.reverse() }
-        for c in controls.prefix(4) {
-            _ = c.set(kAXFocusedAttribute, kCFBooleanTrue)
-            if let now = AXUIElementCreateApplication(settingsPid).element(kAXFocusedUIElementAttribute), now.isSame(c) {
-                Log.io("system settings: \(key == "kb:tab" ? "Tab" : "Shift+Tab") left the focus on the pane's frame; into its \(c.role) (\(controls.count) controls)")
-                return c
-            }
+    /// Tab's round in the window: the sidebar, the search field, then the pane's controls; empty if the window isn't
+    /// laid out as System Settings' main window is.
+    static func ring(in window: AXUIElement) -> [AXUIElement] {
+        guard let split = window.firstDescendant(role: "AXSplitGroup", maxVisited: 40) else { return [] }
+        let parts = split.elements(kAXChildrenAttribute)
+        guard let splitter = parts.firstIndex(where: { $0.role == "AXSplitter" }) else { return [] }
+        var ring: [AXUIElement] = []
+        for part in parts[..<splitter] {
+            if let outline = part.firstDescendant(role: "AXOutline", maxVisited: 20) { ring.append(outline) }
+            else if let field = part.firstDescendant(role: "AXTextField", maxVisited: 20) { ring.append(field) }
         }
-        Log.io("system settings: Tab on the pane's frame, and none of its \(controls.count) controls took the focus")
-        return nil
+        for part in parts[(splitter + 1)...] where isPaneFrame(role: part.role, subrole: part.string(kAXSubroleAttribute), parentRole: "AXSplitGroup", afterSplitter: true) {
+            ring += controlsInOrder(part)
+        }
+        return ring
+    }
+
+    /// Tab (forward) or Shift Tab from the focus: the next stop of the round, focused. False when the window isn't
+    /// System Settings' main window as known, so the key goes to the app.
+    static func tab(forward: Bool, from focus: AXUIElement, window: AXUIElement) -> Bool {
+        let ring = ring(in: window)
+        guard ring.count > 1 else { return false }
+        // Where the focus is: a stop itself, or inside one (a row of the sidebar).
+        var here: Int?
+        var p: AXUIElement? = focus; var hops = 0
+        while let x = p, here == nil, hops < 8 { here = ring.firstIndex { $0.isSame(x) }; p = x.element(kAXParentAttribute); hops += 1 }
+        let n = here.map { (forward ? $0 + 1 : $0 - 1 + ring.count) % ring.count } ?? (forward ? 0 : ring.count - 1)
+        Log.io("system settings: \(forward ? "Tab" : "Shift+Tab") to stop \(n + 1) of \(ring.count), \(ring[n].role)")
+        SettingsPanePlugin.focus(ring[n])
+        return true
     }
 
     /// The pane's controls in reading order, bounded: a pane has tens of controls, never thousands.

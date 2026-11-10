@@ -6,9 +6,9 @@ The newest build is first. "Reported by a tester" marks a fix for something a te
 
 ### Fixed
 
-- System Settings: Tab goes into the pane on the right, Accessibility, Battery and the rest. System Settings itself
-  often leaves Tab on the pane's empty frame and then goes back to the sidebar, whatever reads it; TurnOver now puts
-  the focus on the pane's first control (its last with Shift Tab), and Tab goes on through the pane from there.
+- System Settings: Tab and Shift Tab go round the sidebar, the search field and every control in the pane on the
+  right, Accessibility, Battery and the rest. System Settings only lets Tab into the pane while VoiceOver runs, and
+  TurnOver turns VoiceOver off, so Tab went only between the sidebar and the search field.
 - "Nothing in this window can be read", with the keys for screen recognition, is a hint now: turning off Hints after
   a pause turns it off too. It is no longer said in Steam's Big Picture while TurnOver is reading it.
 

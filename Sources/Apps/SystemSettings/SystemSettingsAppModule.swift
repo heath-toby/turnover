@@ -72,6 +72,17 @@ package final class SystemSettingsAppModule: AppModule {
                                  if API.focusObject?.isSameElement(as: target) != true { AXHandler.shared.focusChanged(target, pid: pid) }
                              }, speak: { Speech.speakOnly($0) })
         super.init(pid: pid, bundleIdentifier: bundleIdentifier, appName: appName)
+        // Tab and Shift Tab round the sidebar, the search field and the pane (SystemSettingsPaneFocus): with VoiceOver
+        // off, System Settings' own Tab never enters the pane.
+        for (key, forward) in [("kb:tab", true), ("kb:shift+tab", false)] {
+            script(forward ? "systemSettings_tab" : "systemSettings_shiftTab",
+                   forward ? String(localized: "The next control: the sidebar, the search field, then each control in the pane", comment: "A command, as the key list and keyboard help say it: Tab in System Settings")
+                           : String(localized: "The previous control: the sidebar, the search field, then each control in the pane", comment: "A command, as the key list and keyboard help say it: Shift Tab in System Settings"),
+                   gestures: [key], category: "System Settings") { [weak self] g in
+                guard let self, let context = self.dependencies.context(),
+                      SystemSettingsPaneFocus.tab(forward: forward, from: context.focus, window: context.window) else { g.send(); return }
+            }.isAvailable = { [weak self] in self?.isAvailable == true }
+        }
         for part in SystemSettingsPart.allCases {
             script("systemSettings_\(part)", String(localized: "Moves to the \(part.name); uses the review cursor if keyboard focus is unavailable", comment: "A command, as the key list and keyboard help say it: %@ is a part of System Settings"),
                    gestures: ["kb:control+command+\(part.rawValue + 1)"], category: "System Settings") { [weak self] _ in
@@ -188,10 +199,6 @@ package final class SystemSettingsAppModule: AppModule {
             } else if [.foreground, .selection, .valueChange].contains(event.kind) { retire() }
         }
         super.handleEvent(event, next: next)
-    }
-    /// Tab that leaves the keyboard on the pane's frame goes on into the pane (SystemSettingsPaneFocus).
-    package override func redirectFocus(_ element: AXUIElement) -> AXUIElement? {
-        SystemSettingsPaneFocus.intoPane(settingsPid: pid)
     }
     package override func event_appModuleGainFocus() { guard !terminated else { return }; retire(); active = true }
     package override func event_appModuleLoseFocus() { retire(); active = false; super.event_appModuleLoseFocus() }
