@@ -112,7 +112,7 @@ public final class AXHandler {
         // is observed when it starts, or Spotlight went unread until TurnOver restarted (code review, 21 Oct 2026).
         workspaceTokens.append(nc.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] n in
             guard let app = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-                  Self.systemUIAgents.contains(app.bundleIdentifier ?? "") else { return }
+                  Self.alwaysObserved.contains(app.bundleIdentifier ?? "") else { return }
             // A moment for the new process to answer accessibility questions before its notifications are asked for.
             let pid = app.processIdentifier, bundle = app.bundleIdentifier
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
@@ -124,7 +124,7 @@ public final class AXHandler {
             }
         })
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.seedNotifications() }
-        for bundle in Self.systemUIAgents {
+        for bundle in Self.alwaysObserved {
             for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundle) { observe(app.processIdentifier) }
         }
         if let front = NSWorkspace.shared.frontmostApplication { appActivated(front) }
@@ -134,6 +134,12 @@ public final class AXHandler {
     /// Processes that take the keyboard without becoming the active application. On macOS 27 Spotlight's panel is
     /// drawn by "Siri AI" (com.apple.campo): unwatched, Command Space said nothing and the letters typed went to
     /// browse mode's quick navigation behind it (21 Oct 2026).
+    /// Launchers from other developers that open a panel over the app in front and never become the app in front
+    /// themselves, so the focus news TurnOver watches for as apps come forward never started: LaunchBar's bar went
+    /// unread (a tester, 10 Nov 2026; LaunchBar 6.24 runs as an accessory app). Observed from the start, as the
+    /// system's agents are.
+    public static let launcherPanels = ["at.obdev.LaunchBar"]
+    static var alwaysObserved: [String] { systemUIAgents + launcherPanels }
     public static let systemUIAgents = ["com.apple.dock", "com.apple.Spotlight", "com.apple.campo", "com.apple.notificationcenterui", "com.apple.controlcenter"]
 
     /// Escape in Spotlight: its panel closes, but the application in front never changed, so no news came and
