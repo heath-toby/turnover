@@ -54,6 +54,9 @@ open class AppModule: ScriptableObject {
     /// before TurnOver's own handling, which speaks only for a list with the focus in or on it. True if the module has
     /// said what is needed. LaunchBar's chosen item changes in a list that never has the focus (10 Nov 2026).
     open func listSelectionChanged(_ list: AXUIElement) -> Bool { false }
+    /// The shortcut menu (VO-Shift-M, Shift F10, right Option), asked before TurnOver's own ways of opening one. True
+    /// if the module opened it. LaunchBar's menu is its bar window's, not its focused cell's (10 Nov 2026).
+    open func showContextMenu() -> Bool { false }
 
     /// An element the module reads as a document in browse mode though it isn't a web area (Preview's pages), or nil.
     open func browseRoot(for element: AXUIElement, ancestors: [TurnOverObject]) -> AXUIElement? { nil }
