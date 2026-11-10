@@ -12,6 +12,12 @@ The newest build is first. "Reported by a tester" marks a fix for something a te
   password field's typing, it says them instead.
 - Positional sound: each sound comes from where its item is across the screen, left to right, as VoiceOver's
   positional audio does. On to begin with; the switch is at the top of Each sound.
+- A tidy Voice list in Settings, Speech: the Mac's voices grouped by language, your languages first in the order
+  you set them in System Settings and English after them, your own region first in each (English (UK) before
+  English (US) in the UK), and premium and enhanced voices first. A voice the Mac has twice, such as Daniel, is
+  listed once; "Daniel (Enhanced)" is Daniel, enhanced; Siri's voices are Siri Voice 1 and Siri Voice 2 rather than
+  Voice 1 and Voice 2. The rotor's list and the speech settings ring (VO-Command-Shift with the arrows, or NVDA's)
+  go through the voices in the same order.
 
 ### Fixed
 
