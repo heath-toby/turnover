@@ -252,6 +252,9 @@ open class TextInfo {
     open func controlFieldSpeech() -> (prefix: [String], text: String?) { ([], nil) }
     /// Sounds to play before the text (element kinds set to "tone"), collected by the last controlFieldSpeech.
     public var pendingTones: [() -> Void] = []
+    /// Where on screen this range sits, for positional sound (SoundChoices): its sounds are panned there. Nil keeps
+    /// the placement of the focus or review cursor. Documents read as a buffer override it.
+    open var soundElement: AXUIElement? { nil }
 
     // MARK: Units
 

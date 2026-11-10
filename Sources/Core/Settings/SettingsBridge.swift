@@ -116,6 +116,7 @@ public enum SettingsBridge {
         dict["_outputDevices"] = SpeechPlayer.outputDevices().map { ["uid": $0.uid, "name": $0.name] }
         dict["_speechPortApps"] = SpeechPort.shared.appDecisions.map { ["id": $0.id, "name": $0.name, "allowed": $0.allowed] }
         dict["_otherLanguages"] = otherLanguagesState()
+        dict["_soundList"] = SoundChoices.all.map { ["id": $0.id, "name": $0.title] }
         // The app the window's "For this app" means: the last ordinary app in front that isn't TurnOver's own.
         if let f = frontApp { dict["_frontApp"] = ["bundle": f.bundle, "name": f.name] }
         guard let out = try? JSONSerialization.data(withJSONObject: dict), let s = String(data: out, encoding: .utf8) else { return }
@@ -148,6 +149,13 @@ public enum SettingsBridge {
         if patch["_downloadNaturalVoices"] as? Bool == true { KokoroVoice.download(); sendState() }
         if patch["_removeNaturalVoices"] as? Bool == true { KokoroVoice.remove() }
         if patch["_restartSteam"] as? Bool == true { Games.restartSteam() }
+        // Sounds one by one (SoundChoices): hear one, give it a file of your own, or go back to TurnOver's.
+        if let id = patch["_soundPreview"] as? String { SoundChoices.preview(id) }
+        if let c = patch["_soundCustom"] as? [String: Any], let id = c["id"] as? String, let path = c["path"] as? String {
+            if SoundChoices.setCustom(id, from: path) { SoundChoices.preview(id) }
+            else { Speech.speakMessage(String(localized: "That file isn't a sound TurnOver can play", comment: "Spoken message: a file chosen for a sound in Settings won't play")) }
+        }
+        if let id = patch["_soundClear"] as? String { SoundChoices.clearCustom(id); SoundChoices.preview(id) }
         if let a = patch["_speechPortAllowed"] as? [String: Any], let id = a["id"] as? String, let on = a["allowed"] as? Bool { SpeechPort.shared.setAllowed(id, on) }
         if let on = patch["_coexist"] as? Bool, on != Coexist.wouldBeOn {
             UserDefaults.standard.set(on, forKey: "coexist")

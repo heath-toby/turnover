@@ -642,6 +642,28 @@ public struct Config: Codable {
             try c.encode(panMovesCaret, forKey: .panMovesCaret)
         }
     }
+    /// Sounds one by one (SoundChoices.swift): which are off, your own files for some, and whether they are panned to
+    /// where their item is on screen. Decoded by hand so a file from before it, or with one key missing, keeps the rest.
+    public struct Sounds: Codable {
+        /// The sounds turned off, by their names in SoundChoices.
+        public var off: [String] = []
+        /// Your own files, by sound name: the file's name in TurnOver's Sounds folder.
+        public var custom: [String: String] = [:]
+        /// Positional sound: each sound panned to where its item sits across the screen, as VoiceOver's positional audio.
+        public var positional = true
+        public init() {}
+        enum Keys: String, CodingKey { case off, custom, positional }
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: Keys.self)
+            off = (try? c.decodeIfPresent([String].self, forKey: .off)) ?? []
+            custom = (try? c.decodeIfPresent([String: String].self, forKey: .custom)) ?? [:]
+            positional = (try? c.decodeIfPresent(Bool.self, forKey: .positional)) ?? true
+        }
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encode(off, forKey: .off); try c.encode(custom, forKey: .custom); try c.encode(positional, forKey: .positional)
+        }
+    }
     public var general = General()
     public var speech = Speech()
     public var keyboard = Keyboard()
@@ -654,6 +676,7 @@ public struct Config: Codable {
     public var recognition = Recognition()
     /// Steam and CrossOver games speaking through TurnOver (Games.swift; this Mac only).
     public var games = Games()
+    public var sounds = Sounds()
     /// Per-application settings, by bundle identifier, as the app module defines them.
     public var apps: [String: [String: String]] = [:]
 
@@ -665,7 +688,7 @@ public struct Config: Codable {
     /// A settings file written by an older TurnOver lacks the sections added since; each one falls back
     /// to its defaults instead of the whole file being thrown away (which lost the owner's rate once). Keys it has
     /// that are gone ("addons", the add-on loader's list) are ignored.
-    enum Keys: String, CodingKey { case general, speech, keyboard, editableText, presentation, virtualBuffers, applications, documentFormatting, braille, recognition, games, apps }
+    enum Keys: String, CodingKey { case general, speech, keyboard, editableText, presentation, virtualBuffers, applications, documentFormatting, braille, recognition, games, sounds, apps }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
         general = (try? c.decodeIfPresent(General.self, forKey: .general)) ?? General()
@@ -679,6 +702,7 @@ public struct Config: Codable {
         braille = (try? c.decodeIfPresent(Braille.self, forKey: .braille)) ?? Braille()
         recognition = (try? c.decodeIfPresent(Recognition.self, forKey: .recognition)) ?? Recognition()
         games = (try? c.decodeIfPresent(Games.self, forKey: .games)) ?? Games()
+        sounds = (try? c.decodeIfPresent(Sounds.self, forKey: .sounds)) ?? Sounds()
         apps = (try? c.decodeIfPresent([String: [String: String]].self, forKey: .apps)) ?? [:]
     }
 

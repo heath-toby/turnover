@@ -32,6 +32,7 @@ public enum API {
         let pid = obj?.pid ?? 0
         lock.lock(); _focus = obj; _ancestors = ancestors; _interceptor = interceptor; lock.unlock()
         focusedPidValue.value = pid
+        SoundChoices.place(at: obj?.element)   // positional sound: the focus's sounds come from where it is
     }
     nonisolated private static let focusedPidValue = Locked<pid_t>(0)
     /// The focused element's process, for the keyboard thread (0: none known). The Dock, a status menu or Spotlight

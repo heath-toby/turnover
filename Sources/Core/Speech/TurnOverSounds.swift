@@ -20,6 +20,8 @@ public enum TurnOverSounds {
     /// Plays one of TurnOver's sounds by name ("link"); false if there is no such file.
     @discardableResult
     public static func play(_ name: String, volume: Float = 0.8) -> Bool {
+        // Off in Settings, Sounds (silent: true, so no tone stands in), or your own file for it (SoundChoices).
+        if SoundChoices.handled(SoundChoices.id(forFile: name), volume: volume) { return true }
         guard names.contains(name), let folder else { return false }
         if players[name] == nil {
             guard let p = try? AVAudioPlayer(contentsOf: folder.appendingPathComponent(name + ".wav")) else { return false }
@@ -27,9 +29,7 @@ public enum TurnOverSounds {
             players[name] = p
         }
         guard let p = players[name] else { return false }
-        p.volume = volume * min(1.5, max(0.2, Float(config.speech.volume) / 100))   // with TurnOver's own volume
-        p.currentTime = 0
-        p.play()
+        SoundChoices.start(p, volume: volume, id: SoundChoices.id(forFile: name))
         return true
     }
 }

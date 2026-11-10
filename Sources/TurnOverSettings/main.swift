@@ -5,6 +5,8 @@
 // Through TurnOver's control channel, which only programs signed by TurnOver's developer may use (TurnOverControl).
 import SwiftUI
 import AVFoundation
+import AppKit
+import UniformTypeIdentifiers
 import TurnOverControl
 
 @MainActor
@@ -724,7 +726,66 @@ struct SoundsView: View {
             Picker("Lower other sounds while TurnOver speaks", selection: model.string("speech", "ducking", "off")) {
                 Text("No").tag("off"); Text("While speaking").tag("speech"); Text("Always").tag("always")
             }
+            OneSoundSettings()
         }.formStyle(.grouped).navigationTitle("Sounds")
+    }
+}
+
+/// Sounds one by one (the roadmap's "each of TurnOver's sounds on or off, or your own; positional sound with an off
+/// switch"; SoundChoices.swift in TurnOver). One sound is chosen from the list and its controls follow, rather than
+/// thirty rows of switches and buttons: the list says each sound's state, and the controls below are the same for all.
+struct OneSoundSettings: View {
+    @EnvironmentObject var model: Model
+    @State private var chosen = "heading"
+    private var sounds: [(id: String, name: String)] {
+        (model.special("_soundList") as? [[String: Any]] ?? []).compactMap { d in
+            guard let id = d["id"] as? String, let name = d["name"] as? String else { return nil }
+            return (id, name)
+        }
+    }
+    private var off: [String] { model.get("sounds", "off") as? [String] ?? [] }
+    private var custom: [String: Any] { model.get("sounds", "custom") as? [String: Any] ?? [:] }
+    /// The sound's name with what it does now, as the list shows it: "Links, off", "Headings, your own file".
+    private func label(_ id: String, _ name: String) -> String {
+        if off.contains(id) { return String(localized: "\(name), off", comment: "A sound in the list in Settings, Sounds, turned off") }
+        if custom[id] != nil { return String(localized: "\(name), your own file", comment: "A sound in the list in Settings, Sounds, playing a file the user chose") }
+        return name
+    }
+    private var isOn: Binding<Bool> {
+        Binding(get: { !off.contains(chosen) }, set: { on in
+            var list = off.filter { $0 != chosen }
+            if !on { list.append(chosen) }
+            model.set("sounds", "off", list)
+        })
+    }
+    var body: some View {
+        Section(header: Text("Each sound")) {
+            Toggle("Positional sound: each sound comes from where its item is on the screen", isOn: Binding(
+                get: { model.get("sounds", "positional") as? Bool ?? true }, set: { model.set("sounds", "positional", $0) }))
+            if sounds.isEmpty {
+                Text("The list of sounds comes from TurnOver: it shows once TurnOver is running.").font(.caption)
+            } else {
+                Picker("Sound", selection: $chosen) {
+                    ForEach(sounds, id: \.id) { s in Text(label(s.id, s.name)).tag(s.id) }
+                }
+                Toggle("Play this sound", isOn: isOn)
+                Button("Play") { model.setSpecial("_soundPreview", chosen) }
+                Button("Choose your own file for this sound…") { chooseFile() }
+                if custom[chosen] != nil {
+                    Button("Use TurnOver's sound again") { model.setSpecial("_soundClear", chosen) }
+                }
+                Text("A sound turned off is silent; where TurnOver has words for it, such as Quick Nav on and off, it says them instead. Your own file is copied into TurnOver's folder, so moving the original doesn't silence it. Positional sound pans the sound files; a plain tone played where a file is missing stays in the middle, as do sounds that belong to no item, such as TurnOver starting.").font(.caption)
+            }
+        }
+    }
+    private func chooseFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.audio]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.message = String(localized: "Choose a sound file", comment: "The file chooser for a sound in Settings, Sounds")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        model.setSpecial("_soundCustom", ["id": chosen, "path": url.path])
     }
 }
 

@@ -4,6 +4,15 @@ The newest build is first. "Reported by a tester" marks a fix for something a te
 
 ## 2.0, build 24.1
 
+### New to try
+
+- Sounds one by one, in Settings, Sounds, under Each sound: choose a sound from the list, then turn it off, play it,
+  or give it a file of your own; Use TurnOver's sound again puts it back. The list says which are off and which play
+  your file. A sound turned off is silent, and where TurnOver has words for it, such as Quick Nav on and off or a
+  password field's typing, it says them instead.
+- Positional sound: each sound comes from where its item is across the screen, left to right, as VoiceOver's
+  positional audio does. On to begin with; the switch is at the top of Each sound.
+
 ### Fixed
 
 - "Nothing in this window can be read", with the keys for screen recognition, is a hint now: turning off Hints after

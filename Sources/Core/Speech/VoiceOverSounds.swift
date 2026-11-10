@@ -17,6 +17,12 @@ public enum VoiceOverSounds {
     /// chosen or the file missing; false where there is neither, so the caller's old tone plays.
     @discardableResult
     public static func play(_ name: String, volume: Float = 0.8) -> Bool {
+        // Settings, Sounds: a sound turned off answers false, so a caller with words for it says them (Quick Nav on);
+        // your own file for it plays in place of VoiceOver's and TurnOver's (SoundChoices).
+        if let id = SoundChoices.id(forVoiceOverFile: name) {
+            if !SoundChoices.isOn(id) { return false }
+            if SoundChoices.playCustom(id, volume: volume) { return true }
+        }
         // "TurnOver's sounds" chosen (17 Oct 2026): TurnOver's own sound stands in for each of VoiceOver's files.
         if config.general.effectiveSounds == "turnover" { return ownTone(for: name) }
         if players[name] == nil, let data = levelled(folder.appendingPathComponent(name)), let p = try? AVAudioPlayer(data: data) {
@@ -24,9 +30,7 @@ public enum VoiceOverSounds {
             players[name] = p
         }
         guard let p = players[name] else { return ownTone(for: name) }
-        p.volume = volume * min(1.5, max(0.2, Float(config.speech.volume) / 100))   // with TurnOver's own volume
-        p.currentTime = 0
-        p.play()
+        SoundChoices.start(p, volume: volume, id: SoundChoices.id(forVoiceOverFile: name))
         return true
     }
 

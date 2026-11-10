@@ -269,6 +269,8 @@ public final class WebTextInfo: TextInfo {
     /// The chain this reading is inside, for the next one.
     public private(set) var chain: [AXUIElement] = []
 
+    public override var soundElement: AXUIElement? { bridge.element(at: start) }
+
     /// NVDA's control fields for speech: what the text is entering (heading level 2, link, list…),
     /// outermost first, plus "link" before each link run inside the range.
     public override func controlFieldSpeech() -> (prefix: [String], text: String?) {

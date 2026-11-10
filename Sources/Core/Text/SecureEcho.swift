@@ -48,14 +48,15 @@ public enum SecureEcho {
         let delta = lastSeen - baseline
         let single = changes == 1
         baseline = lastSeen; changes = 0; pending = nil
+        // The password sound off in Settings, Sounds: the words are said, not a tone in its place.
         if single, delta == 1 {
             if VoiceOverSounds.play("SecureCharacter.aiff") { }
-            else if config.general.navigationSounds { Speech.player?.playBell(frequencies: [1900], spacingMs: 0, ringMs: 14, volume: 0.12) }
+            else if config.general.navigationSounds, SoundChoices.isOn("secure") { Speech.player?.playBell(frequencies: [1900], spacingMs: 0, ringMs: 14, volume: 0.12) }
             else { Speech.speakMessage(String(localized: "star", comment: "Spoken message"), remember: false) }
         } else if single, delta == -1 {
             if lastSeen == 0 { Speech.speakMessage(String(localized: "blank", comment: "Spoken message"), remember: false) }
             else if VoiceOverSounds.play("SecureCharacter.aiff") { }
-            else if config.general.navigationSounds { Speech.player?.playBell(frequencies: [900], spacingMs: 0, ringMs: 14, volume: 0.12) }
+            else if config.general.navigationSounds, SoundChoices.isOn("secure") { Speech.player?.playBell(frequencies: [900], spacingMs: 0, ringMs: 14, volume: 0.12) }
             else { Speech.speakMessage(String(localized: "deleted", comment: "Spoken message"), remember: false) }
         } else {
             Speech.speakMessage(lastSeen == 0 ? Phrases.blank : Phrases.characters(lastSeen), remember: false)

@@ -500,6 +500,12 @@
         }
       }
     },
+    "%@, off" : {
+      "comment" : "A sound in the list in Settings, Sounds, turned off"
+    },
+    "%@, your own file" : {
+      "comment" : "A sound in the list in Settings, Sounds, playing a file the user chose"
+    },
     "%lld columns" : {
       "comment" : "A table's size",
       "localizations" : {
@@ -1984,7 +1990,7 @@
       }
     },
     "%@ seconds" : {
-      "comment" : "A time\nBraille auto scroll's speed: %@ is seconds",
+      "comment" : "Braille auto scroll's speed: %@ is seconds",
       "localizations" : {
         "tr" : {
           "stringUnit" : {
@@ -3594,7 +3600,8 @@
             }
           }
         }
-      }
+      },
+      "comment" : "A percentage: 45 percent\nA slider's value"
     },
     ", a %@ view" : {
       "comment" : "A plugin's kind of view (chat, media)",
@@ -4321,6 +4328,7 @@
         }
       }
     },
+    "A sound turned off is silent; where TurnOver has words for it, such as Quick Nav on and off, it says them instead. Your own file is copied into TurnOver's folder, so moving the original doesn't silence it. Positional sound pans the sound files; a plain tone played where a file is missing stays in the middle, as do sounds that belong to no item, such as TurnOver starting." : {},
     "A starter folder with the guide, a snapshot of the app and its menus" : {
       "localizations" : {
         "tr" : {
@@ -4840,6 +4848,9 @@
           }
         }
       }
+    },
+    "Announcements" : {
+      "comment" : "A sound in Settings, Sounds"
     },
     "Another conversation is open, not the one chosen. Press Return again." : {
       "comment" : "Spoken message",
@@ -5448,7 +5459,7 @@
       }
     },
     "Block quotes" : {
-      "comment" : "A kind of element in Documents settings",
+      "comment" : "A kind of element in Documents settings\nA sound in Settings, Sounds",
       "localizations" : {
         "tr" : {
           "stringUnit" : {
@@ -5580,6 +5591,12 @@
         }
       }
     },
+    "Braille display connected" : {
+      "comment" : "A sound in Settings, Sounds"
+    },
+    "Braille display disconnected" : {
+      "comment" : "A sound in Settings, Sounds"
+    },
     "Braille display keys, %@" : {
       "localizations" : {
         "tr" : {
@@ -5664,7 +5681,7 @@
       }
     },
     "Browse mode" : {
-      "comment" : "A group of commands in the key list",
+      "comment" : "A group of commands in the key list\nA sound in Settings, Sounds",
       "localizations" : {
         "tr" : {
           "stringUnit" : {
@@ -6172,6 +6189,9 @@
         }
       }
     },
+    "Choose a sound file" : {
+      "comment" : "The file chooser for a sound in Settings, Sounds"
+    },
     "Choose the keys you know: VoiceOver's, NVDA's or JAWS's. Command Control Comma, then K, changes the style; the VO keys do what they do in VoiceOver. Command Control M opens the TurnOver menu. Every setting is in the Settings window: Command Control Comma, then S. To bring your VoiceOver voice and speed with you: Command Control Comma, then V." : {
       "comment" : "A welcome page",
       "extractionState" : "stale",
@@ -6190,6 +6210,7 @@
         }
       }
     },
+    "Choose your own file for this sound…" : {},
     "Claude" : {
       "comment" : "A group of commands in the key list",
       "localizations" : {
@@ -6631,7 +6652,7 @@
       }
     },
     "Comments" : {
-      "comment" : "A rotor kind",
+      "comment" : "A rotor kind\nA sound in Settings, Sounds",
       "localizations" : {
         "tr" : {
           "stringUnit" : {
@@ -8348,6 +8369,10 @@
         }
       }
     },
+    "Each sound" : {},
+    "Edges and boundaries" : {
+      "comment" : "A sound in Settings, Sounds"
+    },
     "Elements" : {
       "localizations" : {
         "tr" : {
@@ -8913,6 +8938,9 @@
           }
         }
       }
+    },
+    "Focus mode" : {
+      "comment" : "A sound in Settings, Sounds"
     },
     "Font name" : {
       "localizations" : {
@@ -9820,7 +9848,7 @@
       }
     },
     "Graphics" : {
-      "comment" : "A kind of element in Documents settings",
+      "comment" : "A kind of element in Documents settings\nA sound in Settings, Sounds",
       "localizations" : {
         "tr" : {
           "stringUnit" : {
@@ -9903,6 +9931,9 @@
         }
       }
     },
+    "Handing back to VoiceOver" : {
+      "comment" : "A sound in Settings, Sounds"
+    },
     "Heading, link and button: when to say them" : {
       "localizations" : {
         "tr" : {
@@ -9920,7 +9951,7 @@
       }
     },
     "Headings" : {
-      "comment" : "A kind of element in Documents settings\nA rotor kind",
+      "comment" : "A kind of element in Documents settings\nA rotor kind\nA sound in Settings, Sounds",
       "localizations" : {
         "tr" : {
           "stringUnit" : {
@@ -11606,7 +11637,7 @@
       }
     },
     "Landmarks" : {
-      "comment" : "A kind of element in Documents settings\nA rotor kind",
+      "comment" : "A kind of element in Documents settings\nA rotor kind\nA sound in Settings, Sounds",
       "localizations" : {
         "tr" : {
           "stringUnit" : {
@@ -11824,7 +11855,7 @@
       }
     },
     "Links" : {
-      "comment" : "A kind of element in Documents settings\nA rotor kind",
+      "comment" : "A kind of element in Documents settings\nA rotor kind\nA sound in Settings, Sounds",
       "localizations" : {
         "tr" : {
           "stringUnit" : {
@@ -11874,7 +11905,7 @@
       }
     },
     "Lists" : {
-      "comment" : "A group of commands in the key list\nA kind of element in Documents settings\nA rotor kind",
+      "comment" : "A group of commands in the key list\nA kind of element in Documents settings\nA rotor kind\nA sound in Settings, Sounds",
       "localizations" : {
         "tr" : {
           "stringUnit" : {
@@ -12378,6 +12409,9 @@
           }
         }
       }
+    },
+    "Marked text" : {
+      "comment" : "A sound in Settings, Sounds"
     },
     "Marked. Carry on; when you're ready, send your marked moments from the TurnOver menu, Send feedback, or forget them there." : {
       "comment" : "The first moment marked for feedback",
@@ -13995,6 +14029,12 @@
         }
       }
     },
+    "Moving in" : {
+      "comment" : "A sound in Settings, Sounds: into a group"
+    },
+    "Moving out" : {
+      "comment" : "A sound in Settings, Sounds: out of a group"
+    },
     "Moving the braille panel (VO-Shift-F9)" : {
       "comment" : "A VoiceOver feature",
       "localizations" : {
@@ -14044,6 +14084,9 @@
           }
         }
       }
+    },
+    "Moving the focus" : {
+      "comment" : "A sound in Settings, Sounds"
     },
     "Moving to the table's header" : {
       "comment" : "A VoiceOver feature",
@@ -15430,6 +15473,9 @@
         }
       }
     },
+    "Nothing there" : {
+      "comment" : "A sound in Settings, Sounds: empty space"
+    },
     "Nothing to undo" : {
       "comment" : "Spoken message",
       "localizations" : {
@@ -16487,6 +16533,9 @@
         }
       }
     },
+    "Page loaded" : {
+      "comment" : "A sound in Settings, Sounds"
+    },
     "Pages" : {
       "comment" : "A group of commands in the key list",
       "localizations" : {
@@ -16620,6 +16669,8 @@
         }
       }
     },
+    "Play" : {},
+    "Play this sound" : {},
     "Plays the item when it can be played, otherwise opens it; in the sidebar, goes to that section" : {
       "comment" : "A command, as the key list and keyboard help say it",
       "localizations" : {
@@ -16841,6 +16892,9 @@
         }
       }
     },
+    "Pop-ups and menus appearing" : {
+      "comment" : "A sound in Settings, Sounds"
+    },
     "Port 8080 is in use by something that is not Steam." : {
       "comment" : "The Steam program's status",
       "localizations" : {
@@ -16875,6 +16929,7 @@
         }
       }
     },
+    "Positional sound: each sound comes from where its item is on the screen" : {},
     "Possibly: %@" : {
       "comment" : "A picture's description: what it may show (in English)",
       "localizations" : {
@@ -17008,6 +17063,9 @@
           }
         }
       }
+    },
+    "Pressing an item" : {
+      "comment" : "A sound in Settings, Sounds"
     },
     "Previous %@ (VO-Command-Shift-%@)" : {
       "comment" : "A command: %1$@ is a kind of thing to find (bold text), %2$@ a letter",
@@ -17457,7 +17515,7 @@
       }
     },
     "Quick Nav off" : {
-      "comment" : "Spoken message",
+      "comment" : "A sound in Settings, Sounds\nSpoken message",
       "localizations" : {
         "tr" : {
           "stringUnit" : {
@@ -17474,7 +17532,7 @@
       }
     },
     "Quick Nav on" : {
-      "comment" : "Spoken message",
+      "comment" : "A sound in Settings, Sounds\nSpoken message",
       "localizations" : {
         "tr" : {
           "stringUnit" : {
@@ -22021,6 +22079,7 @@
         }
       }
     },
+    "Sound" : {},
     "Sounds" : {
       "comment" : "A section of the Settings window",
       "localizations" : {
@@ -22387,7 +22446,7 @@
       }
     },
     "Spelling errors" : {
-      "comment" : "A kind of element in Documents settings",
+      "comment" : "A kind of element in Documents settings\nA sound in Settings, Sounds",
       "localizations" : {
         "tr" : {
           "stringUnit" : {
@@ -23313,7 +23372,7 @@
       }
     },
     "Tables" : {
-      "comment" : "A kind of element in Documents settings\nA rotor kind",
+      "comment" : "A kind of element in Documents settings\nA rotor kind\nA sound in Settings, Sounds",
       "localizations" : {
         "tr" : {
           "stringUnit" : {
@@ -23477,6 +23536,9 @@
           }
         }
       }
+    },
+    "That file isn't a sound TurnOver can play" : {
+      "comment" : "Spoken message: a file chosen for a sound in Settings won't play"
     },
     "That shortcut isn't on this Mac" : {
       "comment" : "Spoken message",
@@ -24417,6 +24479,7 @@
         }
       }
     },
+    "The list of sounds comes from TurnOver: it shows once TurnOver is running." : {},
     "The moments you marked, with what TurnOver said" : {
       "localizations" : {
         "tr" : {
@@ -25683,6 +25746,12 @@
         }
       }
     },
+    "Trackpad commands off" : {
+      "comment" : "A sound in Settings, Sounds"
+    },
+    "Trackpad commands on" : {
+      "comment" : "A sound in Settings, Sounds"
+    },
     "Travel time" : {
       "comment" : "A field of a Calendar event",
       "localizations" : {
@@ -26645,6 +26714,9 @@
         }
       }
     },
+    "TurnOver starting" : {
+      "comment" : "A sound in Settings, Sounds"
+    },
     "TurnOver stopped unexpectedly. Restarting it." : {
       "comment" : "TurnOver Key: TurnOver crashed",
       "localizations" : {
@@ -26679,6 +26751,9 @@
           }
         }
       }
+    },
+    "TurnOver taking over" : {
+      "comment" : "A sound in Settings, Sounds"
     },
     "TurnOver turned this window away: it was probably updated while the window was open. Quit Settings and open it again from the TurnOver menu." : {
       "localizations" : {
@@ -27067,6 +27142,9 @@
         }
       }
     },
+    "Typing in a password field" : {
+      "comment" : "A sound in Settings, Sounds"
+    },
     "Typing on the braille keyboard" : {
       "localizations" : {
         "tr" : {
@@ -27432,6 +27510,7 @@
         }
       }
     },
+    "Use TurnOver's sound again" : {},
     "Use it whenever %@ is in front" : {
       "localizations" : {
         "tr" : {

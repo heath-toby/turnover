@@ -14,7 +14,13 @@ import AppKit
 public final class ObjectNavigator {
     public static let shared = ObjectNavigator()
     /// The navigator object's element; nil means "the focus".
-    private var current: AXUIElement? { didSet { cancelWindowSearch(); movedAt = Date() } }
+    private var current: AXUIElement? {
+        didSet {
+            cancelWindowSearch(); movedAt = Date()
+            // Positional sound: the review cursor's sounds come from where it is (nil: back on the focus).
+            SoundChoices.place(at: current ?? API.focusObject?.element)
+        }
+    }
     /// When the review cursor last moved: VO-J starts from an app's own reader only when that reader moved since.
     private var movedAt = Date.distantPast
     private let windowSearch = AXWalkRunner<WindowKindSearchResult<AXUIElement>>()
@@ -596,7 +602,7 @@ public final class ObjectNavigator {
         guard Self.isGroup(cur) || cur.role == "AXWindow" else { firstChild(); return }
         let items = Self.groupItems(cur)
         guard let first = items.first else { Tones.edge(); Speech.speakMessage(String(localized: "no items inside", comment: "Spoken message")); return }
-        if !VoiceOverSounds.play("DrillIn.aiff") { Tones.beep(660, 30) }
+        if !VoiceOverSounds.play("DrillIn.aiff"), SoundChoices.isOn("drill_in") { Tones.beep(660, 30) }   // off in Settings: silent
         land(on: first)
     }
 
@@ -606,7 +612,7 @@ public final class ObjectNavigator {
         // The window itself is the top level: the cursor rests on it, so VO-Left and Right then move among the window's
         // own items (the toolbar, the sidebar, the document) instead of staying in the text (Word, 17 Oct 2026).
         if container.role == "AXWindow" { current = container; currentPid = container.pid; VoiceOverSounds.play("DrillOut.aiff"); Speech.speakMessage(String(localized: "top level", comment: "Spoken message")); return }
-        if !VoiceOverSounds.play("DrillOut.aiff") { Tones.beep(440, 30) }
+        if !VoiceOverSounds.play("DrillOut.aiff"), SoundChoices.isOn("drill_out") { Tones.beep(440, 30) }   // off in Settings: silent
         land(on: container)
     }
 
@@ -708,7 +714,7 @@ public final class ObjectNavigator {
     /// VO-Shift-Escape: out to the top level of the window, on its first item.
     public func topLevel() {
         guard let cur = element, let w = window(of: cur), let first = Self.groupItems(w).first else { Tones.edge(); return }
-        Tones.beep(440, 30)
+        if !SoundChoices.handled("drill_out") { Tones.beep(440, 30) }   // the moving-out sound, as Settings has it
         land(on: first)
     }
 
@@ -774,13 +780,13 @@ public final class ObjectNavigator {
                 // first item inside; a table's selected row rather than the table.
                 let target = Self.landingPlace(in: linked)
                 Log.io("VO-J: \(y.role) links to \(linked.role); landing on \(target.role) \"\(Log.words(String((target.string(kAXDescriptionAttribute) ?? target.string(kAXTitleAttribute) ?? target.string(kAXValueAttribute) ?? "").prefix(30))))\"")
-                if !target.isSame(cur) { Tones.beep(660, 30); jumpTo(target, within: linked); return }
+                if !target.isSame(cur) { if !SoundChoices.handled("drill_in") { Tones.beep(660, 30) }; jumpTo(target, within: linked); return }
             }
             x = y.element(kAXParentAttribute); hops += 1
         }
         // Nothing linked by the app: between the window's panes, as VoiceOver goes from a sidebar to its content and
         // back (8 Nov 2026, Oliver, with VoiceOver on to compare). One rule for every app: see paneJump.
-        if let target = paneJump(from: cur), !target.isSame(cur) { Tones.beep(660, 30); jumpTo(target, within: Self.lastJump?.to); return }
+        if let target = paneJump(from: cur), !target.isSame(cur) { if !SoundChoices.handled("drill_in") { Tones.beep(660, 30) }; jumpTo(target, within: Self.lastJump?.to); return }
         Speech.speakMessage(String(localized: "no linked item", comment: "Spoken message"))
     }
 

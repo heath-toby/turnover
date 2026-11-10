@@ -929,6 +929,8 @@ public final class BufferTextInfo: TextInfo {
     /// The quote level last said, so it is said only when it changes.
     static var lastQuoteLevel = 0
 
+    public override var soundElement: AXUIElement? { element(at: start) }
+
     public override func controlFieldSpeech() -> (prefix: [String], text: String?) {
         pendingTones.removeAll()
         guard let i = buffer.lineIndex(at: start) else { return ([], nil) }
