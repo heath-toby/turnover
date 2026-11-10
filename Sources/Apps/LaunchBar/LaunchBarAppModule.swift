@@ -9,8 +9,9 @@
 // each time, and said nothing; nor was the focus itself said as the bar opened (a tester, 10 Nov 2026).
 //
 // The title-change notification arrives before the new title does: read at once, the cell still had the item before
-// (with VoiceOver off, 10 Nov 2026: "Safari" read when "Siri" was chosen). So the title is read a moment later, and
-// once more if it hasn't changed yet.
+// (with VoiceOver off, 10 Nov 2026: "Safari" read when "Siri" was chosen), and the new one can take longer than
+// 170 ms (half the moves were missed with two reads at 50 and 170 ms). So the title as the news arrives is kept, and the
+// cell is looked at every 50 ms until its title differs, for up to 650 ms.
 //
 // LaunchBar runs as an accessory app and never comes forward, so TurnOver watches it from the start
 // (AXHandler.launcherPanels).
@@ -35,14 +36,18 @@ final class LaunchBarAppModule: AppModule {
         if event.kind == .gainFocus { say(cell, opened: true); return }
         generation += 1
         let g = generation
-        // The new title a moment after the news; if it is still the one last said, once more a little later.
+        let before = cell.string(kAXTitleAttribute) ?? ""
+        waitForNewTitle(cell, before: before, generation: g, tries: 13)
+    }
+
+    /// Looks at the cell every 50 ms until its title is no longer `before`, then says it; at the last try, says what
+    /// is there if it is new.
+    private func waitForNewTitle(_ cell: AXUIElement, before: String, generation g: Int, tries: Int) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             guard let self, g == self.generation else { return }
-            if self.say(cell, opened: false) { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
-                guard let self, g == self.generation else { return }
-                self.say(cell, opened: false)
-            }
+            let now = cell.string(kAXTitleAttribute) ?? ""
+            if now != before || tries <= 1 { self.say(cell, opened: false); return }
+            self.waitForNewTitle(cell, before: before, generation: g, tries: tries - 1)
         }
     }
 
