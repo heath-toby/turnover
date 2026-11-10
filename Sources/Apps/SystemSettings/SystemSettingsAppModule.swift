@@ -79,9 +79,9 @@ package final class SystemSettingsAppModule: AppModule {
                    forward ? String(localized: "The next control: the sidebar, the search field, then each control in the pane", comment: "A command, as the key list and keyboard help say it: Tab in System Settings")
                            : String(localized: "The previous control: the sidebar, the search field, then each control in the pane", comment: "A command, as the key list and keyboard help say it: Shift Tab in System Settings"),
                    gestures: [key], category: "System Settings") { [weak self] g in
-                guard let self, let context = self.dependencies.context(),
-                      SystemSettingsPaneFocus.tab(forward: forward, from: context.focus, window: context.window) else { g.send(); return }
-            }.isAvailable = { [weak self] in self?.isAvailable == true }
+                guard let self, let (focus, window) = self.tabContext(),
+                      SystemSettingsPaneFocus.tab(forward: forward, from: focus, window: window) else { g.send(); return }
+            }.isAvailable = { [weak self] in self?.tabContext() != nil }
         }
         for part in SystemSettingsPart.allCases {
             script("systemSettings_\(part)", String(localized: "Moves to the \(part.name); uses the review cursor if keyboard focus is unavailable", comment: "A command, as the key list and keyboard help say it: %@ is a part of System Settings"),
@@ -103,6 +103,15 @@ package final class SystemSettingsAppModule: AppModule {
         return .init(window: window, focus: focus.element, ancestors: API.focusAncestors.map(\.element))
     }
     private var isAvailable: Bool { active && !terminated && dependencies.context() != nil }
+    /// Tab's round may run in a sheet too (the part commands may not): the focus in System Settings, in front, no menu.
+    private func tabContext() -> (focus: AXUIElement, window: AXUIElement)? {
+        guard active, !terminated else { return nil }
+        if let c = dependencies.context() { return (c.focus, c.window) }   // the window itself (and the tests' seam)
+        guard Core.active, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+              !AXHandler.shared.isMenuOpen, !TurnOverMenu.shared.isOpen, let focus = API.focusObject, focus.pid == pid,
+              let window = SettingsPanePlugin.windowOf(focus.element) else { return nil }
+        return (focus.element, window)
+    }
     private func retire() { pending?.work.cancel(); pending = nil }
     private func finish(_ work: SettingsPartWork) { if pending?.work === work { retire() } }
 
@@ -189,6 +198,18 @@ package final class SystemSettingsAppModule: AppModule {
         role == .button ? SystemSettingsLabelledButton.self : nil
     }
     package override func handleEvent(_ event: Event, next: () -> Void) {
+        // A sheet opening (Bluetooth's Show Detail): its text read, then TurnOver on its safe button, so Tab, object
+        // navigation and Space go on inside it; they stayed in the pane behind (a tester, 10 Nov 2026).
+        if event.kind == .focusEntered, event.obj.pid == pid, event.obj.axRole == "AXSheet" {
+            let sheet = event.obj.element
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                guard sheet.role == "AXSheet", let target = SystemSettingsPaneFocus.landing(in: sheet) else { return }
+                let words = SystemSettingsPaneFocus.text(of: sheet)
+                Log.io("system settings: a sheet opened, \(words.count) characters of text; onto its \(target.role)")
+                if !words.isEmpty { Speech.speakMessage(words) }
+                SystemSettingsPaneFocus.place(target, interrupt: words.isEmpty)
+            }
+        }
         if let pending {
             if event.kind == .gainFocus {
                 let expected = pending.target
