@@ -164,6 +164,7 @@ extension AXHandler {
             guard !f.element.isSame(cell), !Self.sameControl(f.element, cell) else { return }
             focusChanged(cell, pid: pid)
         case kAXSelectedChildrenChangedNotification, kAXSelectedRowsChangedNotification:
+            if AppModuleHandler.shared.appModule(for: pid).listSelectionChanged(element) { return }
             // Several rows highlighted at once (Shift Down, Command click): the row that just changed is said, then
             // how many are selected, as VoiceOver does; the first selected row was said every time (16 Oct
             // 2026). Counted first, so a whole column of a million never comes across; at most 200 rows fetched.

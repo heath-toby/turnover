@@ -50,6 +50,10 @@ open class AppModule: ScriptableObject {
     /// A grid's selection changed while the focus is in it (AXSelectedCellsChanged; `count` cells now selected). True
     /// if the module has said what is needed; false for TurnOver's own handling (one cell selected: it is the focus).
     open func gridSelectionChanged(_ table: AXUIElement, count: Int) -> Bool { false }
+    /// A list's or table's selected rows or children changed (AXSelectedRowsChanged, AXSelectedChildrenChanged), asked
+    /// before TurnOver's own handling, which speaks only for a list with the focus in or on it. True if the module has
+    /// said what is needed. LaunchBar's chosen item changes in a list that never has the focus (10 Nov 2026).
+    open func listSelectionChanged(_ list: AXUIElement) -> Bool { false }
 
     /// An element the module reads as a document in browse mode though it isn't a web area (Preview's pages), or nil.
     open func browseRoot(for element: AXUIElement, ancestors: [TurnOverObject]) -> AXUIElement? { nil }

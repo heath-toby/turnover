@@ -8,61 +8,48 @@
 // new name. TurnOver heard the name changes but compared them with the name it had kept from the focus, the same
 // each time, and said nothing; nor was the focus itself said as the bar opened (a tester, 10 Nov 2026).
 //
-// The title-change notification arrives before the new title does: read at once, the cell still had the item before
-// (with VoiceOver off, 10 Nov 2026: "Safari" read when "Siri" was chosen), and the new one can take longer than
-// 170 ms (half the moves were missed with two reads at 50 and 170 ms). So the title as the news arrives is kept, and the
-// cell is looked at every 50 ms until its title differs, for up to 650 ms.
+// The title-change notification arrives before the new title, and the new title can come much later or not at all
+// (with VoiceOver off, 10 Nov 2026: the item before was read, and half the moves were missed even waiting 650 ms).
+// What does arrive on time is AXSelectedRowsChanged on LaunchBar's list (a table the window doesn't list, with no
+// focus; its rows say only "Table View Cell"): by then the focused cell's title is the new item, every move checked.
+// So the item is said from the list's selection change (listSelectionChanged), and the cell's own name changes are
+// left unsaid.
 //
 // LaunchBar runs as an accessory app and never comes forward, so TurnOver watches it from the start
 // (AXHandler.launcherPanels).
-//
-// So for LaunchBar's cell: as the bar opens and at every new name, the cell's title as it is now.
 import Foundation
 import ApplicationServices
 import TurnOverAX
 
 final class LaunchBarAppModule: AppModule {
     static let bundleID = "at.obdev.LaunchBar"
-    /// The last title said, and when: the focus and its first name change arrive together with the same title.
+    /// The last title said, and when: the focus and the list's first selection arrive together with the same title.
     private var lastSaid: (title: String, at: Date)?
-    /// Each name change's read; a newer one makes an older one's pending read moot.
-    private var generation = 0
 
     override func handleEvent(_ event: Event, next: () -> Void) {
-        guard event.obj.pid == pid, event.obj.axRole == "AXCell", event.kind == .gainFocus || event.kind == .nameChange else {
-            next(); return
-        }
-        let cell = event.obj.element
-        if event.kind == .gainFocus { say(cell, opened: true); return }
-        generation += 1
-        let g = generation
-        let before = cell.string(kAXTitleAttribute) ?? ""
-        waitForNewTitle(cell, before: before, generation: g, tries: 13)
-    }
-
-    /// Looks at the cell every 50 ms until its title is no longer `before`, then says it; at the last try, says what
-    /// is there if it is new.
-    private func waitForNewTitle(_ cell: AXUIElement, before: String, generation g: Int, tries: Int) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            guard let self, g == self.generation else { return }
-            let now = cell.string(kAXTitleAttribute) ?? ""
-            if now != before || tries <= 1 { self.say(cell, opened: false); return }
-            self.waitForNewTitle(cell, before: before, generation: g, tries: tries - 1)
+        guard event.obj.pid == pid, event.obj.axRole == "AXCell" else { next(); return }
+        switch event.kind {
+        case .gainFocus: sayCell(opened: true)
+        case .nameChange: return   // late or stale; the list's selection says the item (above)
+        default: next()
         }
     }
 
-    /// Says the cell's title if it is new; false if there was nothing new to say.
-    @discardableResult
-    private func say(_ cell: AXUIElement, opened: Bool) -> Bool {
-        guard API.focusObject?.element.isSame(cell) == true || opened else { return false }
+    override func listSelectionChanged(_ list: AXUIElement) -> Bool {
+        sayCell(opened: false)
+        return true
+    }
+
+    /// Says the focused cell's title, LaunchBar's chosen item, unless it was just said.
+    private func sayCell(opened: Bool) {
+        guard let cell = AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute), cell.role == "AXCell" else { return }
         let title = cell.string(kAXTitleAttribute)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !title.isEmpty else { return false }
-        if let last = lastSaid, last.title == title, opened ? Date().timeIntervalSince(last.at) < 0.5 : true { return false }
+        guard !title.isEmpty else { return }
+        if let last = lastSaid, last.title == title, Date().timeIntervalSince(last.at) < 0.4 { return }
         lastSaid = (title, Date())
         TurnOverObject.lastName = (cell, title)
-        Log.io("launchbar: \(opened ? "opened" : "new item"), \(title.count) characters")
+        Log.io("launchbar: \(opened ? "opened" : "item"), \(title.count) characters")
         Speech.cancel()
         Speech.speakMessage(title)
-        return true
     }
 }
