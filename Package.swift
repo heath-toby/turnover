@@ -79,6 +79,7 @@ let coreSources: [String] = [
     "Apps/Spotlight/SpotlightAppModule.swift",
     "Apps/SystemSettings/SystemSettingsAppModule.swift",
     "Apps/SystemSettings/SystemSettingsLabels.swift",
+    "Apps/SystemSettings/SystemSettingsPaneFocus.swift",
     "Apps/SystemSettings/SystemSettingsParts.swift",
     "Apps/Terminal/TerminalAppModule.swift",
     "Apps/TextEdit/TextEditFormatting.swift",
