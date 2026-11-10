@@ -24548,6 +24548,9 @@
         }
       }
     },
+    "The next control: the sidebar, the search field, then each control in the pane" : {
+      "comment" : "A command, as the key list and keyboard help say it: Tab in System Settings"
+    },
     "The next control: the sidebar, then the section's controls in order" : {
       "comment" : "A command, as the key list and keyboard help say it",
       "localizations" : {
@@ -24835,6 +24838,9 @@
           }
         }
       }
+    },
+    "The previous control: the sidebar, the search field, then each control in the pane" : {
+      "comment" : "A command, as the key list and keyboard help say it: Shift Tab in System Settings"
     },
     "The previous day" : {
       "comment" : "A command, as the key list and keyboard help say it",
