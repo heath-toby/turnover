@@ -4,6 +4,15 @@ The newest build is first. "Reported by a tester" marks a fix for something a te
 
 ## 2.0, build 24.1
 
+### New to try
+
+- A tidy Voice list in Settings, Speech: the Mac's voices grouped by language, your languages first in the order
+  you set them in System Settings and English after them, your own region first in each (English (UK) before
+  English (US) in the UK), and premium and enhanced voices first. A voice the Mac has twice, such as Daniel, is
+  listed once; "Daniel (Enhanced)" is Daniel, enhanced; Siri's voices are Siri Voice 1 and Siri Voice 2 rather than
+  Voice 1 and Voice 2. The rotor's list and the speech settings ring (VO-Command-Shift with the arrows, or NVDA's)
+  go through the voices in the same order.
+
 ### Fixed
 
 - "Nothing in this window can be read", with the keys for screen recognition, is a hint now: turning off Hints after

@@ -7,6 +7,7 @@
 // Keys: NVDA's laptop layout, with Caps Lock (or Control Option) as the NVDA key. NVDA's Alt is the Mac's Command, by
 // position (WINDOWS-MODE.md), and Option too where TurnOver used it already (Word's NVDA+Alt+C).
 import Foundation
+import TurnOverVoices
 import AppKit
 import AVFoundation
 import ApplicationServices
@@ -475,7 +476,7 @@ enum SynthRing {
         switch s {
         case "voice":
             let id = KokoroVoice.speechVoiceID
-            return KokoroVoice.voiceEntries.first { $0.id == id }?.name ?? AVSpeechSynthesisVoice(identifier: id)?.name ?? id
+            return KokoroVoice.voiceEntries.first { $0.id == id }?.name ?? AVSpeechSynthesisVoice(identifier: id).map { VoiceOrder.displayName(VoiceEntry($0)) } ?? id
         case "rate": return "\(Int((config.speech.rate * 100).rounded()))"
         case "pitch": return "\(Int((config.speech.pitch * 100).rounded()))"
         case "volume": return "\(config.speech.volume)"
@@ -502,11 +503,10 @@ enum SynthRing {
 
     /// The Mac's voices in your languages and the natural ones (2 Nov 2026), as identifier and name.
     static func voices() -> [(id: String, name: String)] {
-        let wanted = Set(Locale.preferredLanguages.map { String($0.prefix(2)) } + ["en"])
-        // Not Apple's novelty voices (2 Nov 2026), as Settings leaves them out; the one in use stays.
-        let mac = AVSpeechSynthesisVoice.speechVoices().filter { wanted.contains(String($0.language.prefix(2))) && (!$0.voiceTraits.contains(.isNoveltyVoice) || $0.identifier == config.speech.voice) }
-            .sorted { $0.name < $1.name }
-        let all = mac.map { (id: $0.identifier, name: $0.name) } + KokoroVoice.voiceEntries
+        // The tidy list, in Settings' order (VoiceOrder): your languages, best quality first, no novelty voices or
+        // copies; the one in use stays.
+        let mac = VoiceOrder.tidy(AVSpeechSynthesisVoice.speechVoices().map(VoiceEntry.init), preferred: Locale.preferredLanguages, keep: config.speech.voice)
+        let all = mac.map { (id: $0.id, name: VoiceOrder.displayName($0)) } + KokoroVoice.voiceEntries
         // Your own short list (Settings, Speech, Voices in the rotor), with the voice in use always among them.
         let chosen = Set(config.speech.rotorVoices)
         guard !chosen.isEmpty else { return all }

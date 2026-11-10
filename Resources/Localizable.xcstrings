@@ -1984,7 +1984,7 @@
       }
     },
     "%@ seconds" : {
-      "comment" : "A time\nBraille auto scroll's speed: %@ is seconds",
+      "comment" : "Braille auto scroll's speed: %@ is seconds",
       "localizations" : {
         "tr" : {
           "stringUnit" : {
@@ -3594,7 +3594,8 @@
             }
           }
         }
-      }
+      },
+      "comment" : "A percentage: 45 percent\nA slider's value"
     },
     ", a %@ view" : {
       "comment" : "A plugin's kind of view (chat, media)",
@@ -16419,6 +16420,7 @@
         }
       }
     },
+    "Other voices" : {},
     "Out of the item: what holds it (VO-Shift-Up)" : {
       "comment" : "A command, as the key list and keyboard help say it",
       "localizations" : {

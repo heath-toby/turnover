@@ -6,6 +6,7 @@
 import SwiftUI
 import AVFoundation
 import TurnOverControl
+import TurnOverVoices
 
 @MainActor
 final class Model: ObservableObject {
@@ -174,30 +175,32 @@ final class VoiceLists: ObservableObject {
     private var labels: [String: String] = [:]
     func label(for voice: AVSpeechSynthesisVoice) -> String { labels[voice.identifier] ?? voice.name }
 
+    /// The tidy list's languages, in its order, each with its voices: the Voice list's sections.
+    @Published private(set) var byLanguage: [(name: String, voices: [AVSpeechSynthesisVoice])] = []
+
     func refresh() {
-        let mine = Locale.preferredLanguages.map { String($0.prefix(2)) }
-        let wanted = Set(mine + ["en"])
         let voices = AVSpeechSynthesisVoice.speechVoices()
         all = voices
-        // Not Apple's novelty voices (Bells, Bubbles, Zarvox and the rest, 15 of them: Oliver, 2 Nov 2026, "a big list of
-        // shit nonsense voices that apple like to ship"). A novelty voice already chosen stays selectable (voices).
-        let real = voices.filter { !$0.voiceTraits.contains(.isNoveltyVoice) }
-        // English and the Mac's own languages, the Mac's languages first and Eloquence before the rest.
-        offered = real.filter { wanted.contains(String($0.language.prefix(2))) }.sorted { a, b in
-            let la = mine.firstIndex(of: String(a.language.prefix(2))) ?? 99, lb = mine.firstIndex(of: String(b.language.prefix(2))) ?? 99
-            if la != lb { return la < lb }
-            let ea = a.identifier.contains("eloquence"), eb = b.identifier.contains("eloquence")
-            if ea != eb { return ea }
-            return a.name < b.name
+        let byID = Dictionary(voices.map { ($0.identifier, $0) }, uniquingKeysWith: { a, _ in a })
+        // The tidy list (TurnOverVoices, the order TurnOver's speech settings ring uses too): your languages in your
+        // order, best quality first, without Apple's novelty voices (Oliver, 2 Nov 2026: "a big list of shit nonsense
+        // voices that apple like to ship") or a second copy of the same voice. A voice already chosen from outside
+        // the list stays selectable (SpeechView.voices).
+        let tidy = VoiceOrder.tidy(voices.map(VoiceEntry.init), preferred: Locale.preferredLanguages)
+        offered = tidy.compactMap { byID[$0.id] }
+        rotorCandidates = offered
+        var sections: [(name: String, voices: [AVSpeechSynthesisVoice])] = []
+        for v in offered {
+            let language = Locale.current.localizedString(forIdentifier: v.language) ?? v.language
+            if sections.last?.name == language { sections[sections.count - 1].voices.append(v) } else { sections.append((language, [v])) }
         }
-        // The voices of the Mac's own languages and English, as the rotor offers them.
-        rotorCandidates = real.filter { wanted.contains(String($0.language.prefix(2))) }
-            .sorted { $0.name == $1.name ? $0.language < $1.language : $0.name < $1.name }
+        byLanguage = sections
         var made: [String: String] = [:]
         for v in voices {
+            let name = VoiceOrder.displayName(VoiceEntry(v))
             let language = Locale.current.localizedString(forIdentifier: v.language) ?? v.language
-            made[v.identifier] = v.quality == .premium ? String(localized: "\(v.name), \(language), premium", comment: "A voice: its name, language and quality")
-                : v.quality == .enhanced ? String(localized: "\(v.name), \(language), enhanced", comment: "A voice: its name, language and quality") : "\(v.name), \(language)"
+            made[v.identifier] = v.quality == .premium ? String(localized: "\(name), \(language), premium", comment: "A voice: its name, language and quality")
+                : v.quality == .enhanced ? String(localized: "\(name), \(language), enhanced", comment: "A voice: its name, language and quality") : "\(name), \(language)"
         }
         labels = made
     }
@@ -301,7 +304,15 @@ struct SpeechView: View {
                 if !naturalEntries.isEmpty {
                     Section("Natural voices") { ForEach(naturalEntries, id: \.id) { Text($0.name).tag($0.id) } }
                 }
-                Section("Mac voices") { ForEach(voices, id: \.identifier) { v in Text(voiceLists.label(for: v)).tag(v.identifier) } }
+                // The Mac's voices by language, yours first, best quality first in each (VoiceOrder); a voice in use
+                // from outside the list at the end.
+                ForEach(voiceLists.byLanguage, id: \.name) { section in
+                    Section(section.name) { ForEach(section.voices, id: \.identifier) { v in Text(voiceLists.label(for: v)).tag(v.identifier) } }
+                }
+                let others = voices.filter { v in !voiceLists.offered.contains { $0.identifier == v.identifier } }
+                if !others.isEmpty {
+                    Section("Other voices") { ForEach(others, id: \.identifier) { v in Text(voiceLists.label(for: v)).tag(v.identifier) } }
+                }
             }
             // Downloading and removing the natural voices, beside the Voice list they add to (Oliver, 6 Nov 2026: "an
             // option, like in windows, to download natural voices"; "next to voice selection"; "a choice to remove").
@@ -376,7 +387,7 @@ struct SpeechView: View {
                 }
                 Section(String(localized: "Mac voices in the rotor", comment: "A group in Speech settings")) {
                     ForEach(rotorCandidates, id: \.identifier) { v in
-                        rotorToggle(v.identifier, "\(v.name), \(Locale.current.localizedString(forIdentifier: v.language) ?? v.language)")
+                        rotorToggle(v.identifier, voiceLists.label(for: v))
                     }
                 }
             }

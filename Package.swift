@@ -138,6 +138,8 @@ let package = Package(
             path: "Sources/TurnOverControl",
             linkerSettings: [.linkedFramework("Security")]
         ),
+        // The voice list's order and names (VoiceOrder.swift): Foundation only, so Settings can link it as TurnOver does.
+        .target(name: "TurnOverVoices", path: "Sources/TurnOverVoices"),
         // macOS's own braille display drivers, reached from Objective-C (docs/BRAILLE-PLAN.md).
         .target(
             name: "TurnOverBraille",
@@ -146,7 +148,7 @@ let package = Package(
         ),
         .target(
             name: "TurnOverCore",
-            dependencies: ["TurnOverAX", "TurnOverSpeech", "TurnOverBraille", "TurnOverControl"],
+            dependencies: ["TurnOverAX", "TurnOverSpeech", "TurnOverBraille", "TurnOverControl", "TurnOverVoices"],
             path: "Sources",
             exclude: [
                 "AXFixtures",
@@ -164,6 +166,7 @@ let package = Package(
                 "TurnOverSettings",
                 "TurnOverSpeech",
                 "TurnOverTests",
+                "TurnOverVoices",
                 "README.md",
                 "Core/README.md",
                 "Views/README.md",
@@ -368,7 +371,7 @@ let package = Package(
         // The unit tests: pure functions, and views against recorded trees (Tests/Fixtures). build.sh runs it.
         .executableTarget(
             name: "TurnOverTests",
-            dependencies: ["TurnOverCore", "TurnOverSpeech", "TurnOverControl", "AXFixtures", "PluginTestKit"],
+            dependencies: ["TurnOverCore", "TurnOverSpeech", "TurnOverControl", "TurnOverVoices", "AXFixtures", "PluginTestKit"],
             path: "Sources/TurnOverTests",
             swiftSettings: [.defaultIsolation(MainActor.self)],
             linkerSettings: [.linkedFramework("ApplicationServices"), .linkedFramework("AppKit")]
@@ -384,7 +387,7 @@ let package = Package(
         // TurnOver Settings: the settings in a window of its own, inside TurnOver.app (18 Oct 2026).
         .executableTarget(
             name: "TurnOverSettings",
-            dependencies: ["TurnOverControl"],
+            dependencies: ["TurnOverControl", "TurnOverVoices"],
             path: "Sources/TurnOverSettings",
             swiftSettings: translatable("TurnOverSettings"),
             linkerSettings: [.linkedFramework("SwiftUI"), .linkedFramework("AppKit"), .linkedFramework("AVFoundation")]
