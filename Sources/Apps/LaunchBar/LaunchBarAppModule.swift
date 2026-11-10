@@ -54,6 +54,10 @@ final class LaunchBarAppModule: AppModule {
     }
 
     override func listSelectionChanged(_ list: AXUIElement) -> Bool {
+        // With the bar's menu open, the arrows move in the menu and LaunchBar still reports its list's selection
+        // each time: read, it talked over every menu item (a tester, 10 Nov 2026). The bar is read once the menu
+        // closes (its focus comes back).
+        if AXHandler.shared.isMenuOpen { return true }
         sayCell(opened: false)
         return true
     }
