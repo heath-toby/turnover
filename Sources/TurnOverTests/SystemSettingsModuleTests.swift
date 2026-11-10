@@ -94,6 +94,12 @@ private func settingsControlFixture() -> AXFixture {
 }
 
 func systemSettingsModuleTests() {
+    test("System Settings: only the hosting view after the splitter is the pane's frame") {
+        check(SystemSettingsPaneFocus.isPaneFrame(role: "AXGroup", subrole: "AXHostingView", parentRole: "AXSplitGroup", afterSplitter: true), "the pane's frame, as macOS 27.2 has it")
+        check(!SystemSettingsPaneFocus.isPaneFrame(role: "AXGroup", subrole: "AXHostingView", parentRole: "AXSplitGroup", afterSplitter: false), "not the sidebar's or the search field's hosting view")
+        check(!SystemSettingsPaneFocus.isPaneFrame(role: "AXGroup", subrole: nil, parentRole: "AXSplitGroup", afterSplitter: true), "not a plain group")
+        check(!SystemSettingsPaneFocus.isPaneFrame(role: "AXButton", subrole: nil, parentRole: "AXGroup", afterSplitter: true), "not a control")
+    }
     test("System Settings: registered part commands leave native Tab arrows and fields alone") {
         AXReplay.load(settingsControlFixture()); defer { AXReplay.unload() }
         guard let rig = SettingsModuleRig() else { return }; defer { rig.stop() }

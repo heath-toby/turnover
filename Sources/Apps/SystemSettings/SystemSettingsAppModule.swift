@@ -189,6 +189,10 @@ package final class SystemSettingsAppModule: AppModule {
         }
         super.handleEvent(event, next: next)
     }
+    /// Tab that leaves the keyboard on the pane's frame goes on into the pane (SystemSettingsPaneFocus).
+    package override func redirectFocus(_ element: AXUIElement) -> AXUIElement? {
+        SystemSettingsPaneFocus.intoPane(settingsPid: pid)
+    }
     package override func event_appModuleGainFocus() { guard !terminated else { return }; retire(); active = true }
     package override func event_appModuleLoseFocus() { retire(); active = false; super.event_appModuleLoseFocus() }
     package override func terminate() { retire(); terminated = true; active = false; super.terminate() }
