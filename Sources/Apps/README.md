@@ -90,6 +90,7 @@ Run `python3 Tools/build-app-index.py` after editing app records or documentatio
 - [Journal](Journal/STATUS.md) — Effort: not assessed; being worked on: Unclaimed.
 - [Keynote](Keynote/STATUS.md) — Effort: Module; being worked on: Unclaimed.
 - [Kindle](Kindle/STATUS.md) — Effort: Module; being worked on: Unclaimed.
+- [LaunchBar](LaunchBar/STATUS.md) — Effort: Module; being worked on: Unclaimed.
 - [Libation](Libation/STATUS.md) — Effort: not assessed; being worked on: Unclaimed.
 - [LocalSend](LocalSend/STATUS.md) — Effort: not assessed; being worked on: Unclaimed.
 - [Mail](Mail/STATUS.md) — Effort: Module; being worked on: Unclaimed.
