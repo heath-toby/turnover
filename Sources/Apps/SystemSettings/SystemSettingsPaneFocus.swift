@@ -64,8 +64,32 @@ package enum SystemSettingsPaneFocus {
         while let x = p, here == nil, hops < 8 { here = ring.firstIndex { $0.isSame(x) }; p = x.element(kAXParentAttribute); hops += 1 }
         let n = here.map { (forward ? $0 + 1 : $0 - 1 + ring.count) % ring.count } ?? (forward ? 0 : ring.count - 1)
         Log.io("system settings: \(forward ? "Tab" : "Shift+Tab") to stop \(n + 1) of \(ring.count), \(ring[n].role)")
-        if n >= paneStart { SettingsPanePlugin.holdVirtual(ring[n], ownTab: false) } else { SettingsPanePlugin.focus(ring[n]) }
+        if n >= paneStart {
+            SettingsPanePlugin.holdVirtual(ring[n], ownTab: false)
+            Tones.focusTick()   // the move's sound, as a real focus change has (a tester, 10 Nov 2026)
+        } else if let real = AXUIElementCreateApplication(ring[n].pid).element(kAXFocusedUIElementAttribute), related(real, ring[n]) {
+            // The keyboard never left the sidebar or the search field while TurnOver held a place in the pane, so
+            // focusing it again changes nothing and the app says nothing: TurnOver comes back to it itself. Without
+            // this, Shift Tab from the pane stayed on the held control (a tester, 10 Nov 2026).
+            let obj = ObjectFactory.make(real)
+            SettingsPanePlugin.focusMoved(to: obj)
+            API.setFocusObject(obj, ancestors: obj.ancestors)
+            Tones.focusTick()
+            Speech.cancel(); Speech.speakObject(obj, reason: .focus)
+        } else {
+            SettingsPanePlugin.focus(ring[n])
+        }
         return true
+    }
+
+    /// The same control, or one inside the other within a few levels (the search field's stand-in, a sidebar row).
+    static func related(_ a: AXUIElement, _ b: AXUIElement) -> Bool {
+        func within(_ x: AXUIElement, _ outer: AXUIElement) -> Bool {
+            var p: AXUIElement? = x; var hops = 0
+            while let e = p, hops < 4 { if e.isSame(outer) { return true }; p = e.element(kAXParentAttribute); hops += 1 }
+            return false
+        }
+        return within(a, b) || within(b, a)
     }
 
     /// The pane's controls in reading order, bounded: a pane has tens of controls, never thousands.
