@@ -11,17 +11,20 @@
 // Then the cause (10 Nov 2026, same script): with VoiceOver running, System Settings puts Back and the pane in its
 // Tab order (search field, Back, VoiceOver, Zoom, Hover Text...); with no screen reader running it goes only sidebar,
 // search field, sidebar, and Tab on a control inside the pane goes to the sidebar. TurnOver turns VoiceOver off, so
-// System Settings always behaved as with no screen reader. The pane's controls do take the focus when AXFocused is set.
+// System Settings always behaved as with no screen reader. Nor do the pane's controls take the keyboard with VoiceOver
+// off: they say AXFocused can't be set, and setting it answers success and changes nothing (with VoiceOver on, it
+// works). AXPress works either way.
 //
 // So in System Settings' main window, Tab and Shift Tab are TurnOver's: round the sidebar, the search field and the
-// pane's controls in the pane's own order, each focused through SettingsPanePlugin.focus (which holds the place on a
-// control that refuses it, as in other settings windows).
+// pane's controls in the pane's own order. The sidebar and the search field get the keyboard focus; on a pane control
+// TurnOver holds its place, as in other settings windows that refuse the focus (SettingsPanePlugin.holdVirtual), and
+// Space and Return press it.
 import Foundation
 import ApplicationServices
 import TurnOverAX
 
 package enum SystemSettingsPaneFocus {
-    /// Roles that take the keyboard in a pane; each is still checked for a settable AXFocused before it is chosen.
+    /// Roles that are stops of Tab's round in a pane (enabled ones; not a scroll bar's parts).
     static let controlRoles: Set<String> = [
         "AXButton", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXMenuButton", "AXSlider", "AXTextField",
         "AXTextArea", "AXComboBox", "AXOutline", "AXTable", "AXList", "AXLink", "AXIncrementor", "AXDisclosureTriangle",
@@ -34,25 +37,26 @@ package enum SystemSettingsPaneFocus {
 
     /// Tab's round in the window: the sidebar, the search field, then the pane's controls; empty if the window isn't
     /// laid out as System Settings' main window is.
-    static func ring(in window: AXUIElement) -> [AXUIElement] {
-        guard let split = window.firstDescendant(role: "AXSplitGroup", maxVisited: 40) else { return [] }
+    static func ring(in window: AXUIElement) -> (stops: [AXUIElement], paneStart: Int) {
+        guard let split = window.firstDescendant(role: "AXSplitGroup", maxVisited: 40) else { return ([], 0) }
         let parts = split.elements(kAXChildrenAttribute)
-        guard let splitter = parts.firstIndex(where: { $0.role == "AXSplitter" }) else { return [] }
+        guard let splitter = parts.firstIndex(where: { $0.role == "AXSplitter" }) else { return ([], 0) }
         var ring: [AXUIElement] = []
         for part in parts[..<splitter] {
             if let outline = part.firstDescendant(role: "AXOutline", maxVisited: 20) { ring.append(outline) }
             else if let field = part.firstDescendant(role: "AXTextField", maxVisited: 20) { ring.append(field) }
         }
+        let paneStart = ring.count
         for part in parts[(splitter + 1)...] where isPaneFrame(role: part.role, subrole: part.string(kAXSubroleAttribute), parentRole: "AXSplitGroup", afterSplitter: true) {
             ring += controlsInOrder(part)
         }
-        return ring
+        return (ring, paneStart)
     }
 
     /// Tab (forward) or Shift Tab from the focus: the next stop of the round, focused. False when the window isn't
     /// System Settings' main window as known, so the key goes to the app.
     static func tab(forward: Bool, from focus: AXUIElement, window: AXUIElement) -> Bool {
-        let ring = ring(in: window)
+        let (ring, paneStart) = ring(in: window)
         guard ring.count > 1 else { return false }
         // Where the focus is: a stop itself, or inside one (a row of the sidebar).
         var here: Int?
@@ -60,7 +64,7 @@ package enum SystemSettingsPaneFocus {
         while let x = p, here == nil, hops < 8 { here = ring.firstIndex { $0.isSame(x) }; p = x.element(kAXParentAttribute); hops += 1 }
         let n = here.map { (forward ? $0 + 1 : $0 - 1 + ring.count) % ring.count } ?? (forward ? 0 : ring.count - 1)
         Log.io("system settings: \(forward ? "Tab" : "Shift+Tab") to stop \(n + 1) of \(ring.count), \(ring[n].role)")
-        SettingsPanePlugin.focus(ring[n])
+        if n >= paneStart { SettingsPanePlugin.holdVirtual(ring[n]) } else { SettingsPanePlugin.focus(ring[n]) }
         return true
     }
 
@@ -72,7 +76,8 @@ package enum SystemSettingsPaneFocus {
             guard visited < maxVisited else { return }
             visited += 1
             let role = e.role
-            if controlRoles.contains(role), (e.attr(kAXEnabledAttribute) as? Bool) != false, isFocusable(e) {
+            if role == "AXScrollBar" { return }
+            if controlRoles.contains(role), (e.attr(kAXEnabledAttribute) as? Bool) != false {
                 out.append(e)
                 if ["AXOutline", "AXTable", "AXList"].contains(role) { return }   // a list's rows are its own to move
             }
@@ -80,10 +85,5 @@ package enum SystemSettingsPaneFocus {
         }
         walk(root)
         return out
-    }
-
-    private static func isFocusable(_ e: AXUIElement) -> Bool {
-        var settable: DarwinBoolean = false
-        return AXUIElementIsAttributeSettable(e, kAXFocusedAttribute as CFString, &settable) == .success && settable.boolValue
     }
 }
