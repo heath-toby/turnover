@@ -15,6 +15,11 @@
 // So the item is said from the list's selection change (listSelectionChanged), and the cell's own name changes are
 // left unsaid.
 //
+// The shortcut menu (About, Preferences, Quit; VoiceOver opens it with VO-Shift-M) belongs to the bar's window, an
+// AXUnknown with AXShowMenu; the cell has only AXPress, so TurnOver's own way right-clicked the cell and nothing
+// opened. AXShowMenu on the window opens it, answering -25204 (cannot complete) because the menu runs while the call
+// waits; the menu's AXMenuOpened arrives as usual (10 Nov 2026).
+//
 // LaunchBar runs as an accessory app and never comes forward, so TurnOver watches it from the start
 // (AXHandler.launcherPanels).
 import Foundation
@@ -33,6 +38,19 @@ final class LaunchBarAppModule: AppModule {
         case .nameChange: return   // late or stale; the list's selection says the item (above)
         default: next()
         }
+    }
+
+    override func showContextMenu() -> Bool {
+        guard let cell = AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute), cell.role == "AXCell",
+              let window = cell.element(kAXWindowAttribute) ?? cell.element(kAXParentAttribute) else { return false }
+        var acts: CFArray?
+        guard AXUIElementCopyActionNames(window, &acts) == .success, ((acts as? [String]) ?? []).contains("AXShowMenu") else { return false }
+        TurnOverObject.contextMenuRequestedAt = Date()
+        AXUIElementSetMessagingTimeout(window, 0.3)   // the call waits while the menu runs: never long on main
+        let r = AXUIElementPerformAction(window, "AXShowMenu" as CFString)
+        AXUIElementSetMessagingTimeout(window, 0)
+        Log.io("launchbar: the bar's menu → \(r.rawValue)")
+        return true
     }
 
     override func listSelectionChanged(_ list: AXUIElement) -> Bool {

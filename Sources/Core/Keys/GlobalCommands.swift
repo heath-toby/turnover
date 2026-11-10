@@ -612,6 +612,7 @@ public final class GlobalCommands: ScriptableObject {
     /// 13 Oct 2026: on a link the page's menu came up, without "open in a new tab", until he interacted with it).
     public static func openContextMenu() -> Bool {
         if contextMenuHandler?() == true { return true }
+        if let pid = API.focusPid, AppModuleHandler.shared.appModule(for: pid).showContextMenu() { return true }
         if let d = API.focusTreeInterceptor, !d.passThrough, d.showContextMenuAtCaret() { return true }
         return false
     }
