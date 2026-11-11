@@ -183,7 +183,10 @@ extension BrowseModeDocument {
     /// top of a long post, 3 Oct 2026). If the caret has moved since the focus did, focus the next (or previous)
     /// link or control after (before) it; the focus event then reads it. Otherwise the browser's own Tab.
     func focusFromCaret(forward: Bool) -> Bool {
-        guard position != positionAtFocus else { return false }
+        let safari = NSRunningApplication(processIdentifier: webArea.pid)?.bundleIdentifier?.hasPrefix("com.apple.Safari") == true
+        // (Safari's own Tab skips most of the page: there TurnOver's Tab goes on from the reading position even where
+        // it is the focus's.)
+        guard position != positionAtFocus || safari else { return false }
         let roles: Set<String> = ["AXLink", "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXComboBox", "AXSlider", "AXMenuButton", "AXDisclosureTriangle"]
         var from = position
         for _ in 0..<30 {
@@ -203,6 +206,15 @@ extension BrowseModeDocument {
                     return true
                 }
                 x = y.element(kAXParentAttribute); hops += 1
+            }
+            // Safari won't give a check box, button or link the focus (Press Tab to highlight each item off): the
+            // reading position goes there instead, and Space or Return presses it. Tab went on to the address bar
+            // (the test page, 11 Nov 2026).
+            if safari {
+                Log.io("browse mode: Tab to \(el.role) at \(at), which won't take the focus: the reading position goes there")
+                position = at
+                speakUnit(.line)
+                return true
             }
             from = at
         }

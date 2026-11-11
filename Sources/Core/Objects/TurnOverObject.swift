@@ -722,6 +722,46 @@ public enum ObjectFactory {
 /// Repeats of the same live text within a moment are one announcement (Chromium posts a change per node).
 public enum LiveRegions {
     private static var last: (String, Date) = ("", .distantPast)
+
+    /// The page's live regions (aria-live polite or assertive) and their words now. A walk of at most 1,500 elements,
+    /// not into a live region found.
+    static func snapshot(in root: AXUIElement) -> [(element: AXUIElement, text: String, assertive: Bool)] {
+        var out: [(AXUIElement, String, Bool)] = []
+        var queue = [root], seen = 0
+        while !queue.isEmpty, seen < 1500 {
+            let e = queue.removeFirst(); seen += 1
+            if let live = e.string("AXARIALive"), live == "polite" || live == "assertive" {
+                out.append((e, ElementMatcher.text(of: e), live == "assertive")); continue
+            }
+            queue += e.elements(kAXChildrenAttribute)
+        }
+        return out
+    }
+
+    /// After a press on a page: the live regions are looked at a few times, and words that came into one are said.
+    /// Safari changed a polite region ("Pressed!") and posted nothing (the test page, 11 Nov 2026); where the browser
+    /// does post, the same words aren't said twice (speak's own check).
+    /// Called before the key or press goes to the page (a page answers within milliseconds: looked at after, the
+    /// region already held the new words); a second call just after is the same press.
+    private static var watchStartedAt = Date.distantPast
+    public static func watchAfterPress(in root: AXUIElement) {
+        if Date().timeIntervalSince(watchStartedAt) < 0.5 { return }
+        watchStartedAt = Date()
+        let before = snapshot(in: root)
+        guard !before.isEmpty else { return }
+        var said: [String] = []
+        for delay in [0.4, 1.0, 2.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                for (e, old, assertive) in before {
+                    let now = ElementMatcher.text(of: e)
+                    guard now != old, !now.isEmpty, !said.contains(now) else { continue }
+                    said.append(now)
+                    let added = now.hasPrefix(old) && !old.isEmpty ? String(now.dropFirst(old.count)).trimmingCharacters(in: .whitespacesAndNewlines) : now
+                    if !added.isEmpty { speak(added, from: e, assertive: assertive) }
+                }
+            }
+        }
+    }
     public static func speak(_ text: String, from element: AXUIElement, assertive: Bool) {
         let t = String(text.prefix(500))
         // A streaming page re-posts the same text many times; it is news once (again only after a long quiet).

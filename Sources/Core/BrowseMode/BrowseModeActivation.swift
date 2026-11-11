@@ -40,6 +40,7 @@ extension BrowseModeDocument {
             if byAccessibility, press(nearestTo: y) { return }
             Log.io("browse mode: \(gesture.keyName) to the focused \(f.axRole) (the keyboard moved there after the reading position)")
             let before = ControlState(y)
+            LiveRegions.watchAfterPress(in: webArea)
             gesture.send()
             if ["AXButton", "AXLink", "AXMenuButton"].contains(f.axRole) { Tones.press() }
             watchStateChange(y, before: before)
@@ -59,6 +60,7 @@ extension BrowseModeDocument {
                     if byAccessibility, press(nearestTo: y) { return }
                     Log.io("browse mode: \(gesture.keyName) to the focused \(y.role) itself")
                     let before = ControlState(y)
+                    LiveRegions.watchAfterPress(in: webArea)
                     gesture.send()
                     if ["AXButton", "AXLink", "AXMenuButton"].contains(y.role) { Tones.press() }
                     watchStateChange(y, before: before)
@@ -139,6 +141,7 @@ extension BrowseModeDocument {
     /// end the watch: a change that lands after that is said with the control's name, so it is clear which one
     /// changed, and the reading position is left where it is.
     func watchStateChange(_ element: AXUIElement, before: ControlState) {
+        LiveRegions.watchAfterPress(in: webArea)   // a live region the press changed, if the browser says nothing of it
         let watch = Self.beginWatch(element)
         let pressedAt = Date()
         let checkable = Self.isCheckable(element)
@@ -375,6 +378,7 @@ extension BrowseModeDocument {
                     }
                     return true
                 }
+                LiveRegions.watchAfterPress(in: webArea)
                 let r = AXUIElementPerformAction(x, kAXPressAction as CFString)
                 Log.io("browse mode: press \(role) \"\(Log.words(x.string(kAXTitleAttribute) ?? x.string(kAXDescriptionAttribute) ?? ""))\" → \(describeError(r))")
                 if r == .success {

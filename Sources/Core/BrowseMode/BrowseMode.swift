@@ -308,6 +308,22 @@ public final class BrowseModeDocument: ScriptableObject {
         script("tabFromCaret", String(localized: "Next link or control; moves to the next link or control after the reading position (Shift: before it)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab", "kb:shift+tab"], category: nav) { [weak self] g in
             guard let self else { return }
             BrowseModeDocument.lastTabFromCaretAt = Date()
+            // From a field of a Safari page in focus mode (tabIsTurnOversInField): on from the field. Another field
+            // takes the focus; a check box, button or link can't in Safari, so the reading position goes there and
+            // browse mode comes back (Space and Return press it there).
+            if passThrough, tabIsTurnOversInField, let f = API.focusObject, let from = buffer.offset(of: f.element) {
+                let roles: Set<String> = ["AXLink", "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXComboBox", "AXSlider", "AXMenuButton", "AXDisclosureTriangle"]
+                guard let (at, el) = buffer.find(from: from, forward: !g.modifiers.contains(.shift), roles: roles) else { Tones.edge(); return }
+                if ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"].contains(el.role), el.set(kAXFocusedAttribute, kCFBooleanTrue) == .success {
+                    Log.io("browse mode: Tab from a field to the next field at \(at)")
+                    position = at; positionAtFocus = at; return
+                }
+                Log.io("browse mode: Tab from a field to \(el.role) at \(at): the reading position goes there")
+                setPassThrough(false, announce: true)
+                position = at
+                speakUnit(.line)
+                return
+            }
             if focusFromCaret(forward: !g.modifiers.contains(.shift)) { return }
             if AppModuleHandler.shared.appModule(for: webArea.pid).browseTabMovesReadingPosition {
                 guard ensureContent() else { return }
@@ -663,6 +679,16 @@ public final class BrowseModeDocument: ScriptableObject {
     }
 
     // (An override cannot live in an extension: the pass-through decision itself is in FocusModePolicy.swift.)
+    /// In a one-line field of a Safari page, Tab is TurnOver's even in focus mode: Safari's own Tab skips check boxes,
+    /// buttons and links (Press Tab to highlight each item off, its default) and went from a form's name field to the
+    /// address bar (the test page, 11 Nov 2026). Not a text area or a combo box, where Tab may mean something to the page.
+    var tabIsTurnOversInField: Bool {
+        guard let f = API.focusObject, f.pid == webArea.pid,
+              ["AXTextField", "AXSearchField", "AXCheckBox", "AXRadioButton", "AXButton", "AXPopUpButton"].contains(f.axRole),
+              let id = NSRunningApplication(processIdentifier: webArea.pid)?.bundleIdentifier, id.hasPrefix("com.apple.Safari") else { return false }
+        return true
+    }
+
     /// Scripts answer only in browse mode (NVDA: passThrough filters the tree interceptor's scripts).
     public override func script(for gesture: KeyboardGesture) -> Script? {
         // NVDA's way, in both styles (Oliver, 23 Oct 2026, issue 82): in browse mode a letter is always a command. A
@@ -671,7 +697,7 @@ public final class BrowseModeDocument: ScriptableObject {
         // typed while a page field still had the keyboard resumed focus mode quietly (8 Oct 2026); the Safari stress
         // test of 23 Oct 2026 showed both typing h into a field the user had just left with Escape, on four pages.
         if let s = super.script(for: gesture) {
-            if passThrough && s.name != "disablePassThrough" { return nil }
+            if passThrough && s.name != "disablePassThrough" && !(s.name == "tabFromCaret" && tabIsTurnOversInField) { return nil }
             return s
         }
         // A letter or digit with no command of its own (z, 0) is kept from the page in browse mode, as NVDA's trap
