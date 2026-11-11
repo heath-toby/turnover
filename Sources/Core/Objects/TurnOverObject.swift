@@ -338,12 +338,31 @@ open class TurnOverObject: ScriptableObject {
         return parts.joined(separator: " ")
     }()
 
+    /// A row with a disclosure triangle in it (a real branch), looked for a few levels down.
+    static func hasDisclosureTriangle(_ row: AXUIElement) -> Bool {
+        var queue: [(AXUIElement, Int)] = [(row, 0)], seen = 0
+        while !queue.isEmpty, seen < 40 {
+            let (e, d) = queue.removeFirst(); seen += 1
+            if e.role == "AXDisclosureTriangle" { return true }
+            if d < 3 { queue += e.elements(kAXChildrenAttribute).map { ($0, d + 1) } }
+        }
+        return false
+    }
+
     public struct PositionInfo { public var index: Int?; public var count: Int?; public var level: Int? }
     open var positionInfo: PositionInfo? { _positionInfo }
     private lazy var _positionInfo: PositionInfo? = {
         guard [.listItem, .tableRow, .treeViewItem, .tab, .menuItem, .checkMenuItem, .radioMenuItem, .radioButton, .dockItem].contains(role) else { return nil }
         var p = PositionInfo()
-        if role == .treeViewItem, let level = element.int("AXDisclosureLevel"), level > 0 { p.level = level + 1 }   // NVDA-style: the top level goes without saying
+        if role == .treeViewItem, let level = element.int("AXDisclosureLevel"), level > 0 {
+            // A section heading at the top ("A" in Contacts, "iCloud" in Notes' folders) has no disclosure triangle:
+            // it isn't a branch, and "level 2" on every row under it was noise (Contacts, Reminders, Notes, Photos;
+            // a rule for all, 11 Nov 2026).
+            var top = element, steps = 0
+            while steps < 20, let up = top.element("AXDisclosedByRow") { top = up; steps += 1 }
+            let shown = steps > 0 && !Self.hasDisclosureTriangle(top) ? level - 1 : level
+            if shown > 0 { p.level = shown + 1 }   // NVDA-style: the top level goes without saying
+        }
         if let parent = element.element(kAXParentAttribute) {
             var count: CFIndex = 0
             let attr = parent.role == "AXTable" || parent.role == "AXOutline" ? "AXRows" : kAXChildrenAttribute
