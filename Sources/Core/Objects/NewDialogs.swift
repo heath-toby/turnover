@@ -57,7 +57,7 @@ enum NewDialogs {
                 let words = text(of: window)
                 Log.io("dialogs: a window took the focus with nothing in it focused (\(words.count) characters); onto its \(target.role)")
                 if !words.isEmpty { Speech.speakMessage(words) }
-                land(on: target, interrupt: false)
+                land(on: target, interrupt: false, ownWindow: window)
                 if let bar { ProgressWatch.watch(ObjectFactory.make(bar)) }
                 return
             }
@@ -81,7 +81,9 @@ enum NewDialogs {
 
     /// TurnOver on a control: the keyboard focus asked for, and if the app keeps it elsewhere, the place held (Space
     /// and Return press it), with object navigation from there.
-    static func land(on e: AXUIElement, interrupt: Bool) {
+    /// `ownWindow`: a window whose Tab is TurnOver's from now on (its app moves no focus in it); not a sheet's window,
+    /// which has its own Tab again once the sheet goes.
+    static func land(on e: AXUIElement, interrupt: Bool, ownWindow: AXUIElement? = nil) {
         _ = e.set(kAXFocusedAttribute, kCFBooleanTrue)
         let pid = e.pid
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -92,6 +94,13 @@ enum NewDialogs {
             if !interrupt { Speech.speakObject(ObjectFactory.make(e), reason: .focus) }
             ObjectNavigator.shared.releaseHold()
             ObjectNavigator.shared.place(e)
+            if let w = ownWindow {
+                // The trap's own watcher can't take Tab here: the bar's climb counts as news from the app, as if Tab
+                // had moved something.
+                SettingsPanePlugin.loopWindows.append(w)
+                if SettingsPanePlugin.loopWindows.count > 20 { SettingsPanePlugin.loopWindows.removeFirst() }
+                SettingsPanePlugin.setTrapState(for: e)
+            }
         }
     }
 

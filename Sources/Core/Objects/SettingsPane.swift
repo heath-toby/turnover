@@ -87,6 +87,17 @@ public final class SettingsPanePlugin: GlobalPlugin {
         else { all = Self.controls(in: window, toolbars: true); Self.trapList = (window, all, Date()) }
         var here = all.firstIndex { $0.isSame(current) }
         if here == nil { all = Self.controls(in: window, toolbars: true); Self.trapList = (window, all, Date()); here = all.firstIndex { $0.isSame(current) } }
+        // A held place that isn't a control (a copy window's progress bar, NewDialogs): Tab goes from where it sits
+        // among the window's controls, in the order of the window's children (11 Nov 2026: Tab said nothing).
+        if here == nil, let around = Self.controlsAround(current, in: window) {
+            let (order, at) = around
+            let next = forward ? order.indices.first { $0 > at } : order.indices.last { $0 < at }
+            guard let k = next ?? (forward ? order.indices.first { $0 != at } : order.indices.last { $0 != at }) else { g.send(); return }
+            Log.io("tab trap: from a held \(current.role) to \(order[k].role)")
+            Self.focus(order[k])
+            Self.setTrapState(for: order[k])
+            return
+        }
         guard var i = here, !all.isEmpty else { g.send(); return }
         var n = ((forward ? i + 1 : i - 1) + all.count) % all.count   // round, as the app's own Tab goes
         // The list kept from a moment ago can name controls the app has since thrown away: TurnOver Settings rebuilds
@@ -367,6 +378,25 @@ public final class SettingsPanePlugin: GlobalPlugin {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             if !enter() { Speech.speakMessage(String(localized: "no commands", comment: "Spoken message")) }
         }
+    }
+
+    /// The window's enabled controls in the order of its children with `e` among them, and where it is; nil when `e`
+    /// isn't in the window.
+    static func controlsAround(_ e: AXUIElement, in window: AXUIElement) -> ([AXUIElement], Int)? {
+        var out: [AXUIElement] = []; var at: Int?; var visited = 0
+        func walk(_ x: AXUIElement) {
+            visited += 1
+            guard visited < 800 else { return }
+            if x.isSame(e) { at = out.count; out.append(x); return }
+            if controlRoles.contains(x.role) || x.role == "AXRadioButton" {
+                if (x.attr(kAXEnabledAttribute) as? Bool) != false { out.append(x) }
+                return
+            }
+            for c in x.elements(kAXChildrenAttribute) { walk(c) }
+        }
+        walk(window)
+        guard let at, out.count > 1 else { return nil }
+        return (out, at)
     }
 
     /// The controls inside an element in the order of its children (depth first).
