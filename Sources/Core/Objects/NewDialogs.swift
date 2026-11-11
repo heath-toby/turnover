@@ -16,12 +16,18 @@ enum NewDialogs {
     /// When a sheet was last announced as it opened, and in which app: its text was said with it ("dialog, Name, …"),
     /// so landing in it doesn't say it again (three times in all, 11 Nov 2026).
     static var announced: (pid: pid_t, at: Date)?
+    /// The last sheet's text, to tell a sheet made twice from a new one.
+    static var lastSheetText = ""
 
     /// Focus the app moves behind its sheet just as the sheet opens (System Settings makes Bluetooth's Show Detail
     /// twice and moves its focus to the pane's switch in between: "Bluetooth switch on" between the sheet's text and
     /// its Done button, 11 Nov 2026): within a second of the sheet, in its app and in no sheet.
     static func isBehindNewSheet(_ e: AXUIElement) -> Bool {
-        guard let a = announced, Date().timeIntervalSince(a.at) < 1, e.pid == a.pid else { return false }
+        guard let a = announced, Date().timeIntervalSince(a.at) < 1, e.pid == a.pid,
+              InputManager.lastKeyDownAt < a.at else { return false }   // not after Escape: the focus is back for real
+        // Not when the window has a sheet now: focus there may be in a sheet whose controls don't name it as their
+        // ancestor. System Settings moves its focus while it has none, between its two (a review, 11 Nov 2026).
+        if let w = SettingsPanePlugin.windowOf(e), w.elements(kAXChildrenAttribute).contains(where: { $0.role == "AXSheet" }) { return false }
         // Same app, and in no sheet. Not compared by window: System Settings' sheet hangs from another element than
         // the window its pane's controls name (11 Nov 2026).
         var p: AXUIElement? = e; var hops = 0
@@ -72,7 +78,7 @@ enum NewDialogs {
                 // copy window takes the focus as a window; Tab and the arrows did nothing and the bar wasn't heard, a
                 // tester). A new document or settings window focuses a control or is larger: left to the app.
                 if let real = appEl.element(kAXFocusedUIElementAttribute), !real.isSame(window) { return }
-                let controls = SettingsPanePlugin.controlsInOrder(in: window).filter { ($0.attr(kAXEnabledAttribute) as? Bool) != false }
+                let controls = SettingsPanePlugin.controlsInOrder(in: window).filter { ($0.attr(kAXEnabledAttribute) as? Bool) != false && !isTitleBarButton($0) }
                 guard bar != nil || (1...6).contains(controls.count) else { return }
                 guard let target = bar ?? landing(in: window) else { return }
                 let words = text(of: window)
@@ -129,7 +135,7 @@ enum NewDialogs {
     /// first control like Bluetooth's "Forget This Device…", which Space would press, when a safe one is there.
     static func landing(in root: AXUIElement) -> AXUIElement? {
         if let d = root.element(kAXDefaultButtonAttribute) { return d }
-        let controls = SettingsPanePlugin.controlsInOrder(in: root).filter { ($0.attr(kAXEnabledAttribute) as? Bool) != false }
+        let controls = SettingsPanePlugin.controlsInOrder(in: root).filter { ($0.attr(kAXEnabledAttribute) as? Bool) != false && !isTitleBarButton($0) }
         let safe = ["Done", "OK", "Close", "Cancel"]
         return controls.first { c in safe.contains(c.string(kAXDescriptionAttribute) ?? "") || safe.contains(c.string(kAXTitleAttribute) ?? "") } ?? controls.first
     }
@@ -148,6 +154,12 @@ enum NewDialogs {
         walk(root)
         let joined = out.joined(separator: ", ")
         return joined.count > 400 ? String(joined.prefix(400)) : joined
+    }
+
+    /// The title bar's close, zoom, minimise and full-screen buttons: never where a window opens (Space on the close
+    /// button would close it, a review, 11 Nov 2026).
+    static func isTitleBarButton(_ e: AXUIElement) -> Bool {
+        ["AXCloseButton", "AXZoomButton", "AXMinimizeButton", "AXFullScreenButton"].contains(e.string(kAXSubroleAttribute) ?? "")
     }
 
     static func firstProgressBar(in root: AXUIElement) -> AXUIElement? {

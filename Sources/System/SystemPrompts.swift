@@ -39,6 +39,9 @@ public final class SystemPrompts {
     private var timer: Timer?
     private var shown: [AXUIElement] = []
     private var missedOnce: [AXUIElement] = []
+    /// Window queries failed in a row, per agent: its prompts are kept through four, then taken as gone, so one that
+    /// never answers again can't keep TurnOver stepped aside for good (a review, 11 Nov 2026).
+    private var failures: [pid_t: Int] = [:]
     /// With VoiceOver running (CoExist), macOS's own prompts are VoiceOver's entirely (18 Oct 2026: VoiceOver
     /// "could take over in higher security dialogues, which keeps TurnOver more secure"): TurnOver neither reads them
     /// nor takes their keys. The app is told when the first opens (true) and the last closes (false), and steps aside.
@@ -81,12 +84,14 @@ public final class SystemPrompts {
                 AXUIElementSetMessagingTimeout(ax, 0.5)
                 var value: CFTypeRef?
                 if AXUIElementCopyAttributeValue(ax, kAXWindowsAttribute as CFString, &value) == .success {
+                    failures[pid] = nil
                     windows += ((value as? [AXUIElement]) ?? []).map { ($0, pid) }
                 } else {
+                    failures[pid, default: 0] += 1
                     // An agent too busy to answer (a timeout) still has its prompts: taken as gone, every waiting
                     // prompt was read out again, over what was being said, with the focus thrown back to the app
-                    // (11 Nov 2026: four of them, each time a window opened).
-                    windows += shown.filter { $0.pid == pid }.map { ($0, pid) }
+                    // (11 Nov 2026: four of them, each time a window opened). Up to four looks in a row.
+                    if failures[pid, default: 0] <= 4 { windows += shown.filter { $0.pid == pid }.map { ($0, pid) } }
                 }
             }
         }
@@ -114,7 +119,7 @@ public final class SystemPrompts {
                 if let f = AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute) { giveKeyboard(to: f) }
                 continue
             }
-            announce(w, pid: pid)
+            announce(w, pid: pid, fromTimer: true)
         }
     }
 
@@ -131,7 +136,9 @@ public final class SystemPrompts {
     private var lastAnnounced = Date.distantPast
     private var readAt: [String: Date] = [:]
 
-    private func announce(_ window: AXUIElement, pid: pid_t) {
+    /// `fromTimer`: found by the regular look, where the same prompt in a new window isn't read again; asked for
+    /// (the agent came to the front, the user went to it), it always is (a review, 11 Nov 2026).
+    private func announce(_ window: AXUIElement, pid: pid_t, fromTimer: Bool = false) {
         lastAnnounced = Date()
         var texts: [String] = []
         var stack = [window]; var visited = 0
@@ -145,7 +152,7 @@ public final class SystemPrompts {
         summaries.append((window, pid, texts.first.map { String($0.prefix(120)) } ?? "untitled"))
         // The same prompt again from the same agent, a new window for it: not read out, nor given the keyboard, again.
         let key = "\(pid)|" + texts.joined(separator: "|")
-        if let at = readAt[key], Date().timeIntervalSince(at) < 120 { Log.io("system prompt from pid \(pid) again, the same; not read again"); return }
+        if fromTimer, let at = readAt[key], Date().timeIntervalSince(at) < 120 { Log.io("system prompt from pid \(pid) again, the same; not read again"); return }
         readAt[key] = Date()
         if readAt.count > 50 { readAt = readAt.filter { Date().timeIntervalSince($0.value) < 120 } }
         Log.io("system prompt from pid \(pid): \(texts.count) lines")

@@ -223,7 +223,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
                     Log.io("tab trap: the app ignored \(forward ? "Tab" : "Shift+Tab") on a \(before.role) holding \(inside.count) controls; TurnOver moves into it")
                     // The container is a place where Tab is TurnOver's from now on (Home's sheet: the next Tab went to
                     // the settings panes' Tab and did nothing).
-                    if before.role != "AXWindow", !Self.trapZones.contains(where: { $0.isSame(before) }) {
+                    // A nameless group only (Catalyst's content group), not a document's scroll area, whose links and
+                    // form fields keep the app's Tab (a review, 11 Nov 2026).
+                    if before.role == "AXGroup", !Self.trapZones.contains(where: { $0.isSame(before) }) {
                         Self.trapZones.append(before)
                         if Self.trapZones.count > 20 { Self.trapZones.removeFirst() }
                     }
@@ -326,7 +328,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // A control the app has thrown away meanwhile is no place to hold: the keys would go nowhere from it.
         guard target.role != "?" else { Log.io("settings: the control moved to is gone; not held"); return }
         virtual = target
-        lock.lock(); _holding = true; lock.unlock()
+        lock.lock(); _holding = true; _heldByTrap = false; lock.unlock()   // focus() says if the trap made this hold
         let obj = ObjectFactory.make(target)
         API.setFocusObject(obj, ancestors: API.focusAncestors)
         lock.lock(); _inPane = ownTab; lock.unlock()
@@ -400,7 +402,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
             for k in e.elements(kAXChildrenAttribute) { walk(k, depth + 1) }
         }
         walk(window, 0)
-        if withUnfocusable { found += unfocusable } else if found.isEmpty { found = unfocusable }
+        if withUnfocusable { found += unfocusable }
         return found.sorted { a, b in
             let ra = Int(a.1.midY / 8), rb = Int(b.1.midY / 8)
             return ra != rb ? ra < rb : a.1.minX < b.1.minX

@@ -211,7 +211,11 @@ extension AXHandler {
             if let (last, at) = lastSheet, last.isSame(element), Date().timeIntervalSince(at) < 1 { return }
             // System Settings makes Bluetooth's Show Detail sheet twice, a third of a second apart, and it was said
             // twice (11 Nov 2026, macOS 27.2): a second sheet of the same app so soon is taken over, not said again.
-            let again = lastSheet.map { $0.0.pid == pid && Date().timeIntervalSince($0.1) < 1 } ?? false
+            // The same words, too: a different sheet straight after one (an error after a confirmation) is said (a
+            // review, 11 Nov 2026).
+            let words = NewDialogs.text(of: element)
+            let again = (lastSheet.map { $0.0.pid == pid && Date().timeIntervalSince($0.1) < 1 } ?? false) && words == NewDialogs.lastSheetText
+            NewDialogs.lastSheetText = words
             lastSheet = (element, Date())
             lastEntered = (element, Date())
             let obj = ObjectFactory.make(element)
