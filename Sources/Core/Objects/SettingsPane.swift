@@ -277,6 +277,16 @@ public final class SettingsPanePlugin: GlobalPlugin {
     /// said nothing useful).
     /// `byTrap`: moved by the Tab trap, which keeps Tab if the place must be held (not the settings panes' Tab).
     public static func focus(_ target: AXUIElement, byTrap: Bool = false) {
+        // An iPad app on the Mac (Catalyst): Tab moves TurnOver's cursor only, as VoiceOver's cursor goes. Its controls
+        // refuse the focus anyway, and pushing it at them left Phone not responding (a tester, 11 Nov 2026).
+        if isCatalyst(target.pid) {
+            expected = nil
+            let trap = byTrap || inLoopWindow(target) || inTrapZone
+            Log.io("settings: an iPad app; TurnOver's cursor moves, the app's focus is left alone")
+            holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true, ownTab: !trap)
+            lock.lock(); _heldByTrap = trap; lock.unlock()
+            return
+        }
         _ = target.set(kAXFocusedAttribute, kCFBooleanTrue)
         if ["AXTable", "AXOutline"].contains(target.role), target.elements(kAXSelectedRowsAttribute).isEmpty,
            let first = target.elements(kAXRowsAttribute).first {
@@ -306,6 +316,17 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 lock.lock(); _heldByTrap = trap; lock.unlock()
             }
         }
+    }
+
+    /// Made with Mac Catalyst (an iPad app on the Mac: Phone, Journal, News, Maps, Home): its Info.plist names iPad
+    /// or Mac device families, which no AppKit app does. Kept per process.
+    private static var catalyst: [pid_t: Bool] = [:]
+    public static func isCatalyst(_ pid: pid_t) -> Bool {
+        if let known = catalyst[pid] { return known }
+        let url = NSRunningApplication(processIdentifier: pid)?.bundleURL
+        let yes = url.flatMap { Bundle(url: $0)?.object(forInfoDictionaryKey: "UIDeviceFamily") } != nil
+        catalyst[pid] = yes
+        return yes
     }
 
     /// The first or last control of a window's pane (from the tab bar: Tab goes to the first, Shift+Tab to the last).
@@ -364,7 +385,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
     /// does; TurnOver's went to the toolbar behind Journal's welcome sheet (11 Nov 2026).
     static func scopeOf(_ e: AXUIElement) -> AXUIElement? {
         var p: AXUIElement? = e; var hops = 0
-        while let x = p, hops < 25 { let r = x.role; if r == "AXSheet" { return x }; if r == "AXWindow" { return x }; p = x.element(kAXParentAttribute); hops += 1 }
+        while let x = p, hops < 25 { let r = x.role; if r == "AXSheet" || r == "AXPopover" { return x }; if r == "AXWindow" { return x }; p = x.element(kAXParentAttribute); hops += 1 }
         return windowOf(e)
     }
 
@@ -403,10 +424,33 @@ public final class SettingsPanePlugin: GlobalPlugin {
         }
         walk(window, 0)
         if withUnfocusable { found += unfocusable }
-        return found.sorted { a, b in
-            let ra = Int(a.1.midY / 8), rb = Int(b.1.midY / 8)
-            return ra != rb ? ra < rb : a.1.minX < b.1.minX
-        }.map { $0.0 }
+        return paneOrdered(found, in: window)
+    }
+
+    /// Screen order, pane by pane: in a window split into panes (a sidebar, a list, a detail), each pane's controls
+    /// go together, left pane first, as a window's own Tab goes. Sorted by rows alone, the sidebar's items were
+    /// threaded through the list's and the detail's (TurnOver's own settings; the rules survey, 11 Nov 2026).
+    /// Controls outside the split come before it if above, after it if below.
+    static func paneOrdered(_ found: [(AXUIElement, CGRect)], in window: AXUIElement) -> [AXUIElement] {
+        var split: AXUIElement?, splitFrame: CGRect?, panes: [CGRect] = []
+        var queue: [(AXUIElement, Int)] = [(window, 0)], seen = 0
+        while split == nil, !queue.isEmpty, seen < 200 {   // the outermost split group, breadth first
+            let (e, d) = queue.removeFirst(); seen += 1
+            if e.role == "AXSplitGroup", let f = TurnOverObject.frame(e) {
+                let kids = e.elements(kAXChildrenAttribute).filter { $0.role != "AXSplitter" }.compactMap { TurnOverObject.frame($0) }.filter { $0.width > 0 && $0.height > 0 }
+                if kids.count > 1 { split = e; splitFrame = f; panes = kids.sorted { $0.minX != $1.minX ? $0.minX < $1.minX : $0.minY < $1.minY } }
+            }
+            if d < 6 { queue += e.elements(kAXChildrenAttribute).map { ($0, d + 1) } }
+        }
+        func key(_ f: CGRect) -> (Int, Int, Int, CGFloat) {
+            let row = Int(f.midY / 8)
+            guard let sf = splitFrame else { return (0, 0, row, f.minX) }
+            if f.midY < sf.minY { return (0, 0, row, f.minX) }
+            if f.midY > sf.maxY { return (2, 0, row, f.minX) }
+            let pane = panes.firstIndex { $0.insetBy(dx: -1, dy: -1).contains(CGPoint(x: f.midX, y: f.midY)) } ?? panes.count
+            return (1, pane, row, f.minX)
+        }
+        return found.map { ($0.0, key($0.1)) }.sorted { a, b in a.1 < b.1 }.map { $0.0 }
     }
 
     /// Where Tab is typed or handled by the page, not a move between controls: text, documents, web content.
