@@ -37,23 +37,46 @@ enum NewDialogs {
         }
     }
 
-    /// A window was created in the app in front; a moment later, one holding a progress bar is read and its bar followed.
+    /// A window was created in the app in front; a moment later, one holding a progress bar is read and its bar followed,
+    /// and a small one that took the focus with no control inside it focused is entered.
     static func windowAppeared(_ window: AXUIElement, pid: pid_t) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            // Not the window in use (a new document window, Command N): only one beside it, as Finder's copy window is;
-            // and only a bar with a percentage, not a spinner (a review, 11 Nov 2026).
+            guard window.role == "AXWindow" else { return }
             let appEl = AXUIElementCreateApplication(pid)
-            if let fw = appEl.element(kAXFocusedWindowAttribute), fw.isSame(window) { return }
-            if let f = API.focusObject?.element, isInside(f, window) { return }
-            guard window.role == "AXWindow", let bar = firstProgressBar(in: window),
-                  let max = (bar.attr(kAXMaxValueAttribute) as? NSNumber)?.doubleValue,
-                  max > ((bar.attr(kAXMinValueAttribute) as? NSNumber)?.doubleValue ?? 0) else { return }
+            if let f = API.focusObject?.element, !f.isSame(window), isInside(f, window) { return }
+            let bar = firstProgressBar(in: window).flatMap { hasPercent($0) ? $0 : nil }
             let title = window.string(kAXTitleAttribute) ?? ""
+            if let fw = appEl.element(kAXFocusedWindowAttribute), fw.isSame(window) {
+                // The window in use, its focus on the window itself and no control (11 Nov 2026, macOS 27.2: Finder's
+                // copy window takes the focus as a window; Tab and the arrows did nothing and the bar wasn't heard, a
+                // tester). A new document or settings window focuses a control or is larger: left to the app.
+                if let real = appEl.element(kAXFocusedUIElementAttribute), !real.isSame(window) { return }
+                let controls = SettingsPanePlugin.controlsInOrder(in: window).filter { ($0.attr(kAXEnabledAttribute) as? Bool) != false }
+                guard bar != nil || (1...6).contains(controls.count) else { return }
+                guard let target = bar ?? landing(in: window) else { return }
+                let words = text(of: window)
+                Log.io("dialogs: a window took the focus with nothing in it focused (\(words.count) characters); onto its \(target.role)")
+                if !words.isEmpty { Speech.speakMessage(words) }
+                land(on: target, interrupt: false)
+                if let bar { ProgressWatch.watch(ObjectFactory.make(bar)) }
+                return
+            }
+            // Not the window in use (a new document window, Command N): only one beside it, and only a bar with a
+            // percentage, not a spinner (a review, 11 Nov 2026).
+            guard let bar else { return }
             let words = [title, text(of: window)].filter { !$0.isEmpty }.joined(separator: ", ")
             Log.io("dialogs: a window with a progress bar appeared (\(words.count) characters); its bar followed")
             if !words.isEmpty { Speech.speakMessage(words) }
             ProgressWatch.watch(ObjectFactory.make(bar))
         }
+    }
+
+    /// A bar with a percentage: a range, or no maximum and a value from 0 to 1 (Finder's copy window, macOS 27.2).
+    static func hasPercent(_ bar: AXUIElement) -> Bool {
+        guard let v = (bar.attr(kAXValueAttribute) as? NSNumber)?.doubleValue, v.isFinite else { return false }
+        let lo = (bar.attr(kAXMinValueAttribute) as? NSNumber)?.doubleValue ?? 0
+        if let hi = (bar.attr(kAXMaxValueAttribute) as? NSNumber)?.doubleValue { return hi > lo }
+        return v >= 0 && v <= 1
     }
 
     /// TurnOver on a control: the keyboard focus asked for, and if the app keeps it elsewhere, the place held (Space
