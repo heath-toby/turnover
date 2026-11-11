@@ -85,6 +85,8 @@ public enum Tones {
     }
     /// The focus sound played within `seconds`.
     public static func tickedWithin(_ seconds: TimeInterval) -> Bool { Date().timeIntervalSince(lastTick) < seconds }
+    /// When the focus sound last played.
+    public static var lastTickAt: Date { lastTick }
     private static var lastTick = Date.distantPast
     /// An item was pressed (a link followed, a button pressed): a fuller click, lower, two partials together.
     public static func press() {

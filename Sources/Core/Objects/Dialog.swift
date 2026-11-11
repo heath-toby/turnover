@@ -204,6 +204,7 @@ open class Dialog: TurnOverObject {
         Self.lineIndex[key] = nil
         let (e, n) = all[next]
         let kind = e.role == "AXStaticText" ? Role.button.displayString : ObjectFactory.make(e).role.displayString
+        Tones.focusTick()   // a move like any other Tab (a tester, 11 Nov 2026)
         Speech.speakMessage("\(n), \(kind), \(Phrases.position(next + 1, of: all.count))")
         // VO-Space and NVDA+Enter press what the review cursor is on: keep it on the choice Tab reached. (Tab said
         // "Allow" and VO-Space pressed something else, so macOS's audio permission prompt stayed up, 12 Oct 2026.)

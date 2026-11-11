@@ -82,6 +82,19 @@ public enum Speech {
         if !s.isEmpty { Log.io("say [silent]: \(s.prefix(160))") }
     }
 
+    /// Tab or Shift-Tab, then words: the focus sound goes with them, once for the key, if nothing played it yet. Apps
+    /// whose Tab TurnOver handles itself (Music's areas, the App Store's sidebar, Messages, a sheet's one button)
+    /// spoke with no sound (a tester, 11 Nov 2026): one rule here, not one in each.
+    private static var tabTickedFor = Date.distantPast
+    private static func tabTick() {
+        let at = InputManager.lastKeyDownAt
+        guard at != tabTickedFor, Date().timeIntervalSince(at) < 1.5, Tones.lastTickAt < at,
+              ["kb:tab", "kb:shift+tab"].contains(InputManager.lastKeyIdentifier),
+              API.focusObject?.element.role != "AXTextArea" else { return }   // (a tab typed into a document, echoed)
+        tabTickedFor = at
+        Tones.focusTick()
+    }
+
     static func enqueue(_ text: String, language: String? = nil, onStart: (@Sendable () -> Void)? = nil, completion: (@Sendable (Bool) -> Void)? = nil) {
         if text.contains(capitalMark) {
             // Raised only when the capital is the whole utterance; inside longer speech ("word A") the mark just goes.
@@ -131,6 +144,7 @@ public enum Speech {
         // raised the pitch of the next real utterance instead (code review, 16 Oct 2026).
         let pitch = pitchNext; pitchNext = nil
         sink?(cleaned(text))
+        tabTick()
         switch mode {
         case .talk: break
         case .onDemand where Date() < demandedUntil: break
@@ -348,7 +362,7 @@ public enum Speech {
         // Every focus said has the focus sound with it, however it got here: a module's own redirect, a dialog
         // entered, TurnOver's own held place. Several apps read the control Tab reached with no sound (a tester,
         // 11 Nov 2026). (A focus event already played it; a burst is one sound.)
-        if reason == .focus || reason == .focusEntered, !words.isEmpty, !Tones.tickedWithin(0.4) { Tones.focusTick() }
+        if reason == .focus || reason == .focusEntered, !words.isEmpty, !Tones.tickedWithin(0.15) { Tones.focusTick() }
         enqueue(words)
         if reason == .focus { Hints.schedule(Hints.forObject(obj)) }
     }
