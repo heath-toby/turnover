@@ -592,7 +592,25 @@ public final class SettingsPanePlugin: GlobalPlugin {
         }
         walk(window, 0)
         if withUnfocusable { found += unfocusable }
-        return paneOrdered(collapsingRowLists(found), in: window)
+        // Twins: one control inside another in the same place, the same name (Weather's tabs, a radio button with a
+        // button in it): one stop, the outer one. Each tab was said twice, a Tab each (11 Nov 2026).
+        var kept: [(AXUIElement, CGRect)] = []
+        var keptNames: [String] = []
+        for (e, f) in found {
+            // Only a control in the same place as one kept needs its name (names cost a few calls each).
+            let twins = kept.indices.filter { i in let k = kept[i].1; return abs(k.minX - f.minX) < 3 && abs(k.minY - f.minY) < 3 && abs(k.width - f.width) < 3 && abs(k.height - f.height) < 3 }
+            if !twins.isEmpty {
+                let name = ObjectFactory.make(e).name
+                var twin = false
+                for i in twins {
+                    if keptNames[i].isEmpty { keptNames[i] = ObjectFactory.make(kept[i].0).name }
+                    if keptNames[i] == name { twin = true; break }
+                }
+                if twin { continue }
+            }
+            kept.append((e, f)); keptNames.append("")
+        }
+        return paneOrdered(collapsingRowLists(kept), in: window)
     }
 
     // MARK: Lists the app doesn't call lists
