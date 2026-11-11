@@ -15,8 +15,19 @@ import ApplicationServices
 extension SettingsPanePlugin {
     /// Windows where Tab has been seen to loop short (main thread).
     static var loopWindows: [AXUIElement] = []
-    /// Where each Tab landed lately in the window it was pressed in, latest last.
-    static var tabLandings: (window: AXUIElement, landed: [AXUIElement])?
+    /// Where each Tab landed lately in the window it was pressed in, latest last: Tabs in one direction, one after
+    /// another, each within 3 s of the last. Tab and Shift Tab between two fields land B, A, B, A, which is no loop
+    /// (a review, 11 Nov 2026).
+    static var tabLandings: (window: AXUIElement, landed: [AXUIElement], forward: Bool, at: Date)?
+
+    /// Fields and web content keep their own Tab: a text field commits on Tab (Mail's To), a page's Tab goes from link
+    /// to link in browse mode, a document's Tab types (a review, 11 Nov 2026).
+    static func keepsOwnTab(_ e: AXUIElement) -> Bool {
+        if ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField", "AXWebArea"].contains(e.role) { return true }
+        var p = e.element(kAXParentAttribute); var hops = 0
+        while let x = p, hops < 20 { if x.role == "AXWebArea" { return true }; p = x.element(kAXParentAttribute); hops += 1 }
+        return false
+    }
 
     /// Whether `e` is in a window where Tab is TurnOver's.
     static func inLoopWindow(_ e: AXUIElement) -> Bool {
@@ -27,13 +38,20 @@ extension SettingsPanePlugin {
 
     /// A Tab or Shift Tab the app had: where it landed, and whether the landings show a short loop.
     static func watchTabLoop(_ g: KeyboardGesture) {
-        guard g.keyName == "tab", g.modifiers.subtracting(.shift).isEmpty else { return }
+        guard g.keyName == "tab", g.modifiers.subtracting(.shift).isEmpty else { tabLandings = nil; return }
+        let forward = !g.modifiers.contains(.shift), pressed = Date()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
             guard let f = API.focusObject, let window = windowOf(f.element), !inLoopWindow(f.element) else { return }
-            var landed = tabLandings.flatMap { $0.window.isSame(window) ? $0.landed : nil } ?? []
+            // Web content and fields are never counted: Safari's address field and page search with "Tab highlights
+            // each item" off are a real loop of two, and the page's Tab is browse mode's.
+            // A single-line field is a landing like any other (System Settings' loop went through its search field); Tab
+            // is still the field's own while it has the focus (keepsOwnTab in setTrapState).
+            if isInWeb(f.element) || (keepsOwnTab(f.element) && !["AXTextField", "AXSearchField"].contains(f.element.role)) { tabLandings = nil; return }
+            var landed: [AXUIElement] = []
+            if let t = tabLandings, t.window.isSame(window), t.forward == forward, pressed.timeIntervalSince(t.at) < 3 { landed = t.landed }
             landed.append(f.element)
             if landed.count > 12 { landed.removeFirst(landed.count - 12) }
-            tabLandings = (window, landed)
+            tabLandings = (window, landed, forward, pressed)
             guard let period = shortLoop(landed.map(Hashed.init)) else { return }
             let all = controls(in: window, toolbars: true)
             guard all.count >= period + 3 else { return }
@@ -43,6 +61,12 @@ extension SettingsPanePlugin {
             tabLandings = nil
             setTrapState(for: f.element)
         }
+    }
+
+    static func isInWeb(_ e: AXUIElement) -> Bool {
+        var p: AXUIElement? = e; var hops = 0
+        while let x = p, hops < 20 { if x.role == "AXWebArea" { return true }; p = x.element(kAXParentAttribute); hops += 1 }
+        return false
     }
 
     /// An element compared as the accessibility API compares them.

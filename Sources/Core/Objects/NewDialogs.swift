@@ -17,8 +17,18 @@ enum NewDialogs {
     static func sheetAppeared(_ sheet: AXUIElement, pid: pid_t) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             guard sheet.role == "AXSheet", NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+            // Only a sheet on the window in use: one on a window behind (Mail's send error while another message is
+            // being written) must not take the keys from it (a review, 11 Nov 2026).
+            let appEl = AXUIElementCreateApplication(pid)
+            guard let focusedWindow = appEl.element(kAXFocusedWindowAttribute),
+                  sheet.element(kAXParentAttribute)?.isSame(focusedWindow) == true || sheet.isSame(focusedWindow) else { return }
             if AppModuleHandler.shared.appModule(for: pid).sheetOpened(sheet) { return }
-            if let f = API.focusObject?.element, isInside(f, sheet) { return }   // the app moved the focus in itself
+            // The app's own focus, not only TurnOver's: in the sheet already, in a field (typing), or in another process
+            // (an Open or Save panel is drawn by a service of its own): left as it is.
+            if let real = appEl.element(kAXFocusedUIElementAttribute) {
+                if isInside(real, sheet) || real.pid != pid || ["AXTextField", "AXTextArea", "AXComboBox"].contains(real.role) { return }
+            }
+            if let f = API.focusObject?.element, isInside(f, sheet) { return }
             guard let target = landing(in: sheet) else { return }
             let words = text(of: sheet)
             Log.io("dialogs: a sheet opened with the focus outside it (\(words.count) characters of text); onto its \(target.role)")
@@ -30,7 +40,14 @@ enum NewDialogs {
     /// A window was created in the app in front; a moment later, one holding a progress bar is read and its bar followed.
     static func windowAppeared(_ window: AXUIElement, pid: pid_t) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            guard window.role == "AXWindow", let bar = firstProgressBar(in: window) else { return }
+            // Not the window in use (a new document window, Command N): only one beside it, as Finder's copy window is;
+            // and only a bar with a percentage, not a spinner (a review, 11 Nov 2026).
+            let appEl = AXUIElementCreateApplication(pid)
+            if let fw = appEl.element(kAXFocusedWindowAttribute), fw.isSame(window) { return }
+            if let f = API.focusObject?.element, isInside(f, window) { return }
+            guard window.role == "AXWindow", let bar = firstProgressBar(in: window),
+                  let max = (bar.attr(kAXMaxValueAttribute) as? NSNumber)?.doubleValue,
+                  max > ((bar.attr(kAXMinValueAttribute) as? NSNumber)?.doubleValue ?? 0) else { return }
             let title = window.string(kAXTitleAttribute) ?? ""
             let words = [title, text(of: window)].filter { !$0.isEmpty }.joined(separator: ", ")
             Log.io("dialogs: a window with a progress bar appeared (\(words.count) characters); its bar followed")
@@ -46,11 +63,9 @@ enum NewDialogs {
         let pid = e.pid
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             let real = AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute)
-            if let real, real.isSame(e) {
-                if !interrupt, API.focusObject?.isSameElement(as: e) != true { Speech.speakObject(ObjectFactory.make(e), reason: .focus) }
-                return   // the app took it: its own focus news says it
-            }
-            SettingsPanePlugin.holdVirtual(e, speak: interrupt)
+            if let real, real.isSame(e) { return }   // the app took it: its own focus news says it
+            // ownTab false: the settings panes' Tab would go round the window behind the sheet (a review, 11 Nov 2026).
+            SettingsPanePlugin.holdVirtual(e, speak: interrupt, ownTab: false)
             if !interrupt { Speech.speakObject(ObjectFactory.make(e), reason: .focus) }
             ObjectNavigator.shared.releaseHold()
             ObjectNavigator.shared.place(e)
@@ -61,7 +76,7 @@ enum NewDialogs {
     /// first control like Bluetooth's "Forget This Device…", which Space would press, when a safe one is there.
     static func landing(in root: AXUIElement) -> AXUIElement? {
         if let d = root.element(kAXDefaultButtonAttribute) { return d }
-        let controls = SettingsPanePlugin.controlsInOrder(in: root)
+        let controls = SettingsPanePlugin.controlsInOrder(in: root).filter { ($0.attr(kAXEnabledAttribute) as? Bool) != false }
         let safe = ["Done", "OK", "Close", "Cancel"]
         return controls.first { c in safe.contains(c.string(kAXDescriptionAttribute) ?? "") || safe.contains(c.string(kAXTitleAttribute) ?? "") } ?? controls.first
     }
@@ -84,7 +99,7 @@ enum NewDialogs {
 
     static func firstProgressBar(in root: AXUIElement) -> AXUIElement? {
         var queue = [root], visited = 0
-        while !queue.isEmpty, visited < 200 {
+        while !queue.isEmpty, visited < 120 {
             let e = queue.removeFirst(); visited += 1
             if e.role == "AXProgressIndicator" { return e }
             queue.append(contentsOf: e.elements(kAXChildrenAttribute))

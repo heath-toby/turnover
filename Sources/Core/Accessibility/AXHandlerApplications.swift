@@ -138,8 +138,9 @@ extension AXHandler {
     /// ever coming forward, so the watching that starts as an app comes forward never began: LaunchBar's bar went
     /// unread (a tester, 10 Nov 2026). Asked a moment after the key, once the panel is up; on main.
     public func noticeUnwatchedFocus() {
+        // No timeout set here: on the system-wide element it is every element's default (Core sets 2 s; a review,
+        // 11 Nov 2026).
         let sys = AXUIElementCreateSystemWide()
-        AXUIElementSetMessagingTimeout(sys, 0.25)
         var v: CFTypeRef?
         guard AXUIElementCopyAttributeValue(sys, kAXFocusedApplicationAttribute as CFString, &v) == .success, let v,
               CFGetTypeID(v) == AXUIElementGetTypeID() else { return }

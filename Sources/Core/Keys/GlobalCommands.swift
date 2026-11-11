@@ -683,8 +683,10 @@ public final class GlobalCommands: ScriptableObject {
         // No menu from the click: the menu may be a container's, up to the window (LaunchBar's is its bar window's,
         // the focused cell offering only AXPress, 10 Nov 2026). Its own AXShowMenu, nearest first.
         let item = e
+        let focusThen = API.focusObject?.element
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            guard !AXHandler.shared.isMenuOpen else { return }
+            // A menu that is still coming, or the focus moved meanwhile: no second menu (a review, 11 Nov 2026).
+            guard !AXHandler.shared.isMenuOpen, focusThen.map({ f in API.focusObject?.element.isSame(f) == true }) ?? true else { return }
             var p = item.element(kAXParentAttribute); var hops = 0
             while let x = p, hops < 8 {
                 var names: CFArray?

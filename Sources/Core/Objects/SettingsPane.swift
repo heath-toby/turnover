@@ -108,9 +108,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // Tab, and the place remembered took Tab from a new reminder's title too, so TurnOver moved the focus itself
         // and the window was announced between the fields (10 Oct 2026).
         let editable = ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"].contains(e.role)
-        // A window where Tab loops short (TabLoop.swift) is TurnOver's for Tab throughout, a single-line field too
-        // (the loop went through one); not a text area, where Tab types.
-        let inTrap = (e.role != "AXTextArea" && inLoopWindow(e)) || !trapZones.isEmpty && !editable && {
+        // A window where Tab loops short (TabLoop.swift) is TurnOver's for Tab, but not in a field or web content,
+        // which keep their own (keepsOwnTab).
+        let inTrap = (!keepsOwnTab(e) && inLoopWindow(e)) || !trapZones.isEmpty && !editable && {
             var p: AXUIElement? = e.element(kAXParentAttribute); var hops = 0
             while let x = p, hops < 6 { if trapZones.contains(where: { $0.isSame(x) }) { return true }; p = x.element(kAXParentAttribute); hops += 1 }
             return false
@@ -154,8 +154,13 @@ public final class SettingsPanePlugin: GlobalPlugin {
             let nowhere = f == nil || (focusApp?.activationPolicy == .regular && f?.pid != front?.processIdentifier)
             let before: AXUIElement, window: AXUIElement
             if nowhere {
-                guard let front, front.processIdentifier != getpid(), front.bundleIdentifier != "com.apple.Terminal" || f == nil,
-                      let w = AXUIElementCreateApplication(front.processIdentifier).element(kAXFocusedWindowAttribute) else { return }
+                // Asked of the app itself, not judged from TurnOver's own focus, which may be stale (a focus rule set
+                // the new one aside): only an app with nothing focused, or its window itself, counts (a review, 11 Nov
+                // 2026: Tab in a terminal or an editor must stay theirs).
+                guard let front, front.processIdentifier != getpid() else { return }
+                let appEl = AXUIElementCreateApplication(front.processIdentifier)
+                guard let w = appEl.element(kAXFocusedWindowAttribute) else { return }
+                if let real = appEl.element(kAXFocusedUIElementAttribute), !real.isSame(w) { return }
                 before = w; window = w
             } else {
                 guard let f, !Self.typesTab(f), let w = f.axRole == "AXWindow" ? f.element : Self.windowOf(f.element) else { return }
