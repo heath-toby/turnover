@@ -269,7 +269,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
             expected = nil
             let app = AXUIElementCreateApplication(target.pid)
             if !(app.element(kAXFocusedUIElementAttribute).map { $0.isSame(target) } ?? false) {
-                holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true)
+                // In a window whose Tab is the trap's (TabLoop, NewDialogs), the settings panes' Tab must not take
+                // over from the held place: Shift Tab went to it and did nothing (11 Nov 2026).
+                holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true, ownTab: !inLoopWindow(target))
             }
         }
     }
@@ -400,7 +402,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
             guard visited < 800 else { return }
             if x.isSame(e) { at = out.count; out.append(x); return }
             if controlRoles.contains(x.role) || x.role == "AXRadioButton" {
-                if (x.attr(kAXEnabledAttribute) as? Bool) != false { out.append(x) }
+                // Not the title bar's close, zoom and minimise buttons: they aren't the window's controls.
+                let frame = ["AXCloseButton", "AXZoomButton", "AXMinimizeButton", "AXFullScreenButton"].contains(x.string(kAXSubroleAttribute) ?? "")
+                if !frame, (x.attr(kAXEnabledAttribute) as? Bool) != false { out.append(x) }
                 return
             }
             for c in x.elements(kAXChildrenAttribute) { walk(c) }
