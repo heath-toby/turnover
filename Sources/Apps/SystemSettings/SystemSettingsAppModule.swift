@@ -197,19 +197,17 @@ package final class SystemSettingsAppModule: AppModule {
     package override func objectClass(for element: AXUIElement, role: Role, subrole: String?) -> TurnOverObject.Type? {
         role == .button ? SystemSettingsLabelledButton.self : nil
     }
+    /// A sheet (Bluetooth's Show Detail): its text read, then TurnOver on its safe button with the pane's way of holding
+    /// a place, so the module's Tab round goes on inside it (a tester, 10 Nov 2026).
+    package override func sheetOpened(_ sheet: AXUIElement) -> Bool {
+        guard let target = NewDialogs.landing(in: sheet) else { return false }
+        let words = NewDialogs.text(of: sheet)
+        Log.io("system settings: a sheet opened, \(words.count) characters of text; onto its \(target.role)")
+        if !words.isEmpty { Speech.speakMessage(words) }
+        SystemSettingsPaneFocus.place(target, interrupt: words.isEmpty)
+        return true
+    }
     package override func handleEvent(_ event: Event, next: () -> Void) {
-        // A sheet opening (Bluetooth's Show Detail): its text read, then TurnOver on its safe button, so Tab, object
-        // navigation and Space go on inside it; they stayed in the pane behind (a tester, 10 Nov 2026).
-        if event.kind == .focusEntered, event.obj.pid == pid, event.obj.axRole == "AXSheet" {
-            let sheet = event.obj.element
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                guard sheet.role == "AXSheet", let target = SystemSettingsPaneFocus.landing(in: sheet) else { return }
-                let words = SystemSettingsPaneFocus.text(of: sheet)
-                Log.io("system settings: a sheet opened, \(words.count) characters of text; onto its \(target.role)")
-                if !words.isEmpty { Speech.speakMessage(words) }
-                SystemSettingsPaneFocus.place(target, interrupt: words.isEmpty)
-            }
-        }
         if let pending {
             if event.kind == .gainFocus {
                 let expected = pending.target

@@ -140,6 +140,10 @@ extension AXHandler {
             // costing the main thread four round trips for a log line (a code review, 14 Oct 2026).
             // A second window: does this app list every window's elements under each (Qt Quick)? Checked once it does.
             if name == kAXWindowCreatedNotification, !ForeignChildren.contains(pid) { ForeignChildren.check(pid: pid) }
+            // A window beside the one in use, with a progress bar (Finder's copy window): read and its bar followed.
+            if name == kAXWindowCreatedNotification, element.role == "AXWindow", pid == activePid || NSWorkspace.shared.frontmostApplication?.processIdentifier == pid {
+                NewDialogs.windowAppeared(element, pid: pid)
+            }
             if Date().timeIntervalSince(loggedOnlyWindow) > 1 { loggedOnlyWindow = Date(); loggedOnlyCount = 0 }
             loggedOnlyCount += 1
             if loggedOnlyCount <= 20 { Log.io("notification \(name): \(element.role) \"\(Log.words(element.string(kAXTitleAttribute) ?? ""))\"") }
@@ -207,6 +211,7 @@ extension AXHandler {
             focusWindow = element
             API.setForegroundObject(obj)
             EventHandler.queue(Event(.focusEntered, obj))
+            NewDialogs.sheetAppeared(element, pid: pid)   // the focus left behind it: TurnOver goes in
         case kAXAnnouncementRequestedNotification:
             // Safari announces "Page Menu, Reader Available" as each page loads, sometimes twice: the same news once.
             if let text = info?["AXAnnouncementKey"] as? String, !text.isEmpty {

@@ -101,31 +101,6 @@ package enum SystemSettingsPaneFocus {
         ObjectNavigator.shared.place(e)
     }
 
-    /// Where a sheet opens: its default button, else its Done, OK, Close or Cancel, else its first control. Never a
-    /// first control like Bluetooth's "Forget This Device…", which Space would press, when a safe one is there.
-    static func landing(in sheet: AXUIElement) -> AXUIElement? {
-        if let d = sheet.element(kAXDefaultButtonAttribute) { return d }
-        let controls = controlsInOrder(sheet)
-        let safe = ["Done", "OK", "Close", "Cancel"]
-        return controls.first { c in safe.contains(c.string(kAXDescriptionAttribute) ?? "") || safe.contains(c.string(kAXTitleAttribute) ?? "") } ?? controls.first
-    }
-
-    /// A sheet's text as a dialog's is read when it opens ("Name, APH Mantis Q40…, Device Type, Bluetooth Device"):
-    /// its static texts in order, a text inside a text with the same words said once; at most 400 characters.
-    static func text(of sheet: AXUIElement) -> String {
-        var out: [String] = []
-        var visited = 0
-        func walk(_ e: AXUIElement) {
-            guard visited < 300 else { return }
-            visited += 1
-            if e.role == "AXStaticText", let v = e.string(kAXValueAttribute)?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty, out.last != v { out.append(v) }
-            for k in e.elements(kAXChildrenAttribute) { walk(k) }
-        }
-        walk(sheet)
-        let joined = out.joined(separator: ", ")
-        return joined.count > 400 ? String(joined.prefix(400)) : joined
-    }
-
     /// The same control, or one inside the other within a few levels (the search field's stand-in, a sidebar row).
     static func related(_ a: AXUIElement, _ b: AXUIElement) -> Bool {
         func within(_ x: AXUIElement, _ outer: AXUIElement) -> Bool {
