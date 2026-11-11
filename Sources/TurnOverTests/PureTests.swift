@@ -12,6 +12,13 @@ import TurnOverControl
 import AXFixtures
 
 func pureTests() {
+    test("pronunciations: whole words, any case, longest first, comments skipped") {
+        let list = PronunciationDictionary.parse("# mine\nTurnOver = turn over\nNew York = new york\nNew York City = big apple\nbad line\nLBRF = L B R F")
+        expect(list.count, 4, "four entries; the comment and the line without = left out")
+        expect(PronunciationDictionary.apply("turnover reads LBRF files", list), "turn over reads L B R F files", "replaced whole, whatever the case")
+        expect(PronunciationDictionary.apply("TurnOvers and xLBRF", list), "TurnOvers and xLBRF", "not inside another word")
+        expect(PronunciationDictionary.apply("New York City at night", list), "big apple at night", "the longer entry first")
+    }
     test("Help make TurnOver: every way to help named, by the menu's own words, and it opens by itself once") {
         let body = HelpMakeTurnOver.body
         for words in ["Send feedback", "Help improve this app", "Fix the item I'm on", "VO-Slash", "Translate", "CONTRIBUTING.md",

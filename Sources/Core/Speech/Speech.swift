@@ -179,7 +179,9 @@ public enum Speech {
         // No player (the plugin tool and the tests start no speech): nothing to say it with (a plugin list crashed
         // here, 13 Oct 2026).
         guard player != nil else { completion?(false); return }
-        player.speak(s, interrupt: false, voice: kokoro ?? voice, rate: voice == nil ? nil : Languages.rate(for: language), pitch: pitch, onStart: onStart, completion: completion)
+        let said = PronunciationDictionary.apply(s)
+        if said != s, Self.logsWords, !privateNext { Log.io("say, as pronounced: \(said.prefix(160))") }
+        player.speak(said, interrupt: false, voice: kokoro ?? voice, rate: voice == nil ? nil : Languages.rate(for: language), pitch: pitch, onStart: onStart, completion: completion)
     }
     private static var pitchNext: Float?
     /// Set by say all while it queues its text: Kokoro's "for reading" takes it.

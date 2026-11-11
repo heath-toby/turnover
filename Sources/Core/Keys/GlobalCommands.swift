@@ -118,6 +118,12 @@ public final class GlobalCommands: ScriptableObject {
         script("trackpadControl", String(localized: "Gesture control on or off: the trackpad's gestures drive TurnOver (NVDA+Control+Alt+T, touch interaction)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:turnover+control+option+t"], category: win) { _ in
             Trackpad.toggle()
         }.isAvailable = { windowsOn() && Trackpad.available }
+        // NVDA+F7 outside a page: the window's own elements (buttons, fields, lists, links, headings), narrowed by kind
+        // and by typing, as VoiceOver's rotor and item chooser are. On a page the page's list answers first (browse
+        // mode). Had no key in the Windows style (the parity checklist, 11 Nov 2026).
+        script("windowElementsList", String(localized: "Elements list for the window: its buttons, fields, lists and links, by kind; Enter goes there (NVDA+F7 outside a page)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:turnover+f7"], category: win) { _ in
+            ItemChooser.openRotor()
+        }.isAvailable = windowsOn
         script("applicationChooser", String(localized: "Application chooser; lists every application with a window, system alerts too, to switch to (Windows: Windows+Tab, Task View)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:option+tab"], category: win) { _ in
             DispatchQueue.main.async { ApplicationChooser.open() }
         }.isAvailable = windowsOn
