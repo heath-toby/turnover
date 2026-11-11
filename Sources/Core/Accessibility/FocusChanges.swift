@@ -30,6 +30,7 @@ extension AXHandler {
     typealias FocusRule = (AXUIElement, pid_t, AXUIElement) -> FocusVerdict
     var focusRules: [(String, FocusRule)] {[
         ("not an application", ruleNotAnApplication),
+        ("an application that names itself, not in front", ruleApplicationItself),
         ("background application", ruleBackgroundApplication),
         ("set aside after a settings Tab", ruleSetAside),
         ("behind a sheet just opened", ruleBehindNewSheet),
@@ -140,6 +141,15 @@ extension AXHandler {
            let held = API.focusObject, held.pid == pid {
             Speech.speakObject(held, reason: .focus)
         }
+        return .ignore
+    }
+
+    /// An application naming itself as its focus while another is in front: LaunchBar, whose panel was closed, did so
+    /// as the Dock took the keyboard (Control F3), and the Dock's arrows said nothing after (11 Nov 2026). An app
+    /// itself is no place to be.
+    func ruleApplicationItself(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
+        guard target.role == "AXApplication", NSWorkspace.shared.frontmostApplication?.processIdentifier != pid else { return .go(target) }
+        Log.io("focus on the application \(NSRunningApplication(processIdentifier: pid)?.localizedName ?? "") itself, not in front; ignored")
         return .ignore
     }
 

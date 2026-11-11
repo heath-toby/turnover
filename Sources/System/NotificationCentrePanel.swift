@@ -159,6 +159,9 @@ public enum NotificationCentrePanel {
         guard let pid = centrePid() else { return }
         guard ObjectNavigator.shared.reviewElement?.pid == pid else { return }
         guard !isOpen else { return }
+        // Only to a focus that is still there: one the panel took with it said "unknown" as Control Centre opened
+        // (11 Nov 2026); the new focus speaks for itself.
+        guard let f = API.focusObject, f.element.role != "?" else { Log.io("notification centre: closed from outside; the focus it had is gone"); return }
         Log.io("notification centre: closed from outside; the cursor goes back to the focus")
         ObjectNavigator.shared.toFocus()
     }
