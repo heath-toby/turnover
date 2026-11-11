@@ -10,6 +10,7 @@
 // through every control in screen order (the tab trap's move: the keyboard focus where the app takes it, the place
 // held where it doesn't, so Space and Return press it). A window is forgotten when it closes.
 import Foundation
+import AppKit
 import ApplicationServices
 
 extension SettingsPanePlugin {
@@ -31,9 +32,20 @@ extension SettingsPanePlugin {
 
     /// Whether `e` is in a window where Tab is TurnOver's.
     static func inLoopWindow(_ e: AXUIElement) -> Bool {
-        guard !loopWindows.isEmpty, let w = windowOf(e) else { return false }
+        guard let w = windowOf(e) else { return false }
         loopWindows.removeAll { $0.role == "?" }   // closed windows
-        return loopWindows.contains { $0.isSame(w) }
+        if loopWindows.contains(where: { $0.isSame(w) }) { return true }
+        // The same kind of window seen looping before (each Save sheet is a new window: four Tabs each time before
+        // TurnOver took over): the app and the window's title.
+        if let k = loopKind(w), loopKinds.contains(k) { loopWindows.append(w); return true }
+        return false
+    }
+    /// Kinds of window seen to loop: "bundle|title" (main thread; this run only).
+    static var loopKinds: Set<String> = []
+    static func loopKind(_ w: AXUIElement) -> String? {
+        let title = w.string(kAXTitleAttribute) ?? ""
+        guard !title.isEmpty, let id = NSRunningApplication(processIdentifier: w.pid)?.bundleIdentifier else { return nil }
+        return id + "|" + title
     }
 
     /// A Tab or Shift Tab the app had: where it landed, and whether the landings show a short loop.
@@ -57,6 +69,7 @@ extension SettingsPanePlugin {
             guard all.count >= period + 3 else { return }
             Log.io("tab loop: Tab goes round \(period) controls of \(all.count) in this window; Tab here is TurnOver's from now")
             loopWindows.append(window)
+            if let k = loopKind(window) { loopKinds.insert(k) }
             if loopWindows.count > 20 { loopWindows.removeFirst() }
             tabLandings = nil
             setTrapState(for: f.element)

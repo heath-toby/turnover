@@ -397,7 +397,12 @@ public final class MediaView {
         // the sidebar's choice when the window is just the app's name (Music).
         let appName = NSRunningApplication(processIdentifier: input.pid)?.localizedName ?? ""
         let windowName = window.string(kAXTitleAttribute) ?? ""
-        let pageTitle = !windowName.isEmpty && windowName != appName ? windowName : (sidebar.first(where: { $0.selected })?.label ?? windowName)
+        var pageTitle = !windowName.isEmpty && windowName != appName ? windowName : (sidebar.first(where: { $0.selected })?.label ?? windowName)
+        // An album, artist or playlist page (Music's "album details"): its own title, not the sidebar's choice it was
+        // opened from ("Recently Added page" on an album, 11 Nov 2026).
+        if let details = Self.first(in: window, depth: 3, where: { $0.role == "AXScrollArea" && $0.string(kAXIdentifierAttribute) == "detailsScroller" }),
+           let t = details.elements(kAXChildrenAttribute).first(where: { $0.role == "AXStaticText" && $0.string(kAXIdentifierAttribute) == "title" })?.string(kAXValueAttribute),
+           !t.isEmpty { pageTitle = t }
         // A table with no name of its own is the page's list ("Songs", not the window's "Music").
         let windowTitle = window.string(kAXTitleAttribute) ?? ""
         for i in shelves.indices where shelves[i].title == windowTitle || shelves[i].title == Self.untitledShelf { shelves[i].title = pageTitle }

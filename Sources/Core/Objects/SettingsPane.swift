@@ -150,7 +150,10 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // cursor goes. The app's own Tab is slow, and reports the focus still on a field it left: Phone's Tab and
         // Shift Tab went silent or round the toolbar for ever (a tester's idea, 11 Nov 2026).
         let catalyst = isCatalyst(e.pid) && !moduleTakesTab(e.pid) && e.role != "AXTextArea" && !isInWeb(e)
-        let inTrap = catalyst || (!keepsOwnTab(e) && inLoopWindow(e)) || !trapZones.isEmpty && !editable && {
+        // In a window whose Tab loops short, a one-line field gives Tab up too: a loop of fields alone (the Save sheet's
+        // name and tags) never reached Where, Cancel or Save (11 Nov 2026). Tab in a one-line field only moves on.
+        let oneLine = ["AXTextField", "AXSearchField"].contains(e.role)
+        let inTrap = catalyst || ((!keepsOwnTab(e) || oneLine) && inLoopWindow(e)) || !trapZones.isEmpty && !editable && {
             var p: AXUIElement? = e.element(kAXParentAttribute); var hops = 0
             while let x = p, hops < 6 { if trapZones.contains(where: { $0.isSame(x) }) { return true }; p = x.element(kAXParentAttribute); hops += 1 }
             return false

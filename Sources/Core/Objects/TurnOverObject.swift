@@ -324,10 +324,45 @@ open class TurnOverObject: ScriptableObject {
         return s
     }()
 
+    /// The names of the keys macOS draws in menus as symbols (Carbon's menu glyph numbers).
+    static let menuGlyphNames: [Int: String] = [
+        2: "tab", 3: "shift tab", 4: "enter", 9: "space", 10: "forward delete", 11: "return", 23: "delete", 27: "escape",
+        28: "clear", 98: "page up", 99: "caps lock", 100: "left arrow", 101: "right arrow", 102: "home", 104: "up arrow",
+        105: "end", 106: "down arrow", 107: "page down", 140: "eject",
+    ].merging((0..<12).map { (111 + $0, "F\($0 + 1)") }, uniquingKeysWith: { a, _ in a })
+    /// A command character that is a control or function key, named.
+    static func menuKeyName(_ ch: String) -> String {
+        guard let u = ch.unicodeScalars.first, ch.unicodeScalars.count == 1 else { return ch }
+        switch u.value {
+        case 0x08, 0x7F: return "delete"
+        case 0x09: return "tab"
+        case 0x0D, 0x03: return "return"
+        case 0x1B: return "escape"
+        case 0x20: return "space"
+        case 0xF700: return "up arrow"
+        case 0xF701: return "down arrow"
+        case 0xF702: return "left arrow"
+        case 0xF703: return "right arrow"
+        case 0xF704...0xF726: return "F\(u.value - 0xF704 + 1)"
+        case 0xF728: return "forward delete"
+        case 0xF729: return "home"
+        case 0xF72B: return "end"
+        case 0xF72C: return "page up"
+        case 0xF72D: return "page down"
+        case 0x1F3A4: return "dictation key"   // Start Dictation: drawn as a microphone, said "🎤"
+        default: return ch
+        }
+    }
+
     /// "command N" from a menu item's command character and modifiers.
     open var keyboardShortcut: String? { _shortcut }
     private lazy var _shortcut: String? = {
-        guard let ch = element.string("AXMenuItemCmdChar"), !ch.isEmpty else { return nil }
+        // A key drawn as a symbol (Finder's Move to Bin, command delete) has a glyph number, or a control character,
+        // in place of a letter: it was said as nothing, "shift command" (the menu walk, 11 Nov 2026).
+        let glyph = element.int("AXMenuItemCmdGlyph").flatMap { Self.menuGlyphNames[$0] }
+        let raw = element.string("AXMenuItemCmdChar") ?? ""
+        guard !raw.isEmpty || glyph != nil else { return nil }
+        let ch = glyph ?? Self.menuKeyName(raw)
         let mods = element.int("AXMenuItemCmdModifiers") ?? 0
         var parts: [String] = []
         if mods & 4 != 0 { parts.append("control") }
@@ -533,7 +568,10 @@ open class TurnOverObject: ScriptableObject {
     open func event_menuStart() {
         // A menu bar menu is named by the menu bar item above it (Word's menus have no names of their own).
         // A submenu is named by the item that holds it ("Clear submenu").
-        let parent = element.element(kAXParentAttribute)
+        var parent = element.element(kAXParentAttribute)
+        // An iPad app's menu (Maps, Messages) names a group in its window as its parent, not the menu bar's title: it
+        // was said as a context menu, and Right went no further along the bar (the menu walk, 11 Nov 2026).
+        if let owner = Self.menuBarItem(owning: element) { parent = owner }
         let parentRole = parent?.role ?? ""
         var menuName = name.isEmpty ? (parent?.string(kAXTitleAttribute) ?? "") : name
         // A status menu hangs off an unnamed menu extra: it is the application's menu ("a VPN app's menu").
@@ -560,6 +598,13 @@ open class TurnOverObject: ScriptableObject {
         }
         Speech.speakMessage(menuName.isEmpty ? String(localized: "context menu", comment: "Spoken message")
             : isSubmenu ? String(localized: "\(menuName) submenu", comment: "A submenu opened: its name") : String(localized: "\(menuName) menu", comment: "A menu bar item: %@ is its name (View menu)"))
+    }
+    /// The menu bar title whose menu this is, found from the bar (a menu's own parent can be wrong: iPad apps).
+    public static func menuBarItem(owning menu: AXUIElement) -> AXUIElement? {
+        guard menu.role == "AXMenu", menu.element(kAXParentAttribute)?.role != "AXMenuBarItem",
+              let bar = AXUIElementCreateApplication(menu.pid).element(kAXMenuBarAttribute) else { return nil }
+        for item in bar.elements(kAXChildrenAttribute).prefix(20) where item.elements(kAXChildrenAttribute).contains(where: { CFEqual($0, menu) }) { return item }
+        return nil
     }
     /// When a context menu was last asked for by key; the menu that opens then is announced as one.
     public static var contextMenuRequestedAt = Date.distantPast

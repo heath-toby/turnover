@@ -59,7 +59,11 @@ open class Dialog: TurnOverObject {
             } else if r == "AXTable" || r == "AXScrollArea" && e.elements(kAXChildrenAttribute).first?.role == "AXTable" {
                 // A small table of figures (Word's Word Count: "Pages 1", "Words 11"…): each row as one line.
                 let table = r == "AXTable" ? e : e.elements(kAXChildrenAttribute)[0]
-                for row in table.elements(kAXRowsAttribute).prefix(20) {
+                // Only a small table of two columns or more: a list of choices (Go to Folder's suggested folders) was
+                // read out as the dialog's message, ".kbuild, Recents, Users…" (11 Nov 2026).
+                let rows = table.elements(kAXRowsAttribute)
+                guard rows.count <= 12, table.elements(kAXColumnsAttribute).count >= 2 else { continue }
+                for row in rows.prefix(20) {
                     let cells = row.elements(kAXChildrenAttribute).compactMap { c -> String? in
                         let v = (c.string(kAXValueAttribute) ?? c.string(kAXTitleAttribute) ?? ObjectFactory.make(c).name).trimmingCharacters(in: .whitespacesAndNewlines)
                         return v.isEmpty ? nil : v

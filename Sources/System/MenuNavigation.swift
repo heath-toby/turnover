@@ -385,6 +385,7 @@ final class MenuNavigationPlugin: GlobalPlugin {
         for _ in 0..<8 {
             guard let x = p else { return false }
             if x.role == "AXMenuBar" || x.role == "AXMenuBarItem" { return true }
+            if x.role == "AXMenu", TurnOverObject.menuBarItem(owning: x) != nil { return true }   // an iPad app's menu
             p = x.element(kAXParentAttribute)
         }
         return false
