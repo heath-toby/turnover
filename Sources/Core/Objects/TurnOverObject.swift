@@ -47,6 +47,11 @@ open class TurnOverObject: ScriptableObject {
         // The window's own buttons have no name: VoiceOver calls them by what they do.
         if _name.isEmpty, let n = ["AXCloseButton": "close", "AXMinimizeButton": "minimise", "AXZoomButton": "zoom", "AXFullScreenButton": "full screen"][element.string(kAXSubroleAttribute) ?? ""] { return n }
         if _name.isEmpty, let l = swiftUILabel() { return l }
+        // A saved search's window titled by its file's path (Finder's Recents, with the full path shown in titles:
+        // ".../MyLibraries/myDocuments.cannedSearch"): its name as Finder shows it, "Recents" (11 Nov 2026).
+        if role == .window, _name.hasPrefix("/"), _name.hasSuffix(".cannedSearch") || _name.hasSuffix(".savedSearch") {
+            return FileManager.default.displayName(atPath: _name)
+        }
         return _name
     }
     /// The name as the element gives it, for a subclass that knows where else to look (TurnOver Settings' module).
