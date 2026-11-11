@@ -98,6 +98,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
             i = j; n = ((forward ? i + 1 : i - 1) + all.count) % all.count
         }
         Self.trapList = (window, all, Date())
+        // Round to the same control (a window with one, Reminders' Continue): nothing changes, so nothing would be
+        // said; it is said again, as Tab on Windows says it (the sweep, 11 Nov 2026).
+        if all[n].isSame(current) { Speech.cancel(); Speech.speakObject(ObjectFactory.make(current), reason: .focus); return }
         Self.focus(all[n])
         Self.setTrapState(for: all[n])
     }
