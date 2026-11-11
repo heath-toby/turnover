@@ -436,9 +436,15 @@ public final class SettingsPanePlugin: GlobalPlugin {
         var queue: [(AXUIElement, Int)] = [(window, 0)], seen = 0
         while split == nil, !queue.isEmpty, seen < 200 {   // the outermost split group, breadth first
             let (e, d) = queue.removeFirst(); seen += 1
-            if e.role == "AXSplitGroup", let f = TurnOverObject.frame(e) {
+            if ["AXSplitGroup", "AXGroup"].contains(e.role), let f = TurnOverObject.frame(e), f.height > 0 {
                 let kids = e.elements(kAXChildrenAttribute).filter { $0.role != "AXSplitter" }.compactMap { TurnOverObject.frame($0) }.filter { $0.width > 0 && $0.height > 0 }
-                if kids.count > 1 { split = e; splitFrame = f; panes = kids.sorted { $0.minX != $1.minX ? $0.minX < $1.minX : $0.minY < $1.minY } }
+                    .sorted { $0.minX != $1.minX ? $0.minX < $1.minX : $0.minY < $1.minY }
+                // A split group, or a plain group laid out as columns: its children side by side, each the group's
+                // height, none overlapping. iPad apps build their sidebar and detail so (Phone's Recents beside the
+                // call's details: Tab wove the two together, a tester, 11 Nov 2026).
+                let columns = kids.count > 1 && f.height >= (TurnOverObject.frame(window)?.height ?? 0) * 0.4 && kids.allSatisfy { $0.height >= f.height * 0.7 }
+                    && zip(kids, kids.dropFirst()).allSatisfy { $0.maxX <= $1.minX + 2 }
+                if kids.count > 1, e.role == "AXSplitGroup" || columns { split = e; splitFrame = f; panes = kids }
             }
             if d < 6 { queue += e.elements(kAXChildrenAttribute).map { ($0, d + 1) } }
         }
