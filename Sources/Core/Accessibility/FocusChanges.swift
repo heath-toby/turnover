@@ -33,6 +33,7 @@ extension AXHandler {
         ("background application", ruleBackgroundApplication),
         ("set aside after a settings Tab", ruleSetAside),
         ("behind a sheet just opened", ruleBehindNewSheet),
+        ("iPad app's late focus on a nameless group", ruleCatalystLateGroup),
         ("untitled window", ruleUntitledWindow),
         ("helper's window", ruleHelperWindow),
         ("switching preference tabs", rulePreferenceTabSwitch),
@@ -97,6 +98,17 @@ extension AXHandler {
     func ruleBehindNewSheet(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
         if NewDialogs.isBehindNewSheet(target) { Log.io("focus to \(target.role) behind a sheet just opened; set aside"); return .ignore }
         return .go(target)
+    }
+
+    /// An iPad app, while TurnOver's cursor is held by the Tab trap: the app's focus landing on a nameless group is
+    /// its slow answer to a key the trap already took (Phone answers a second late), not a move worth leaving the
+    /// held place for. Shift Tab went round three toolbar items for ever (11 Nov 2026).
+    func ruleCatalystLateGroup(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
+        guard SettingsPanePlugin.holdingVirtual, SettingsPanePlugin.inTrapZone, SettingsPanePlugin.isCatalyst(pid),
+              target.role == "AXGroup", (target.string(kAXTitleAttribute) ?? "").isEmpty, (target.string(kAXDescriptionAttribute) ?? "").isEmpty
+        else { return .go(target) }
+        Log.io("focus to a nameless group in an iPad app while TurnOver holds its place; set aside")
+        return .ignore
     }
 
     /// Just after TurnOver took the place on a control that refused the focus: the application's own news is set aside.

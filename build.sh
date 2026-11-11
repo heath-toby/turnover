@@ -12,6 +12,8 @@ set -e
 cd "$(dirname "$0")"
 
 BUILD="${TURNOVER_BUILD:-$HOME/Library/Developer/TurnOver/build}"
+# TURNOVER_CONFIG=debug: a quick build for trying a change (tens of seconds, not minutes); slower to run.
+CONF="${TURNOVER_CONFIG:-release}"
 # Developer ID when there is one, as the published builds: Accessibility and Input Monitoring are kept for every
 # account on the Mac, one entry per app, tied to the signature. A development copy signed differently and a tester
 # account's published copy took that entry from each other, and macOS kept asking both (5 Oct 2026).
@@ -60,7 +62,7 @@ mkdir -p "$BUILD"
 # (Every product, the Settings app and the test runners too: a stale one of those installed or ran as if new. From an
 # outside audit, pull request 13, 26 Oct 2026.)
 for f in turnover turnover-probe turnover-plugin turnover-key turnover-settings turnover-tests turnover-coretest libTurnOverCore.dylib; do
-  rm -f "$BUILD/release/$f"
+  rm -f "$BUILD/$CONF/$f"
 done
 # The recipes and official listings, built into the program (make-embedded.py).
 python3 make-embedded.py || { echo "STOP: make-embedded.py failed"; exit 1; }
@@ -73,19 +75,19 @@ python3 Tools/build-app-index.py --check
 set +e
 # The compiler lists the translatable strings as it goes (Package.swift's translatable), for the catalog.
 export TURNOVER_STRINGS="$BUILD/strings"
-swift build -c release --scratch-path "$BUILD" $SWIFTFLAGS 2>&1 | grep -vE '^\[[0-9]+/[0-9]+\]'
+swift build -c "$CONF" --scratch-path "$BUILD" $SWIFTFLAGS 2>&1 | grep -vE '^\[[0-9]+/[0-9]+\]'
 BUILD_STATUS=${PIPESTATUS[0]}
 set -e
 [ "$BUILD_STATUS" -eq 0 ] || { echo "build failed"; exit "$BUILD_STATUS"; }
-[ -x "$BUILD/release/turnover" ] && [ -x "$BUILD/release/turnover-key" ] && [ -f "$BUILD/release/libTurnOverCore.dylib" ] || { echo "build failed"; exit 1; }
+[ -x "$BUILD/$CONF/turnover" ] && [ -x "$BUILD/$CONF/turnover-key" ] && [ -f "$BUILD/$CONF/libTurnOverCore.dylib" ] || { echo "build failed"; exit 1; }
 # The unit tests (Sources/TurnOverTests): a failing test stops the install (8 Oct 2026). TURNOVER_SKIP_TESTS=1 to skip.
 if [ "$TURNOVER_SKIP_TESTS" != 1 ]; then
-  "$BUILD/release/turnover-tests" || { echo "build.sh: tests failed; not installing"; exit 1; }
+  "$BUILD/$CONF/turnover-tests" || { echo "build.sh: tests failed; not installing"; exit 1; }
   bash Tools/tests/braille-thread-test.sh
 fi
 
 # TURNOVER_UNIVERSAL=1 (for release builds): an Intel build as well, merged with the Apple Silicon one, so the app runs on both.
-BIN="$BUILD/release"
+BIN="$BUILD/$CONF"
 if [ "$TURNOVER_UNIVERSAL" = 1 ]; then
   X86="$BUILD-x86_64"
   for f in turnover turnover-probe turnover-plugin turnover-key turnover-settings turnover-tests turnover-coretest libTurnOverCore.dylib; do
@@ -100,7 +102,7 @@ if [ "$TURNOVER_UNIVERSAL" = 1 ]; then
   BIN="$BUILD/universal"
   rm -rf "$BIN"; mkdir -p "$BIN"
   for f in turnover turnover-plugin turnover-key turnover-settings libTurnOverCore.dylib; do
-    lipo -create "$BUILD/release/$f" "$X86/release/$f" -output "$BIN/$f"
+    lipo -create "$BUILD/$CONF/$f" "$X86/release/$f" -output "$BIN/$f"
   done
   echo "Universal: $(lipo -archs "$BIN/turnover")"
 fi
@@ -155,7 +157,7 @@ fi
 python3 make-strings.py sync "$TURNOVER_STRINGS" || { echo "STOP: make-strings.py sync failed"; exit 1; }
 
 # The probe: sign in place.
-sign --force --sign "$IDENTITY" --identifier com.turnover.probe "$BUILD/release/turnover-probe"
+sign --force --sign "$IDENTITY" --identifier com.turnover.probe "$BUILD/$CONF/turnover-probe"
 
 # The reader: assemble the bundle.
 rm -rf "$APP"
@@ -186,7 +188,7 @@ python3 make-changes.py try CHANGELOG.md "$APP/Contents/Resources/new-to-try.jso
 # The core is a dynamic library (add-ons link it); the executable looks for it in Contents/Frameworks.
 cp "$BIN/libTurnOverCore.dylib" "$APP/Contents/Frameworks/libTurnOverCore.dylib"
 # Sparkle (updates): its framework already holds both architectures.
-SPARKLE="$BUILD/release/Sparkle.framework"
+SPARKLE="$BUILD/$CONF/Sparkle.framework"
 [ -d "$SPARKLE" ] || { echo "Sparkle.framework missing from the build"; exit 1; }
 ditto "$SPARKLE" "$APP/Contents/Frameworks/Sparkle.framework"
 cp Resources/Info.plist "$APP/Contents/Info.plist"

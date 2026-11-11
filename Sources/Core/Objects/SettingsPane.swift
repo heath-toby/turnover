@@ -88,8 +88,10 @@ public final class SettingsPanePlugin: GlobalPlugin {
         var all: [AXUIElement]
         if let c = Self.trapList, c.window.isSame(window), Date().timeIntervalSince(c.at) < 5 { all = c.controls }
         else { all = Self.controls(in: window, toolbars: true, unfocusable: true); Self.trapList = (window, all, Date()) }
-        var here = all.firstIndex { $0.isSame(current) }
-        if here == nil { all = Self.controls(in: window, toolbars: true, unfocusable: true); Self.trapList = (window, all, Date()); here = all.firstIndex { $0.isSame(current) } }
+        // On a row of a list the trap made (rowLists): its place is the list's, which stands for all its rows.
+        func stop(_ e: AXUIElement) -> AXUIElement { Self.rowList(of: e)?.stop ?? e }
+        var here = all.firstIndex { $0.isSame(stop(current)) }
+        if here == nil { all = Self.controls(in: window, toolbars: true, unfocusable: true); Self.trapList = (window, all, Date()); here = all.firstIndex { $0.isSame(stop(current)) } }
         // A held place that isn't a control (a copy window's progress bar, NewDialogs): Tab goes from where it sits
         // among the window's controls, in the order of the window's children (11 Nov 2026: Tab said nothing).
         if here == nil, let around = Self.controlsAround(current, in: window) {
@@ -126,6 +128,12 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // Round to the same control (a window with one, Reminders' Continue): nothing changes, so nothing would be
         // said; it is said again, as Tab on Windows says it (the sweep, 11 Nov 2026).
         if all[n].isSame(current) { Speech.cancel(); Speech.speakObject(ObjectFactory.make(current), reason: .focus); return }
+        // Into a list the trap made: on its first row (from the end, Shift Tab: its last).
+        if let (rows, _, _) = Self.rowList(of: all[n]) {
+            Self.landInRowList(rows, at: forward ? 0 : rows.count - 1, entering: true)
+            Self.setTrapState(for: rows[0])
+            return
+        }
         Self.focus(all[n], byTrap: true)
         Self.setTrapState(for: all[n])
     }
@@ -138,7 +146,11 @@ public final class SettingsPanePlugin: GlobalPlugin {
         let editable = ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"].contains(e.role)
         // A window where Tab loops short (TabLoop.swift) is TurnOver's for Tab, but not in a field or web content,
         // which keep their own (keepsOwnTab).
-        let inTrap = (!keepsOwnTab(e) && inLoopWindow(e)) || !trapZones.isEmpty && !editable && {
+        // An iPad app (Catalyst): Tab is TurnOver's everywhere but in a text area or web content, as VoiceOver's
+        // cursor goes. The app's own Tab is slow, and reports the focus still on a field it left: Phone's Tab and
+        // Shift Tab went silent or round the toolbar for ever (a tester's idea, 11 Nov 2026).
+        let catalyst = isCatalyst(e.pid) && e.role != "AXTextArea" && !isInWeb(e)
+        let inTrap = catalyst || (!keepsOwnTab(e) && inLoopWindow(e)) || !trapZones.isEmpty && !editable && {
             var p: AXUIElement? = e.element(kAXParentAttribute); var hops = 0
             while let x = p, hops < 6 { if trapZones.contains(where: { $0.isSame(x) }) { return true }; p = x.element(kAXParentAttribute); hops += 1 }
             return false
@@ -249,6 +261,8 @@ public final class SettingsPanePlugin: GlobalPlugin {
             }
         }
         script("trap_next", String(localized: "Where the app ignores Tab: the next control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Settings") { [weak self] g in self?.trapMove(g, forward: true) }.isAvailable = { Self.inTrapZone }
+        script("rowList_up", String(localized: "In a column of rows TurnOver reads as a list: the row above", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:upArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(-1) }.isAvailable = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) } != nil }
+        script("rowList_down", String(localized: "In a column of rows TurnOver reads as a list: the row below", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:downArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(1) }.isAvailable = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) } != nil }
         script("trap_previous", String(localized: "Where the app ignores Shift+Tab: the previous control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Settings") { [weak self] g in self?.trapMove(g, forward: false) }.isAvailable = { Self.inTrapZone }
         script("settings_next", String(localized: "In a settings pane: the next control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Settings") { [weak self] g in self?.move(g, forward: true) }.isAvailable = { Self.inPane }
         script("settings_previous", String(localized: "In a settings pane: the previous control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Settings") { [weak self] g in self?.move(g, forward: false) }.isAvailable = { Self.inPane }
@@ -277,6 +291,12 @@ public final class SettingsPanePlugin: GlobalPlugin {
     /// said nothing useful).
     /// `byTrap`: moved by the Tab trap, which keeps Tab if the place must be held (not the settings panes' Tab).
     public static func focus(_ target: AXUIElement, byTrap: Bool = false) {
+        // A row of a list the trap made: into the list, on that row.
+        if let (rows, i, _) = rowList(of: target) {
+            landInRowList(rows, at: i, entering: true)
+            setTrapState(for: rows[0])
+            return
+        }
         // An iPad app on the Mac (Catalyst): Tab moves TurnOver's cursor only, as VoiceOver's cursor goes. Its controls
         // refuse the focus anyway, and pushing it at them left Phone not responding (a tester, 11 Nov 2026).
         if isCatalyst(target.pid) {
@@ -359,7 +379,8 @@ public final class SettingsPanePlugin: GlobalPlugin {
 
     /// Space or Return on a held control: press it.
     private func pressHeld(_ g: KeyboardGesture) {
-        guard let v = Self.virtual, API.focusObject?.isSameElement(as: v) == true else { g.send(); return }
+        guard let v = Self.virtual, API.focusObject?.isSameElement(as: v) == true,
+              v.pid == NSWorkspace.shared.frontmostApplication?.processIdentifier else { g.send(); return }
         let r = AXUIElementPerformAction(v, kAXPressAction as CFString)
         Log.io("settings: pressed the held \(v.role) → \(describeError(r))")
         if r == .success {
@@ -377,6 +398,15 @@ public final class SettingsPanePlugin: GlobalPlugin {
             focusMoved(to: ObjectFactory.make(f))
         }
     }
+    /// Another app came to the front: a place held in the one that left is let go. TurnOver kept Phone's buttons
+    /// held with Music in front, Tab went round Phone's and Space would have pressed Call (11 Nov 2026).
+    static func appActivated(_ pid: pid_t) {
+        guard let v = virtual, v.pid != pid else { return }
+        Log.io("settings: another app in front; the place held in pid \(v.pid) let go")
+        virtual = nil
+        lock.lock(); _holding = false; _heldByTrap = false; _inTrapZone = false; lock.unlock()
+    }
+
     static var holdingVirtual: Bool { lock.lock(); defer { lock.unlock() }; return _holding }
     private static var _holding = false
 
@@ -424,7 +454,79 @@ public final class SettingsPanePlugin: GlobalPlugin {
         }
         walk(window, 0)
         if withUnfocusable { found += unfocusable }
-        return paneOrdered(found, in: window)
+        return paneOrdered(collapsingRowLists(found), in: window)
+    }
+
+    // MARK: Lists the app doesn't call lists
+
+    /// Rows found as lists: each list's rows, top to bottom (main thread; refreshed by each walk of a window).
+    static var rowLists: [(rows: [AXUIElement], stop: AXUIElement)] = []
+
+    /// A column of rows the same width, one under another, that fill their container: a list in all but name. iPad
+    /// apps build their lists so (Phone's recent calls: a group of groups, one button each), and Tab went through
+    /// every call before reaching the buttons beside them. One stop for the trap: Up and Down go through the rows,
+    /// Tab goes on past them (a tester's idea, 11 Nov 2026). Not a grid (Calculator's keys: not one column).
+    static func collapsingRowLists(_ found: [(AXUIElement, CGRect)]) -> [(AXUIElement, CGRect)] {
+        var byContainer: [(container: AXUIElement, members: [(AXUIElement, CGRect)])] = []
+        for (e, f) in found where !["AXTable", "AXOutline", "AXList", "AXTextArea", "AXTextField", "AXSlider"].contains(e.role) {
+            guard var c = e.element(kAXParentAttribute) else { continue }
+            // A row's own wrapper (a group holding just this button) is not the list: its parent is.
+            if ["AXGroup", "AXCell", "AXRow"].contains(c.role), c.elements(kAXChildrenAttribute).count == 1, let up = c.element(kAXParentAttribute) { c = up }
+            if let i = byContainer.firstIndex(where: { CFEqual($0.container, c) }) { byContainer[i].members.append((e, f)) }
+            else { byContainer.append((c, [(e, f)])) }
+        }
+        var lists: [(rows: [AXUIElement], stop: AXUIElement)] = []
+        var drop: [AXUIElement] = []
+        for (c, members) in byContainer where members.count >= 3 {
+            guard let cf = TurnOverObject.frame(c) else { continue }
+            let first = members[0].1
+            let column = members.allSatisfy { abs($0.1.minX - first.minX) < 3 && abs($0.1.width - first.width) < 3 }
+            let wide = first.width >= cf.width * 0.5
+            let ys = members.map { $0.1.minY }
+            let stacked = Set(ys.map { Int($0) }).count == members.count
+            guard column, wide, stacked else { continue }
+            let sorted = members.sorted { $0.1.minY < $1.1.minY }
+            let rows = sorted.map { $0.0 }
+            // The list's stop: its first row in sight (rows scrolled out above sit outside the window, and the list
+            // was put in the wrong place in the order, Phone, 11 Nov 2026).
+            let stop = sorted.first { cf.insetBy(dx: -2, dy: -2).contains(CGPoint(x: $0.1.midX, y: $0.1.midY)) }?.0 ?? rows[0]
+            lists.append((rows, stop))
+            drop += rows.filter { !CFEqual($0, stop) }
+        }
+        // Kept from walk to walk (a walk of one part of the window finds none): a list found again replaces its old self.
+        if !lists.isEmpty { rowLists = lists + rowLists.filter { old in !lists.contains { new in new.rows.contains { n in old.rows.contains { CFEqual($0, n) } } } }.suffix(8) }
+        if !lists.isEmpty { Log.io("tab trap: \(lists.count) column(s) of rows taken as lists (\(lists.map { String($0.rows.count) }.joined(separator: ", ")) rows)") }
+        return found.filter { x in !drop.contains { CFEqual($0, x.0) } }
+    }
+
+    /// The row list an element is a row of, and where.
+    static func rowList(of e: AXUIElement) -> (rows: [AXUIElement], at: Int, stop: AXUIElement)? {
+        for l in rowLists { if let i = l.rows.firstIndex(where: { $0.isSame(e) }) { return (l.rows, i, l.stop) } }
+        return nil
+    }
+
+    /// Up and Down in a row list TurnOver is holding.
+    private func rowListMove(_ delta: Int) {
+        guard let v = Self.virtual, let (rows, i, _) = Self.rowList(of: v) else { return }
+        let j = i + delta
+        guard rows.indices.contains(j) else { Tones.edge(); return }
+        Self.landInRowList(rows, at: j, entering: false)
+    }
+
+    /// On a row of a row list: held, said with its place in the list.
+    static func landInRowList(_ rows: [AXUIElement], at i: Int, entering: Bool) {
+        let row = rows[i]
+        virtual = row
+        lock.lock(); _holding = true; _heldByTrap = true; _inPane = false; lock.unlock()
+        let obj = ObjectFactory.make(row)
+        API.setFocusObject(obj, ancestors: API.focusAncestors)
+        Tones.focusTick()
+        Speech.cancel()
+        var parts: [String] = []
+        if entering { parts.append(String(localized: "list, \(Phrases.items(rows.count))", comment: "A column of rows TurnOver reads as a list, reached by Tab: %@ is the count")) }
+        parts.append(Speech.joined(Speech.objectPropertiesSpeech(obj, reason: .query)))
+        parts.append(Phrases.position(i + 1, of: rows.count))
+        Speech.speakItem(parts.joined(separator: ", "))
     }
 
     /// Screen order, pane by pane: in a window split into panes (a sidebar, a list, a detail), each pane's controls
@@ -434,22 +536,29 @@ public final class SettingsPanePlugin: GlobalPlugin {
     static func paneOrdered(_ found: [(AXUIElement, CGRect)], in window: AXUIElement) -> [AXUIElement] {
         var split: AXUIElement?, splitFrame: CGRect?, panes: [CGRect] = []
         var queue: [(AXUIElement, Int)] = [(window, 0)], seen = 0
-        while split == nil, !queue.isEmpty, seen < 200 {   // the outermost split group, breadth first
+        // Few calls: an iPad app answers slowly, and a walk asking every group for its children's frames left Phone
+        // too slow to take Tab (11 Nov 2026). Only big groups near the top are looked into.
+        let tall = (TurnOverObject.frame(window)?.height ?? 0) * 0.4
+        while split == nil, !queue.isEmpty, seen < 60 {   // the outermost split group, breadth first
             let (e, d) = queue.removeFirst(); seen += 1
-            if ["AXSplitGroup", "AXGroup"].contains(e.role), let f = TurnOverObject.frame(e), f.height > 0 {
+            let role = e.role
+            if ["AXSplitGroup", "AXGroup"].contains(role), let f = TurnOverObject.frame(e), f.height > 0, role == "AXSplitGroup" || f.height >= tall {
                 let kids = e.elements(kAXChildrenAttribute).filter { $0.role != "AXSplitter" }.compactMap { TurnOverObject.frame($0) }.filter { $0.width > 0 && $0.height > 0 }
                     .sorted { $0.minX != $1.minX ? $0.minX < $1.minX : $0.minY < $1.minY }
                 // A split group, or a plain group laid out as columns: its children side by side, each the group's
                 // height, none overlapping. iPad apps build their sidebar and detail so (Phone's Recents beside the
                 // call's details: Tab wove the two together, a tester, 11 Nov 2026).
-                let columns = kids.count > 1 && f.height >= (TurnOverObject.frame(window)?.height ?? 0) * 0.4 && kids.allSatisfy { $0.height >= f.height * 0.7 }
+                let columns = kids.count > 1 && kids.allSatisfy { $0.height >= f.height * 0.7 }
                     && zip(kids, kids.dropFirst()).allSatisfy { $0.maxX <= $1.minX + 2 }
                 if kids.count > 1, e.role == "AXSplitGroup" || columns { split = e; splitFrame = f; panes = kids }
             }
-            if d < 6 { queue += e.elements(kAXChildrenAttribute).map { ($0, d + 1) } }
+            if d < 5, ["AXWindow", "AXSheet", "AXPopover", "AXGroup", "AXSplitGroup", "AXScrollArea", "AXLayoutArea"].contains(role) { queue += e.elements(kAXChildrenAttribute).map { ($0, d + 1) } }
         }
+        // The toolbar comes first, whole: it sits over the columns, and its buttons were dealt out among them.
+        let toolbars = window.elements(kAXChildrenAttribute).filter { $0.role == "AXToolbar" }.compactMap { TurnOverObject.frame($0) }
         func key(_ f: CGRect) -> (Int, Int, Int, CGFloat) {
             let row = Int(f.midY / 8)
+            if toolbars.contains(where: { $0.contains(CGPoint(x: f.midX, y: f.midY)) }) { return (-1, 0, row, f.minX) }
             guard let sf = splitFrame else { return (0, 0, row, f.minX) }
             if f.midY < sf.minY { return (0, 0, row, f.minX) }
             if f.midY > sf.maxY { return (2, 0, row, f.minX) }

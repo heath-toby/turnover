@@ -26,6 +26,7 @@ extension AXHandler {
         let old = activePid
         activePid = pid
         Log.io("app activated: \(app.localizedName ?? "?") pid \(pid)")
+        SettingsPanePlugin.appActivated(pid)
         // An application's menus close when it leaves the front; one still counted open would take the letters
         // typed in the application now in front as menu type-ahead (Safari's page menu ate "in safari" in Claude).
         if old != 0, openMenus.contains(where: { $0.pid == old }) {
