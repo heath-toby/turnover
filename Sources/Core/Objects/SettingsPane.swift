@@ -127,6 +127,24 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 return
             }
         }
+        // The last control in sight of a scroll area with more beyond it (a settings pane SwiftUI builds as it is
+        // scrolled): a page further, and the window's controls walked again, before Tab goes round to the top.
+        if let h = here, let area = Self.scrollArea(of: all[h]), Self.canScroll(area, down: forward) {
+            let n = ((forward ? h + 1 : h - 1) + all.count) % all.count
+            let leaves = Self.scrollArea(of: all[n]).map { !$0.isSame(area) } ?? true
+            if leaves || (forward ? n < h : n > h), Self.scrollPage(area, down: forward) {
+                Log.io("tab trap: the last control in sight of a scroll area with more; scrolled a page")
+                Poll.pumping(every: 0.05, limit: 0.3) { false }
+                let fresh = Self.controls(in: window, toolbars: true, unfocusable: true)
+                Self.trapList = (window, fresh, Date())
+                if let j = fresh.firstIndex(where: { $0.isSame(stop(current)) }) {
+                    let k = forward ? j + 1 : j - 1
+                    if fresh.indices.contains(k), Self.scrollArea(of: fresh[k]).map({ $0.isSame(area) }) ?? false {
+                        Self.focus(fresh[k], byTrap: true); Self.setTrapState(for: fresh[k]); return
+                    }
+                }
+            }
+        }
         guard var i = here, !all.isEmpty else {
             Log.io("tab trap: \(current.role) \"\(Log.words(ObjectFactory.make(current).name.prefix(30).description))\" not among the window's \(all.count) controls; Tab sent on")
             g.send(); return
@@ -349,6 +367,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
     /// said nothing useful).
     /// `byTrap`: moved by the Tab trap, which keeps Tab if the place must be held (not the settings panes' Tab).
     public static func focus(_ target: AXUIElement, byTrap: Bool = false) {
+        scrollIntoView(target)
         // A row of a list the trap made: into the list, on that row.
         if let (rows, i, _, _) = rowList(of: target) {
             landInRowList(rows, at: i, entering: true)
@@ -416,6 +435,42 @@ public final class SettingsPanePlugin: GlobalPlugin {
         let yes = url.flatMap { Bundle(url: $0)?.object(forInfoDictionaryKey: "UIDeviceFamily") } != nil
         catalyst[pid] = yes
         return yes
+    }
+
+    // MARK: Scrolling
+
+    /// The scroll area an element sits in, nearest first.
+    static func scrollArea(of e: AXUIElement) -> AXUIElement? {
+        var p = e.element(kAXParentAttribute); var hops = 0
+        while let x = p, hops < 15 { if x.role == "AXScrollArea" { return x }; if x.role == "AXWindow" { return nil }; p = x.element(kAXParentAttribute); hops += 1 }
+        return nil
+    }
+
+    /// What TurnOver lands on is brought into sight, as VoiceOver's cursor does: a control below a dialog's or a
+    /// settings pane's visible part was reached by Tab but stayed out of sight (a tester, 11 Nov 2026).
+    static func scrollIntoView(_ e: AXUIElement) {
+        guard let area = scrollArea(of: e), let af = TurnOverObject.frame(area), let f = TurnOverObject.frame(e), f.height > 0,
+              !af.insetBy(dx: -1, dy: -1).contains(CGRect(x: f.minX, y: f.minY, width: min(f.width, af.width), height: min(f.height, af.height))) else { return }
+        let r = AXUIElementPerformAction(e, "AXScrollToVisible" as CFString)
+        Log.io("scroll: \(e.role) brought into sight → \(describeError(r))")
+    }
+
+    /// Whether a scroll area has more below (or above) what is in sight: its vertical bar not at the end.
+    static func canScroll(_ area: AXUIElement, down: Bool) -> Bool {
+        guard let bar = area.element(kAXVerticalScrollBarAttribute), let v = (bar.attr(kAXValueAttribute) as? NSNumber)?.doubleValue else { return false }
+        return down ? v < 0.995 : v > 0.005
+    }
+
+    /// A page down (or up): the area's own action, else its bar moved by what is in sight.
+    static func scrollPage(_ area: AXUIElement, down: Bool) -> Bool {
+        if AXUIElementPerformAction(area, (down ? "AXScrollDownByPage" : "AXScrollUpByPage") as CFString) == .success { return true }
+        guard let bar = area.element(kAXVerticalScrollBarAttribute), let v = (bar.attr(kAXValueAttribute) as? NSNumber)?.doubleValue else { return false }
+        // The part in sight as a share of the whole, from the area and its content.
+        let seen = TurnOverObject.frame(area)?.height ?? 0
+        let whole = area.elements(kAXChildrenAttribute).compactMap { TurnOverObject.frame($0)?.height }.max() ?? 0
+        let step = whole > seen && whole > 0 ? (seen * 0.9) / (whole - seen) : 0.25
+        let next = down ? min(1, v + step) : max(0, v - step)
+        return bar.set(kAXValueAttribute, NSNumber(value: next)) == .success
     }
 
     /// What a list, table or outline has chosen: its selected rows or children.
@@ -639,6 +694,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
     /// On a row of a row list: held, said with its place in the list.
     static func landInRowList(_ rows: [AXUIElement], at i: Int, entering: Bool) {
         let row = rows[i]
+        scrollIntoView(row)
         virtual = row
         lock.lock(); _holding = true; _heldByTrap = true; _inPane = false; lock.unlock()
         let obj = ObjectFactory.make(row)
