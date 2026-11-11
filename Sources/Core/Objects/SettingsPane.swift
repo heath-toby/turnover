@@ -114,7 +114,23 @@ public final class SettingsPanePlugin: GlobalPlugin {
             Self.setTrapState(for: order[k])
             return
         }
-        guard var i = here, !all.isEmpty else { g.send(); return }
+        // TurnOver's place is a container, not a control (an iPad app's focus on its nameless content group: Audible's
+        // Tab said nothing at all, 11 Nov 2026): into it, its first control for Tab and its last for Shift Tab, else
+        // the window's.
+        if here == nil, !all.isEmpty, !Self.controlRoles.contains(current.role) {
+            let inside = current.role == "AXWindow" ? all : Self.controls(in: current, toolbars: true, unfocusable: true).filter { !$0.isSame(current) }
+            let pool = inside.isEmpty ? all : inside
+            if let target = forward ? pool.first : pool.last {
+                Log.io("tab trap: from a \(current.role), not a control, into its \(target.role)")
+                Self.focus(target, byTrap: true)
+                Self.setTrapState(for: target)
+                return
+            }
+        }
+        guard var i = here, !all.isEmpty else {
+            Log.io("tab trap: \(current.role) \"\(Log.words(ObjectFactory.make(current).name.prefix(30).description))\" not among the window's \(all.count) controls; Tab sent on")
+            g.send(); return
+        }
         var n = ((forward ? i + 1 : i - 1) + all.count) % all.count   // round, as the app's own Tab goes
         // The list kept from a moment ago can name controls the app has since thrown away: TurnOver Settings rebuilds
         // its pane on a new section, and Tab from the sidebar went to a dead check box, held it, and was silent from
