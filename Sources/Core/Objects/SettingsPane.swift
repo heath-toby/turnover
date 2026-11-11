@@ -98,6 +98,17 @@ public final class SettingsPanePlugin: GlobalPlugin {
             Self.setTrapState(for: order[k])
             return
         }
+        // A window with one control and a progress bar (Finder's copy window: the bar and its stop button): the bar is
+        // a stop too, so Shift Tab goes back to it rather than staying on the button (11 Nov 2026).
+        if all.count <= 1, let bar = NewDialogs.firstProgressBar(in: window), let around = Self.controlsAround(bar, in: window),
+           let i = around.0.firstIndex(where: { $0.isSame(current) }) {
+            let order = around.0
+            let k = ((forward ? i + 1 : i - 1) + order.count) % order.count
+            Log.io("tab trap: round a control and a progress bar, to \(order[k].role)")
+            Self.focus(order[k])
+            Self.setTrapState(for: order[k])
+            return
+        }
         guard var i = here, !all.isEmpty else { g.send(); return }
         var n = ((forward ? i + 1 : i - 1) + all.count) % all.count   // round, as the app's own Tab goes
         // The list kept from a moment ago can name controls the app has since thrown away: TurnOver Settings rebuilds
