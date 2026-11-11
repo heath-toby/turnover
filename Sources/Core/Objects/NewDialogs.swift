@@ -25,9 +25,18 @@ enum NewDialogs {
     static func isBehindNewSheet(_ e: AXUIElement) -> Bool {
         guard let a = announced, Date().timeIntervalSince(a.at) < 1, e.pid == a.pid,
               InputManager.lastKeyDownAt < a.at else { return false }   // not after Escape: the focus is back for real
-        // Not when the window has a sheet now: focus there may be in a sheet whose controls don't name it as their
-        // ancestor. System Settings moves its focus while it has none, between its two (a review, 11 Nov 2026).
-        if let w = SettingsPanePlugin.windowOf(e), w.elements(kAXChildrenAttribute).contains(where: { $0.role == "AXSheet" }) { return false }
+        // Not a control of a sheet now on its window whose parents don't name the sheet: looked for down the sheet's
+        // own tree (a review, 11 Nov 2026).
+        if let w = SettingsPanePlugin.windowOf(e) {
+            for sheet in w.elements(kAXChildrenAttribute) where sheet.role == "AXSheet" {
+                var queue = [sheet], visited = 0
+                while !queue.isEmpty, visited < 300 {
+                    let x = queue.removeFirst(); visited += 1
+                    if x.isSame(e) { return false }
+                    queue.append(contentsOf: x.elements(kAXChildrenAttribute))
+                }
+            }
+        }
         // Same app, and in no sheet. Not compared by window: System Settings' sheet hangs from another element than
         // the window its pane's controls name (11 Nov 2026).
         var p: AXUIElement? = e; var hops = 0
