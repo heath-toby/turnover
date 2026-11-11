@@ -268,7 +268,17 @@ public final class SettingsPanePlugin: GlobalPlugin {
             guard expected.map({ $0.isSame(target) }) ?? false else { return }
             expected = nil
             let app = AXUIElementCreateApplication(target.pid)
-            if !(app.element(kAXFocusedUIElementAttribute).map { $0.isSame(target) } ?? false) {
+            if app.element(kAXFocusedUIElementAttribute).map({ $0.isSame(target) }) ?? false {
+                // The app's focus was there all along (TurnOver held a place elsewhere, a copy window's bar): focusing
+                // it again sends no news, so TurnOver comes back to it itself (11 Nov 2026: Shift Tab said nothing).
+                guard let held = virtual, !held.isSame(target), API.focusObject?.isSameElement(as: target) != true else { return }
+                virtual = nil; lock.lock(); _holding = false; lock.unlock()
+                let obj = ObjectFactory.make(target)
+                API.setFocusObject(obj, ancestors: obj.ancestors)
+                focusMoved(to: obj)
+                Tones.focusTick()
+                Speech.cancel(); Speech.speakObject(obj, reason: .focus)
+            } else {
                 // In a window whose Tab is the trap's (TabLoop, NewDialogs), the settings panes' Tab must not take
                 // over from the held place: Shift Tab went to it and did nothing (11 Nov 2026).
                 holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true, ownTab: !inLoopWindow(target))
