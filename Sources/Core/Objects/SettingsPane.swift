@@ -143,16 +143,48 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // bar's "more…" button, so Shift+Tab went nowhere and said nothing (5 Oct 2026). If the focus has not moved
         // shortly after the key, TurnOver moves it to the next or previous control in screen order.
         InputManager.passThroughWatchers.append { g in
-            guard g.keyName == "tab", g.modifiers.subtracting(.shift).isEmpty, let f = API.focusObject,
-                  !Self.typesTab(f), let window = Self.windowOf(f.element) else { return }
-            let before = f.element, pid = before.pid, at = Date()
+            guard g.keyName == "tab", g.modifiers.subtracting(.shift).isEmpty else { return }
+            // Nothing focused in the app in front (AirPort Utility and Apple Configurator open with their window and
+            // no focus inside it, so Tab went nowhere: the sweep of 11 Nov 2026): its window stands in for the focus,
+            // and Tab goes to its first control, as on Windows. Not when TurnOver's focus is in a panel over it
+            // (LaunchBar): that panel has the keys.
+            let front = NSWorkspace.shared.frontmostApplication
+            let f = API.focusObject
+            let focusApp = f.flatMap { NSRunningApplication(processIdentifier: $0.pid) }
+            let nowhere = f == nil || (focusApp?.activationPolicy == .regular && f?.pid != front?.processIdentifier)
+            let before: AXUIElement, window: AXUIElement
+            if nowhere {
+                guard let front, front.processIdentifier != getpid(), front.bundleIdentifier != "com.apple.Terminal" || f == nil,
+                      let w = AXUIElementCreateApplication(front.processIdentifier).element(kAXFocusedWindowAttribute) else { return }
+                before = w; window = w
+            } else {
+                guard let f, !Self.typesTab(f), let w = f.axRole == "AXWindow" ? f.element : Self.windowOf(f.element) else { return }
+                before = f.element; window = w
+            }
+            let pid = before.pid, at = Date()
             // 0.4 s: Reminders' SwiftUI sidebar takes longer than a quarter of a second to pass Tab on (10 Oct 2026).
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                guard API.focusObject?.isSameElement(as: before) == true,
+                let unmoved = nowhere ? (API.focusObject.map { $0.pid != pid } ?? true) : API.focusObject?.isSameElement(as: before) == true
+                guard unmoved,
                       (AXHandler.shared.lastNewsAt[pid] ?? .distantPast) < at else { return }
                 let all = Self.controls(in: window, toolbars: true)
-                guard let here = all.firstIndex(where: { $0.isSame(before) }) else { return }
                 let forward = !g.modifiers.contains(.shift)
+                guard let here = all.firstIndex(where: { $0.isSame(before) }) else {
+                    // The focus parked on a container that isn't a control (Calculator opened with a sheet, its focus
+                    // on a nameless scroll area, and Tab did nothing: the sweep of 11 Nov 2026, macOS 27.2): into the
+                    // container, its first control for Tab and its last for Shift Tab.
+                    let inside = all.filter { c in
+                        var p: AXUIElement? = c.element(kAXParentAttribute); var hops = 0
+                        while let x = p, hops < 15 { if x.isSame(before) { return true }; p = x.element(kAXParentAttribute); hops += 1 }
+                        return false
+                    }
+                    guard let target = forward ? inside.first : inside.last else { return }
+                    Log.io("tab trap: the app ignored \(forward ? "Tab" : "Shift+Tab") on a \(before.role) holding \(inside.count) controls; TurnOver moves into it")
+                    Self.trapList = (window, all, Date())
+                    Self.focus(target)
+                    Self.setTrapState(for: target)
+                    return
+                }
                 let n = ((forward ? here + 1 : here - 1) + all.count) % all.count
                 Log.io("tab trap: the app ignored \(forward ? "Tab" : "Shift+Tab") on \(before.role); TurnOver moves to \(all[n].role) \(n + 1) of \(all.count)")
                 // Remember where the app ignores Tab (the group around the control): from now on Tab there is
