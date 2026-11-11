@@ -34,6 +34,7 @@ extension AXHandler {
         ("set aside after a settings Tab", ruleSetAside),
         ("behind a sheet just opened", ruleBehindNewSheet),
         ("iPad app's late focus on a nameless group", ruleCatalystLateGroup),
+        ("a window the focus passes through on a Tab", ruleWindowInPassing),
         ("untitled window", ruleUntitledWindow),
         ("helper's window", ruleHelperWindow),
         ("switching preference tabs", rulePreferenceTabSwitch),
@@ -98,6 +99,32 @@ extension AXHandler {
     func ruleBehindNewSheet(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
         if NewDialogs.isBehindNewSheet(target) { Log.io("focus to \(target.role) behind a sheet just opened; set aside"); return .ignore }
         return .go(target)
+    }
+
+    /// Tab from one field to the next, and the app reports the window holding them in between (the Save panel, every
+    /// Tab: its dialog and all its words read again, then dropped as the field came, 11 Nov 2026). The window the
+    /// focus is already in is no news: set aside, and taken after all if nothing else has come a moment later.
+    private static var passingWindowRecheck: AXUIElement?
+    func ruleWindowInPassing(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
+        guard target.role == "AXWindow" else { return .go(target) }
+        if let r = Self.passingWindowRecheck, r.isSame(target) { Self.passingWindowRecheck = nil; return .go(target) }
+        guard ["kb:tab", "kb:shift+tab"].contains(InputManager.lastKeyIdentifier), Date().timeIntervalSince(InputManager.lastKeyDownAt) < 0.5,
+              let cur = API.focusObject, cur.pid == pid, !cur.isSameElement(as: target),
+              // (Up the field's parents, not its AXWindow: the Save panel's field names the document's window.)
+              { var p = cur.element.element(kAXParentAttribute); var hops = 0
+                while let x = p, hops < 30 { if x.isSame(target) { return true }; p = x.element(kAXParentAttribute); hops += 1 }
+                if SettingsPanePlugin.windowOf(cur.element)?.isSame(target) == true { return true }
+                // (Nor its parents: the panel's insides come from another process. Where it sits: inside the window.)
+                guard let wf = TurnOverObject.frame(target), let cf = TurnOverObject.frame(cur.element), cf.width > 0 else { return false }
+                return wf.contains(cf) }() else { return .go(target) }
+        Log.io("focus on the window \(Log.words(target.string(kAXTitleAttribute) ?? "")) on the way between its controls; set aside")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, API.focusObject?.isSameElement(as: cur.element) == true,
+                  AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute).map({ $0.isSame(target) }) == true else { return }
+            Self.passingWindowRecheck = target
+            self.refocus(pid: pid)
+        }
+        return .ignore
     }
 
     /// An iPad app, while TurnOver's cursor is held by the Tab trap: the app's focus landing on a nameless group is

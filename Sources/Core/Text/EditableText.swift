@@ -239,13 +239,16 @@ open class EditableText: TurnOverObject {
     /// caret is for a plain arrow); if it hasn't changed within the caret's patience, the app's own notice reads it.
     func selectionScript(_ gesture: KeyboardGesture) {
         if GoogleDocs.isEditor(element) { gesture.send(); return }
-        guard autoSelectDetection, let old = try? makeTextInfo(.selection) else { gesture.send(); return }
+        guard autoSelectDetection, let old = try? makeTextInfo(.selection) else {
+            Log.io("selection: \(autoSelectDetection ? "the selection can't be read here" : "not watched here"); the key sent on")
+            gesture.send(); return
+        }
         gesture.send()
         let began = Date()
         let patience = caretMoveTimeout * (isInWebContent ? 3 : 1)
         let keys = ScriptHandler.keysArrivedCount
         while Date().timeIntervalSince(began) < patience {
-            if ScriptHandler.isScriptWaiting || ScriptHandler.keysArrivedCount != keys { return }
+            if ScriptHandler.isScriptWaiting || ScriptHandler.keysArrivedCount != keys { Log.io("selection: another key came; the wait given up"); return }
             EventHandler.pumpPendingEvents()
             if let new = try? makeTextInfo(.selection), !new.isSame(old) {
                 Log.io("selection changed, seen after \(Int(Date().timeIntervalSince(began) * 1000)) ms")
