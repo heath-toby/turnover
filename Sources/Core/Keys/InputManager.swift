@@ -103,6 +103,10 @@ public enum InputManager {
             return true
         }
         lastKeyIdentifier = gesture.identifier
+        // A shortcut may have opened a panel in an app TurnOver isn't watching (a launcher's hotkey): looked for after.
+        if !gesture.modifiers.intersection([.command, .control, .option]).isEmpty, !gesture.modifiers.contains(.turnover) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { AXHandler.shared.noticeUnwatchedFocus() }
+        }
         // A browser's Back or Forward: the page coming back resumes where it was read (BrowseModeDocument).
         if ["kb:command+[", "kb:command+]"].contains(gesture.identifier) { BrowseModeHandler.historyKeyAt = Date() }
         if passNextKey, !gesture.isRepeat {

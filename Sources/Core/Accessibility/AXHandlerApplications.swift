@@ -133,6 +133,26 @@ extension AXHandler {
         return name.hasSuffix("(\(front))")
     }
 
+    /// A shortcut key went to the system: if the keyboard is now in an app TurnOver isn't watching, watch it and read
+    /// its focus. Launchers and panels (LaunchBar, Alfred, Raycast and the like) open over the app in front without
+    /// ever coming forward, so the watching that starts as an app comes forward never began: LaunchBar's bar went
+    /// unread (a tester, 10 Nov 2026). Asked a moment after the key, once the panel is up; on main.
+    public func noticeUnwatchedFocus() {
+        let sys = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(sys, 0.25)
+        var v: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(sys, kAXFocusedApplicationAttribute as CFString, &v) == .success, let v,
+              CFGetTypeID(v) == AXUIElementGetTypeID() else { return }
+        let appEl = v as! AXUIElement
+        let pid = appEl.pid
+        guard pid > 0, pid != getpid(), observers[pid] == nil, pid != activePid,
+              let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy != .prohibited else { return }
+        Log.io("focus in \(app.bundleIdentifier ?? "pid \(pid)"), which TurnOver wasn't watching: watched from now")
+        observe(pid)
+        AXUIElementSetMessagingTimeout(appEl, 1.0)
+        if let f = appEl.element(kAXFocusedUIElementAttribute) { focusChanged(f, pid: pid) }
+    }
+
     /// Watch a process for notifications (also for status items whose menus TurnOver opens).
     public func observe(_ pid: pid_t) {
         guard observers[pid] == nil else { return }

@@ -479,10 +479,14 @@ open class TurnOverObject: ScriptableObject {
     }
     open func event_nameChange() {
         guard role != .window, API.focusObject?.isSameElement(as: self) == true else { return }
-        let n = name
+        // The name read afresh, as event_valueChange reads the value: this is the focus object, made when the item
+        // took the focus, and its name is remembered from then. A cell renamed for each chosen item (LaunchBar's bar)
+        // was compared with its first name each time and nothing was said (10 Nov 2026).
+        let fresh = ObjectFactory.make(element)
+        let n = fresh.name
         if let last = TurnOverObject.lastName, CFEqual(last.element, element), last.name == n { return }
         TurnOverObject.lastName = (element, n)
-        Speech.speakObjectProperty(self, name: true)
+        Speech.speakObjectProperty(fresh, name: true)
     }
     open func event_stateChange() { if API.focusObject?.isSameElement(as: self) == true { Speech.speakObjectProperty(self, states: true) } }
     open func event_descriptionChange() {}

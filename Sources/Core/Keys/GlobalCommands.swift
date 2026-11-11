@@ -680,6 +680,26 @@ public final class GlobalCommands: ScriptableObject {
         let p = CGPoint(x: frame.midX, y: frame.midY)
         Log.io("context menu: right click on \(e.role) at (\(Int(p.x)), \(Int(p.y)))")
         rightClick(at: p)
+        // No menu from the click: the menu may be a container's, up to the window (LaunchBar's is its bar window's,
+        // the focused cell offering only AXPress, 10 Nov 2026). Its own AXShowMenu, nearest first.
+        let item = e
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            guard !AXHandler.shared.isMenuOpen else { return }
+            var p = item.element(kAXParentAttribute); var hops = 0
+            while let x = p, hops < 8 {
+                var names: CFArray?
+                if AXUIElementCopyActionNames(x, &names) == .success, ((names as? [String]) ?? []).contains("AXShowMenu") {
+                    TurnOverObject.contextMenuRequestedAt = Date()
+                    AXUIElementSetMessagingTimeout(x, 0.3)   // the call can wait while the menu runs: never long on main
+                    let r = AXUIElementPerformAction(x, "AXShowMenu" as CFString)
+                    AXUIElementSetMessagingTimeout(x, 0)
+                    Log.io("context menu: none from the click; AXShowMenu on the \(x.role) around it → \(r.rawValue)")
+                    return
+                }
+                if x.role == "AXWindow" || x.role == "AXApplication" { break }
+                p = x.element(kAXParentAttribute); hops += 1
+            }
+        }
         return true
     }
 

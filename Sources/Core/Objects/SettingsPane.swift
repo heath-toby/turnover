@@ -108,7 +108,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // Tab, and the place remembered took Tab from a new reminder's title too, so TurnOver moved the focus itself
         // and the window was announced between the fields (10 Oct 2026).
         let editable = ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"].contains(e.role)
-        let inTrap = !trapZones.isEmpty && !editable && {
+        // A window where Tab loops short (TabLoop.swift) is TurnOver's for Tab throughout, a single-line field too
+        // (the loop went through one); not a text area, where Tab types.
+        let inTrap = (e.role != "AXTextArea" && inLoopWindow(e)) || !trapZones.isEmpty && !editable && {
             var p: AXUIElement? = e.element(kAXParentAttribute); var hops = 0
             while let x = p, hops < 6 { if trapZones.contains(where: { $0.isSame(x) }) { return true }; p = x.element(kAXParentAttribute); hops += 1 }
             return false
@@ -136,6 +138,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
 
     required init() {
         super.init()
+        InputManager.passThroughWatchers.append(Self.watchTabLoop)
         // An app that ignores Tab or Shift+Tab on a control: Mail's compose window keeps the focus on the formatting
         // bar's "more…" button, so Shift+Tab went nowhere and said nothing (5 Oct 2026). If the focus has not moved
         // shortly after the key, TurnOver moves it to the next or previous control in screen order.
