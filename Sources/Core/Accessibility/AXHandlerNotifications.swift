@@ -119,7 +119,7 @@ extension AXHandler {
             if element.role == "AXMenu" { EventHandler.queue(Event(.menuEnd, ObjectFactory.make(element))) }
             // Only a real menu closing opens the gap: Safari's address completions (a scroll area, never counted as
             // open) closing made the next focus wait and the window get read ("Boson - Wikipedia, window").
-            if openMenus.isEmpty, before > 0 || element.role == "AXMenu" { lastMenuClosed = (pid, Date()) }
+            if openMenus.isEmpty, before > 0 || element.role == "AXMenu" { lastMenuClosed = (pid, Date()); lastMenuEnded = (pid, Date()) }
         case kAXMenuItemSelectedNotification:
             // A keyboard shortcut also "selects" its menu item (Cmd+A: "Select All"); only a menu the user is in counts.
             if isMenuOpen { focusChanged(element, pid: pid) } else { Log.debug("menu item selected by shortcut: \(element.string(kAXTitleAttribute) ?? "")") }

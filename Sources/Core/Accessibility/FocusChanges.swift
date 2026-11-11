@@ -108,6 +108,11 @@ extension AXHandler {
               target.role == "AXGroup", (target.string(kAXTitleAttribute) ?? "").isEmpty, (target.string(kAXDescriptionAttribute) ?? "").isEmpty
         else { return .go(target) }
         Log.io("focus to a nameless group in an iPad app while TurnOver holds its place; set aside")
+        // Back from a menu (Escape on a call's context menu): the place held is said again, as a focus coming back is.
+        if let ended = AXHandler.shared.lastMenuEnded, ended.pid == pid, Date().timeIntervalSince(ended.at) < 1.5,
+           let held = API.focusObject, held.pid == pid {
+            Speech.speakObject(held, reason: .focus)
+        }
         return .ignore
     }
 

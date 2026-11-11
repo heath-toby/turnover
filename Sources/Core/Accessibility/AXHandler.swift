@@ -83,7 +83,7 @@ public final class AXHandler {
                 // Left or Right between menu-bar menus: the old one is found closed here before its menuEnd arrives, and
                 // Mail's focus had gone back to the message body in the gap ("message body, blank" on every menu,
                 // A tester, build 14, 8 Oct 2026). Closed now means the gap has started.
-                if open.isEmpty, let last = now.last { lastMenuClosed = (last.pid, Date()) }
+                if open.isEmpty, let last = now.last { lastMenuClosed = (last.pid, Date()); lastMenuEnded = (last.pid, Date()) }
             }
         }
         return !openMenus.isEmpty
@@ -188,6 +188,8 @@ public final class AXHandler {
     var navigationCheckPending = false
     /// When the last open menu closed, and in which process (menu-to-menu moves pass through no menu at all).
     var lastMenuClosed: (pid_t, Date)?
+    /// When a menu last closed, and in which app; kept, unlike lastMenuClosed (main thread).
+    public internal(set) var lastMenuEnded: (pid: pid_t, at: Date)?
     var menuGapRecheckPending = false
     /// When each application last sent any accessibility news (main thread): a key it should react to, and no news
     /// after it, means it is not responding.

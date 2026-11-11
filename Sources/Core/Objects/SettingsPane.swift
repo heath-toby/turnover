@@ -129,7 +129,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // said; it is said again, as Tab on Windows says it (the sweep, 11 Nov 2026).
         if all[n].isSame(current) { Speech.cancel(); Speech.speakObject(ObjectFactory.make(current), reason: .focus); return }
         // Into a list the trap made: on its first row (from the end, Shift Tab: its last).
-        if let (rows, _, _) = Self.rowList(of: all[n]) {
+        if let (rows, _, _, _) = Self.rowList(of: all[n]) {
             Self.landInRowList(rows, at: forward ? 0 : rows.count - 1, entering: true)
             Self.setTrapState(for: rows[0])
             return
@@ -163,6 +163,24 @@ public final class SettingsPanePlugin: GlobalPlugin {
     }
 
     static func focusMoved(to obj: TurnOverObject) {
+        // A menu opening on the held place (its context menu) takes the focus for a moment: the place is kept for
+        // when it closes.
+        if virtual != nil, ["AXMenu", "AXMenuItem"].contains(obj.axRole) { return }
+        // Back from a menu opened on the place TurnOver holds (the context menu on a call in Phone): the app hands its
+        // focus to a nameless group, and the place was lost, Up and Down silent (a tester, 11 Nov 2026). Kept.
+        // (A group holding the place, named or not: Phone's focus went to its calls' group.)
+        if let v = virtual, !obj.isSameElement(as: v), v.role != "?", v.pid == obj.pid,
+           let ended = AXHandler.shared.lastMenuEnded, ended.pid == v.pid, Date().timeIntervalSince(ended.at) < 2,
+           obj.axRole == "AXGroup" && obj.name.isEmpty || { var p = v.element(kAXParentAttribute); var hops = 0
+               while let x = p, hops < 10 { if x.isSame(obj.element) { return true }; p = x.element(kAXParentAttribute); hops += 1 }
+               return false }() {
+            Log.io("settings: back from a menu; TurnOver's place kept")
+            let held = ObjectFactory.make(v)
+            API.setFocusObject(held, ancestors: API.focusAncestors)
+            ObjectNavigator.shared.focusMoved(to: v, pid: v.pid)
+            Speech.speakObject(held, reason: .focus)
+            return
+        }
         let e = obj.element
         setTrapState(for: e)
         let onTab = e.role == "AXRadioButton" && ribbon(of: e) != nil && ribbonCommands(of: e) == nil
@@ -316,7 +334,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
     /// `byTrap`: moved by the Tab trap, which keeps Tab if the place must be held (not the settings panes' Tab).
     public static func focus(_ target: AXUIElement, byTrap: Bool = false) {
         // A row of a list the trap made: into the list, on that row.
-        if let (rows, i, _) = rowList(of: target) {
+        if let (rows, i, _, _) = rowList(of: target) {
             landInRowList(rows, at: i, entering: true)
             setTrapState(for: rows[0])
             return
@@ -414,6 +432,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
         lock.lock(); _holding = true; _heldByTrap = false; lock.unlock()   // focus() says if the trap made this hold
         let obj = ObjectFactory.make(target)
         API.setFocusObject(obj, ancestors: API.focusAncestors)
+        ObjectNavigator.shared.focusMoved(to: target, pid: target.pid)   // the context menu key acts where the cursor is
         lock.lock(); _inPane = ownTab; lock.unlock()
         Log.io("settings: \(target.role) will not keep the focus; TurnOver holds the place on it")
         if speak { Speech.cancel(); Speech.speakObject(obj, reason: .focus) }
@@ -502,7 +521,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
     // MARK: Lists the app doesn't call lists
 
     /// Rows found as lists: each list's rows, top to bottom (main thread; refreshed by each walk of a window).
-    static var rowLists: [(rows: [AXUIElement], stop: AXUIElement)] = []
+    static var rowLists: [(rows: [AXUIElement], stop: AXUIElement, container: AXUIElement)] = []
+    /// How many rows lie above the rows in sight, counted as the list is scrolled (the list being read).
+    static var rowOffset: (container: AXUIElement, n: Int)?
 
     /// A column of rows the same width, one under another, that fill their container: a list in all but name. iPad
     /// apps build their lists so (Phone's recent calls: a group of groups, one button each), and Tab went through
@@ -517,7 +538,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
             if let i = byContainer.firstIndex(where: { CFEqual($0.container, c) }) { byContainer[i].members.append((e, f)) }
             else { byContainer.append((c, [(e, f)])) }
         }
-        var lists: [(rows: [AXUIElement], stop: AXUIElement)] = []
+        var lists: [(rows: [AXUIElement], stop: AXUIElement, container: AXUIElement)] = []
         var drop: [AXUIElement] = []
         for (c, members) in byContainer where members.count >= 3 {
             guard let cf = TurnOverObject.frame(c) else { continue }
@@ -532,7 +553,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
             // The list's stop: its first row in sight (rows scrolled out above sit outside the window, and the list
             // was put in the wrong place in the order, Phone, 11 Nov 2026).
             let stop = sorted.first { cf.insetBy(dx: -2, dy: -2).contains(CGPoint(x: $0.1.midX, y: $0.1.midY)) }?.0 ?? rows[0]
-            lists.append((rows, stop))
+            lists.append((rows, stop, c))
             drop += rows.filter { !CFEqual($0, stop) }
         }
         // Kept from walk to walk (a walk of one part of the window finds none): a list found again replaces its old self.
@@ -542,17 +563,59 @@ public final class SettingsPanePlugin: GlobalPlugin {
     }
 
     /// The row list an element is a row of, and where.
-    static func rowList(of e: AXUIElement) -> (rows: [AXUIElement], at: Int, stop: AXUIElement)? {
-        for l in rowLists { if let i = l.rows.firstIndex(where: { $0.isSame(e) }) { return (l.rows, i, l.stop) } }
+    static func rowList(of e: AXUIElement) -> (rows: [AXUIElement], at: Int, stop: AXUIElement, container: AXUIElement)? {
+        for l in rowLists { if let i = l.rows.firstIndex(where: { $0.isSame(e) }) { return (l.rows, i, l.stop, l.container) } }
         return nil
+    }
+
+    /// A list that holds only the rows in sight and scrolls for the rest (an iPad app's: Phone showed 11 of its calls).
+    static func scrolls(_ container: AXUIElement) -> Bool {
+        var names: CFArray?
+        AXUIElementCopyActionNames(container, &names)
+        return ((names as? [String]) ?? []).contains("AXScrollDownByPage")
+    }
+
+    /// The rows in a list's container now, found as the first were: the same column, each alone or in a wrapper.
+    static func rowsIn(_ container: AXUIElement, like template: AXUIElement) -> [AXUIElement] {
+        guard let t = TurnOverObject.frame(template) else { return [] }
+        func matches(_ e: AXUIElement) -> CGRect? {
+            guard e.role == template.role, let f = TurnOverObject.frame(e), abs(f.minX - t.minX) < 3, abs(f.width - t.width) < 3, f.height > 0 else { return nil }
+            return f
+        }
+        var out: [(AXUIElement, CGRect)] = []
+        for c in container.elements(kAXChildrenAttribute) {
+            if let f = matches(c) { out.append((c, f)); continue }
+            let kids = c.elements(kAXChildrenAttribute)
+            if kids.count == 1, let f = matches(kids[0]) { out.append((kids[0], f)) }
+        }
+        return out.sorted { $0.1.minY < $1.1.minY }.map { $0.0 }
     }
 
     /// Up and Down in a row list TurnOver is holding.
     private func rowListMove(_ delta: Int) {
-        guard let v = Self.virtual, let (rows, i, _) = Self.rowList(of: v) else { return }
+        guard let v = Self.virtual, let (rows, i, _, container) = Self.rowList(of: v) else { return }
         let j = i + delta
-        guard rows.indices.contains(j) else { Tones.edge(); return }
-        Self.landInRowList(rows, at: j, entering: false)
+        if rows.indices.contains(j) { Self.landInRowList(rows, at: j, entering: false); return }
+        // Past the rows in sight: the list is scrolled a page, read again, and the move goes on from the same row
+        // (found by its words if the list made it anew). Unafraid to scroll (a tester, 11 Nov 2026).
+        guard Self.scrolls(container) else { Tones.edge(); return }
+        let name = ObjectFactory.make(v).name
+        let r = AXUIElementPerformAction(container, (delta > 0 ? "AXScrollDownByPage" : "AXScrollUpByPage") as CFString)
+        Log.io("row list: scrolled \(delta > 0 ? "down" : "up") a page → \(describeError(r))")
+        guard r == .success else { Tones.edge(); return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            let fresh = Self.rowsIn(container, like: v)
+            guard !fresh.isEmpty else { Tones.edge(); return }
+            let k = fresh.firstIndex(where: { $0.isSame(v) }) ?? fresh.firstIndex(where: { ObjectFactory.make($0).name == name })
+            let next = k.map { $0 + delta } ?? (delta > 0 ? 0 : fresh.count - 1)
+            guard fresh.indices.contains(next) else { Log.io("row list: the end of the list"); Tones.edge(); return }
+            // Rows above the ones in sight: counted by how far the row held moved up or down the list in sight.
+            let before = Self.rowOffset.flatMap { $0.container.isSame(container) ? $0.n : nil } ?? 0
+            Self.rowOffset = (container, max(0, before + (k.map { i - $0 } ?? (delta > 0 ? rows.count : -fresh.count))))
+            Self.rowLists.removeAll { $0.container.isSame(container) }
+            Self.rowLists.insert((fresh, fresh[0], container), at: 0)
+            Self.landInRowList(fresh, at: next, entering: false)
+        }
     }
 
     /// On a row of a row list: held, said with its place in the list.
@@ -562,12 +625,20 @@ public final class SettingsPanePlugin: GlobalPlugin {
         lock.lock(); _holding = true; _heldByTrap = true; _inPane = false; lock.unlock()
         let obj = ObjectFactory.make(row)
         API.setFocusObject(obj, ancestors: API.focusAncestors)
+        // The review cursor too: the context menu key opens the menu for what it is on, and it stayed on the call
+        // the app had chosen (a tester, 11 Nov 2026).
+        ObjectNavigator.shared.focusMoved(to: row, pid: row.pid)
         Tones.focusTick()
         Speech.cancel()
+        let container = rowList(of: row)?.container
+        let scrolling = container.map(scrolls) ?? false
+        if entering { rowOffset = container.map { ($0, 0) } }
+        let offset = (container.flatMap { c in rowOffset.flatMap { $0.container.isSame(c) ? $0.n : nil } }) ?? 0
         var parts: [String] = []
-        if entering { parts.append(String(localized: "list, \(Phrases.items(rows.count))", comment: "A column of rows TurnOver reads as a list, reached by Tab: %@ is the count")) }
+        // A list that scrolls holds only the rows in sight: no count of them all is known.
+        if entering { parts.append(scrolling ? String(localized: "list", comment: "A list reached by Tab, its length unknown") : String(localized: "list, \(Phrases.items(rows.count))", comment: "A column of rows TurnOver reads as a list, reached by Tab: %@ is the count")) }
         parts.append(Speech.joined(Speech.objectPropertiesSpeech(obj, reason: .query)))
-        parts.append(Phrases.position(i + 1, of: rows.count))
+        parts.append(scrolling ? String(localized: "item \(offset + i + 1)", comment: "A row's place in a list whose length is unknown") : Phrases.position(i + 1, of: rows.count))
         Speech.speakItem(parts.joined(separator: ", "))
     }
 
