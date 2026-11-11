@@ -38,6 +38,7 @@ public final class SystemPrompts {
     }
     private var timer: Timer?
     private var shown: [AXUIElement] = []
+    private var missedOnce: [AXUIElement] = []
     /// With VoiceOver running (CoExist), macOS's own prompts are VoiceOver's entirely (18 Oct 2026: VoiceOver
     /// "could take over in higher security dialogues, which keeps TurnOver more secure"): TurnOver neither reads them
     /// nor takes their keys. The app is told when the first opens (true) and the last closes (false), and steps aside.
@@ -89,8 +90,14 @@ public final class SystemPrompts {
                 }
             }
         }
-        let gone = !shown.isEmpty && !shown.allSatisfy { w in windows.contains { $0.0.isSame(w) } }
-        shown.removeAll { w in !windows.contains { $0.0.isSame(w) } }
+        // Gone only when missed twice running: an agent's list can come back empty for a moment, and the prompts were
+        // taken as closed, the app refocused, and each read out again (11 Nov 2026).
+        let missing = shown.filter { w in !windows.contains { $0.0.isSame(w) } }
+        let goneNow = missing.filter { w in missedOnce.contains { $0.isSame(w) } }
+        missedOnce = missing.filter { w in !goneNow.contains { $0.isSame(w) } }
+        windows += missedOnce.map { ($0, $0.pid) }
+        let gone = !goneNow.isEmpty
+        shown.removeAll { w in goneNow.contains { $0.isSame(w) } }
         summaries.removeAll { p in !shown.contains { $0.isSame(p.window) } }
         if gone, shown.isEmpty, let front = NSWorkspace.shared.frontmostApplication {
             Log.io("system prompt closed; focus back to \(front.localizedName ?? "?")")
@@ -122,6 +129,7 @@ public final class SystemPrompts {
         announce(w, pid: pid)
     }
     private var lastAnnounced = Date.distantPast
+    private var readAt: [String: Date] = [:]
 
     private func announce(_ window: AXUIElement, pid: pid_t) {
         lastAnnounced = Date()
@@ -133,9 +141,14 @@ public final class SystemPrompts {
             stack.append(contentsOf: e.elements(kAXChildrenAttribute).reversed())
         }
         guard !texts.isEmpty || window.element(kAXFocusedUIElementAttribute) != nil else { return }
-        Log.io("system prompt from pid \(pid): \(texts.count) lines")
         summaries.removeAll { $0.window.isSame(window) }
         summaries.append((window, pid, texts.first.map { String($0.prefix(120)) } ?? "untitled"))
+        // The same prompt again from the same agent, a new window for it: not read out, nor given the keyboard, again.
+        let key = "\(pid)|" + texts.joined(separator: "|")
+        if let at = readAt[key], Date().timeIntervalSince(at) < 120 { Log.io("system prompt from pid \(pid) again, the same; not read again"); return }
+        readAt[key] = Date()
+        if readAt.count > 50 { readAt = readAt.filter { Date().timeIntervalSince($0.value) < 120 } }
+        Log.io("system prompt from pid \(pid): \(texts.count) lines")
         Speech.cancel()
         Speech.speakMessage(([Self.isProtected(pid) ? String(localized: "system dialog", comment: "A role: a macOS system dialog") : Role.dialog.displayString] + texts).joined(separator: ", "))
         let ax = AXUIElementCreateApplication(pid)

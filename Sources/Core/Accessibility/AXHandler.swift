@@ -192,6 +192,10 @@ public final class AXHandler {
     /// When each application last sent any accessibility news (main thread): a key it should react to, and no news
     /// after it, means it is not responding.
     public internal(set) var lastNewsAt: [pid_t: Date] = [:]
+    /// When each app last sent news that answers a key moving about (focus, selection, a title): not layout or a value,
+    /// which Catalyst apps (Home, Journal) and a copy window's bar send all the time, so the Tab trap judged every Tab
+    /// answered and did nothing (11 Nov 2026).
+    public internal(set) var lastMoveNewsAt: [pid_t: Date] = [:]
     /// Ask the application what has focus now and treat it as a focus change (after a menu closes: Word sends nothing).
     var menuGapTarget: AXUIElement?
     var lastAnnouncement = ("", Date.distantPast)

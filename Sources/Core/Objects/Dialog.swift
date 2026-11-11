@@ -48,6 +48,12 @@ open class Dialog: TurnOverObject {
                 // description: the sheet said only "dialog".
                 let v = [e.string(kAXValueAttribute), e.string(kAXDescriptionAttribute)].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty }
                 if let v, !choiceNames.contains(v), !texts.contains(v) { texts.append(v) }
+            } else if r == "AXHeading" || r == "AXGenericElement" && !Self.pressable(e) {
+                // Catalyst's welcome sheets (Home's What's New, Journal's Welcome, 11 Nov 2026): a heading and a list
+                // of features, each an element with a description; only a stray static text was read.
+                let v = [e.string(kAXValueAttribute), e.string(kAXDescriptionAttribute), e.string(kAXTitleAttribute)].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty }
+                if let v, !choiceNames.contains(v), !texts.contains(v) { texts.append(v) }
+                else if v == nil { queue.append(contentsOf: e.elements(kAXChildrenAttribute)) }
             } else if (r == "AXTextArea" || r == "AXTextField"), Self.isReadOnlyText(e) {
                 if let v = e.string(kAXValueAttribute)?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty, !texts.contains(v) { texts.append(v) }
             } else if r == "AXTable" || r == "AXScrollArea" && e.elements(kAXChildrenAttribute).first?.role == "AXTable" {

@@ -22,6 +22,11 @@ extension AXHandler {
 
     func notification(_ name: String, _ element: AXUIElement, _ info: [String: Any]?) {
         lastNewsAt[element.pid] = Date()
+        if [kAXFocusedUIElementChangedNotification, kAXSelectedChildrenChangedNotification, kAXSelectedRowsChangedNotification,
+            kAXSelectedCellsChangedNotification, kAXSelectedTextChangedNotification, kAXTitleChangedNotification,
+            kAXFocusedWindowChangedNotification, kAXMenuOpenedNotification, kAXSheetCreatedNotification].contains(name) {
+            lastMoveNewsAt[element.pid] = Date()
+        }
         guard running else { return }
         let pid = element.pid
         // A banner from Notification Centre (a message, a calendar alert): read as it appears, as VoiceOver and NVDA do

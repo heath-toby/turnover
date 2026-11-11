@@ -62,7 +62,10 @@ public final class SettingsPanePlugin: GlobalPlugin {
         return !CFEqual(def, e)
     }
 
-    static var inTrapZone: Bool { lock.lock(); defer { lock.unlock() }; return _inTrapZone }
+    /// Tab is the trap's: in a place where the app ignores it, or while TurnOver holds a place the trap moved to (a
+    /// control that refuses the focus: the app's own Tab would go on from its focus elsewhere, Weather, 11 Nov 2026).
+    static var inTrapZone: Bool { lock.lock(); defer { lock.unlock() }; return _inTrapZone || (_holding && _heldByTrap) }
+    private static var _heldByTrap = false
     /// The last window's controls in screen order, reused for a few seconds (walking the window costs 60 ms).
     static var trapList: (window: AXUIElement, controls: [AXUIElement], at: Date)?
 
@@ -81,12 +84,12 @@ public final class SettingsPanePlugin: GlobalPlugin {
     private func trapMove(_ g: KeyboardGesture, forward: Bool) {
         // From TurnOver's held place when the app's buttons do not take the focus, else from the focus.
         Self.dropDeadHold()
-        guard let current = Self.virtual ?? API.focusObject?.element, let window = Self.windowOf(current) else { g.send(); return }
+        guard let current = Self.virtual ?? API.focusObject?.element, let window = Self.scopeOf(current) else { g.send(); return }
         var all: [AXUIElement]
         if let c = Self.trapList, c.window.isSame(window), Date().timeIntervalSince(c.at) < 5 { all = c.controls }
-        else { all = Self.controls(in: window, toolbars: true); Self.trapList = (window, all, Date()) }
+        else { all = Self.controls(in: window, toolbars: true, unfocusable: true); Self.trapList = (window, all, Date()) }
         var here = all.firstIndex { $0.isSame(current) }
-        if here == nil { all = Self.controls(in: window, toolbars: true); Self.trapList = (window, all, Date()); here = all.firstIndex { $0.isSame(current) } }
+        if here == nil { all = Self.controls(in: window, toolbars: true, unfocusable: true); Self.trapList = (window, all, Date()); here = all.firstIndex { $0.isSame(current) } }
         // A held place that isn't a control (a copy window's progress bar, NewDialogs): Tab goes from where it sits
         // among the window's controls, in the order of the window's children (11 Nov 2026: Tab said nothing).
         if here == nil, let around = Self.controlsAround(current, in: window) {
@@ -94,7 +97,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
             let next = forward ? order.indices.first { $0 > at } : order.indices.last { $0 < at }
             guard let k = next ?? (forward ? order.indices.first { $0 != at } : order.indices.last { $0 != at }) else { g.send(); return }
             Log.io("tab trap: from a held \(current.role) to \(order[k].role)")
-            Self.focus(order[k])
+            Self.focus(order[k], byTrap: true)
             Self.setTrapState(for: order[k])
             return
         }
@@ -105,7 +108,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
             let order = around.0
             let k = ((forward ? i + 1 : i - 1) + order.count) % order.count
             Log.io("tab trap: round a control and a progress bar, to \(order[k].role)")
-            Self.focus(order[k])
+            Self.focus(order[k], byTrap: true)
             Self.setTrapState(for: order[k])
             return
         }
@@ -115,7 +118,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // its pane on a new section, and Tab from the sidebar went to a dead check box, held it, and was silent from
         // then on (21 Oct 2026). Walk the window again.
         if all[n].role == "?" {
-            all = Self.controls(in: window, toolbars: true); Self.trapList = (window, all, Date())
+            all = Self.controls(in: window, toolbars: true, unfocusable: true); Self.trapList = (window, all, Date())
             guard let j = all.firstIndex(where: { $0.isSame(current) }), !all.isEmpty else { g.send(); return }
             i = j; n = ((forward ? i + 1 : i - 1) + all.count) % all.count
         }
@@ -123,7 +126,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // Round to the same control (a window with one, Reminders' Continue): nothing changes, so nothing would be
         // said; it is said again, as Tab on Windows says it (the sweep, 11 Nov 2026).
         if all[n].isSame(current) { Speech.cancel(); Speech.speakObject(ObjectFactory.make(current), reason: .focus); return }
-        Self.focus(all[n])
+        Self.focus(all[n], byTrap: true)
         Self.setTrapState(for: all[n])
     }
 
@@ -151,7 +154,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
         lock.lock(); _onRibbonTab = onTab; lock.unlock()
         if ribbonCommands(of: e) != nil { lock.lock(); _inPane = true; lock.unlock(); return }
         // A real focus change ends any held place.
-        if let v = virtual, !obj.isSameElement(as: v) { virtual = nil; lock.lock(); _holding = false; lock.unlock() }
+        if let v = virtual, !obj.isSameElement(as: v) { virtual = nil; lock.lock(); _holding = false; _heldByTrap = false; lock.unlock() }
         var inside = false
         if let window = windowOf(e), PreferenceTab.selectedTab(in: window) != nil {
             var p: AXUIElement? = e; var hops = 0; var inToolbar = false
@@ -188,7 +191,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 if let real = appEl.element(kAXFocusedUIElementAttribute), !real.isSame(w) { return }
                 before = w; window = w
             } else {
-                guard let f, !Self.typesTab(f), let w = f.axRole == "AXWindow" ? f.element : Self.windowOf(f.element) else { return }
+                guard let f, !Self.typesTab(f), let w = f.axRole == "AXWindow" ? f.element : Self.scopeOf(f.element) else { return }
                 before = f.element; window = w
             }
             let pid = before.pid, at = Date()
@@ -196,22 +199,36 @@ public final class SettingsPanePlugin: GlobalPlugin {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 let unmoved = nowhere ? (API.focusObject.map { $0.pid != pid } ?? true) : API.focusObject?.isSameElement(as: before) == true
                 guard unmoved,
-                      (AXHandler.shared.lastNewsAt[pid] ?? .distantPast) < at else { return }
-                let all = Self.controls(in: window, toolbars: true)
+                      (AXHandler.shared.lastMoveNewsAt[pid] ?? .distantPast) < at else { return }
+                let all = Self.controls(in: window, toolbars: true, unfocusable: true)
                 let forward = !g.modifiers.contains(.shift)
                 guard let here = all.firstIndex(where: { $0.isSame(before) }) else {
                     // The focus parked on a container that isn't a control (Calculator opened with a sheet, its focus
                     // on a nameless scroll area, and Tab did nothing: the sweep of 11 Nov 2026, macOS 27.2): into the
                     // container, its first control for Tab and its last for Shift Tab.
-                    let inside = all.filter { c in
-                        var p: AXUIElement? = c.element(kAXParentAttribute); var hops = 0
-                        while let x = p, hops < 15 { if x.isSame(before) { return true }; p = x.element(kAXParentAttribute); hops += 1 }
-                        return false
+                    // Walked from the container itself: Journal's welcome sheet has only a Continue that refuses the
+                    // focus, missed among the window's toolbar buttons that take it (11 Nov 2026).
+                    let inside = before.role == "AXWindow" ? all : Self.controls(in: before, toolbars: true, unfocusable: true).filter { !$0.isSame(before) }
+                    guard let target = forward ? inside.first : inside.last else {
+                        // A control the window's list leaves out (Calendar's day list, 11 Nov 2026): on from where it
+                        // sits among the window's controls.
+                        guard let around = Self.controlsAround(before, in: window) else { Log.io("tab trap: nowhere to go from \(before.role)"); return }
+                        let (order, i) = around
+                        let k = ((forward ? i + 1 : i - 1) + order.count) % order.count
+                        Log.io("tab trap: the app ignored \(forward ? "Tab" : "Shift+Tab") on \(before.role); TurnOver moves to \(order[k].role)")
+                        Self.focus(order[k], byTrap: true)
+                        Self.setTrapState(for: order[k])
+                        return
                     }
-                    guard let target = forward ? inside.first : inside.last else { return }
                     Log.io("tab trap: the app ignored \(forward ? "Tab" : "Shift+Tab") on a \(before.role) holding \(inside.count) controls; TurnOver moves into it")
+                    // The container is a place where Tab is TurnOver's from now on (Home's sheet: the next Tab went to
+                    // the settings panes' Tab and did nothing).
+                    if before.role != "AXWindow", !Self.trapZones.contains(where: { $0.isSame(before) }) {
+                        Self.trapZones.append(before)
+                        if Self.trapZones.count > 20 { Self.trapZones.removeFirst() }
+                    }
                     Self.trapList = (window, all, Date())
-                    Self.focus(target)
+                    Self.focus(target, byTrap: true)
                     Self.setTrapState(for: target)
                     return
                 }
@@ -225,7 +242,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
                     if Self.trapZones.count > 20 { Self.trapZones.removeFirst() }
                 }
                 Self.trapList = (window, all, Date())
-                Self.focus(all[n])
+                Self.focus(all[n], byTrap: true)
                 Self.setTrapState(for: all[n])   // Mail's buttons do not take the focus: TurnOver holds the place
             }
         }
@@ -256,7 +273,8 @@ public final class SettingsPanePlugin: GlobalPlugin {
     /// then, TurnOver holds the place on it, as VoiceOver's cursor does: Space and Return press it, and Tab goes on
     /// from it. A list with nothing selected has its first item selected, as on Windows ("228 items, nothing selected"
     /// said nothing useful).
-    public static func focus(_ target: AXUIElement) {
+    /// `byTrap`: moved by the Tab trap, which keeps Tab if the place must be held (not the settings panes' Tab).
+    public static func focus(_ target: AXUIElement, byTrap: Bool = false) {
         _ = target.set(kAXFocusedAttribute, kCFBooleanTrue)
         if ["AXTable", "AXOutline"].contains(target.role), target.elements(kAXSelectedRowsAttribute).isEmpty,
            let first = target.elements(kAXRowsAttribute).first {
@@ -281,7 +299,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
             } else {
                 // In a window whose Tab is the trap's (TabLoop, NewDialogs), the settings panes' Tab must not take
                 // over from the held place: Shift Tab went to it and did nothing (11 Nov 2026).
-                holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true, ownTab: !inLoopWindow(target))
+                let trap = byTrap || inLoopWindow(target) || inTrapZone
+                holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true, ownTab: !trap)
+                lock.lock(); _heldByTrap = trap; lock.unlock()
             }
         }
     }
@@ -338,6 +358,14 @@ public final class SettingsPanePlugin: GlobalPlugin {
     private static var _holding = false
 
     /// The window an element is in. Safari's settings controls do not say (no AXWindow; 4 Oct 2026): walk up to it.
+    /// Where Tab goes round: the sheet a control is in, else its window. Tab in a sheet stays in it, as the app's own
+    /// does; TurnOver's went to the toolbar behind Journal's welcome sheet (11 Nov 2026).
+    static func scopeOf(_ e: AXUIElement) -> AXUIElement? {
+        var p: AXUIElement? = e; var hops = 0
+        while let x = p, hops < 25 { let r = x.role; if r == "AXSheet" { return x }; if r == "AXWindow" { return x }; p = x.element(kAXParentAttribute); hops += 1 }
+        return windowOf(e)
+    }
+
     public static func windowOf(_ e: AXUIElement) -> AXUIElement? {
         if let w = e.element(kAXWindowAttribute) { return w }
         var p = e.element(kAXParentAttribute); var hops = 0
@@ -349,8 +377,12 @@ public final class SettingsPanePlugin: GlobalPlugin {
                                             "AXSlider", "AXTable", "AXOutline", "AXList", "AXIncrementor", "AXMenuButton", "AXColorWell", "AXDateField", "AXLink"]
 
     /// The pane's controls in screen order: rows top to bottom (within 8 points is one row), then left to right.
-    static func controls(in window: AXUIElement, toolbars: Bool = false) -> [AXUIElement] {
+    /// `unfocusable`: with the enabled controls that refuse the focus too (the Tab trap's stops: TurnOver holds them).
+    static func controls(in window: AXUIElement, toolbars: Bool = false, unfocusable withUnfocusable: Bool = false) -> [AXUIElement] {
         var found: [(AXUIElement, CGRect)] = []
+        // Controls that refuse the focus: Catalyst's (Home's and Journal's welcome sheets, 11 Nov 2026) all do, so
+        // the window had no stops and Tab did nothing. Used when there is nothing else; TurnOver holds the place.
+        var unfocusable: [(AXUIElement, CGRect)] = []
         var visited = 0
         func walk(_ e: AXUIElement, _ depth: Int) {
             guard visited < 600, depth < 14 else { return }
@@ -362,12 +394,13 @@ public final class SettingsPanePlugin: GlobalPlugin {
             if controlRoles.contains(role), (e.attr(kAXEnabledAttribute) as? Bool) != false, let f = TurnOverObject.frame(e), f.width > 0, f.height > 0 {
                 var settable: DarwinBoolean = false
                 AXUIElementIsAttributeSettable(e, kAXFocusedAttribute as CFString, &settable)
-                if settable.boolValue { found.append((e, f)) }
+                if settable.boolValue { found.append((e, f)) } else { unfocusable.append((e, f)) }
                 if ["AXTable", "AXOutline", "AXList", "AXTextArea"].contains(role) { return }   // one stop each
             }
             for k in e.elements(kAXChildrenAttribute) { walk(k, depth + 1) }
         }
         walk(window, 0)
+        if withUnfocusable { found += unfocusable } else if found.isEmpty { found = unfocusable }
         return found.sorted { a, b in
             let ra = Int(a.1.midY / 8), rb = Int(b.1.midY / 8)
             return ra != rb ? ra < rb : a.1.minX < b.1.minX
