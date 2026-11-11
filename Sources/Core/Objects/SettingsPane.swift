@@ -368,6 +368,10 @@ public final class SettingsPanePlugin: GlobalPlugin {
     /// `byTrap`: moved by the Tab trap, which keeps Tab if the place must be held (not the settings panes' Tab).
     public static func focus(_ target: AXUIElement, byTrap: Bool = false) {
         scrollIntoView(target)
+        // TurnOver's own Tab moves count towards a loop as the app's do (TabLoop.noteLanding).
+        if byTrap, ["kb:tab", "kb:shift+tab"].contains(InputManager.lastKeyIdentifier) {
+            noteLanding(target, forward: InputManager.lastKeyIdentifier == "kb:tab")
+        }
         // A row of a list the trap made: into the list, on that row.
         if let (rows, i, _, _) = rowList(of: target) {
             landInRowList(rows, at: i, entering: true)

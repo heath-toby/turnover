@@ -53,7 +53,18 @@ extension SettingsPanePlugin {
         guard g.keyName == "tab", g.modifiers.subtracting(.shift).isEmpty else { tabLandings = nil; return }
         let forward = !g.modifiers.contains(.shift), pressed = Date()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-            guard let f = API.focusObject, let window = windowOf(f.element), !inLoopWindow(f.element) else { return }
+            guard let f = API.focusObject else { return }
+            noteLanding(f.element, forward: forward, pressed: pressed)
+        }
+    }
+
+    /// Where a Tab or Shift Tab landed, the app's or TurnOver's own: both count towards a loop. Grapher's Tab went
+    /// from its list to Cancel by TurnOver and back to the list by Grapher, round and round, never seen as a loop
+    /// while only the app's landings were counted (11 Nov 2026).
+    static func noteLanding(_ e: AXUIElement, forward: Bool, pressed: Date = Date()) {
+        do {
+            let f = ObjectFactory.make(e)
+            guard let window = windowOf(f.element), !inLoopWindow(f.element) else { return }
             // Web content and fields are never counted: Safari's address field and page search with "Tab highlights
             // each item" off are a real loop of two, and the page's Tab is browse mode's.
             // A single-line field is a landing like any other (System Settings' loop went through its search field); Tab
