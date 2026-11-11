@@ -210,11 +210,20 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 before = f.element; window = w
             }
             let pid = before.pid, at = Date()
+            let chosenBefore = nowhere ? [] : Self.chosen(in: before)
             // 0.4 s: Reminders' SwiftUI sidebar takes longer than a quarter of a second to pass Tab on (10 Oct 2026).
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 let unmoved = nowhere ? (API.focusObject.map { $0.pid != pid } ?? true) : API.focusObject?.isSameElement(as: before) == true
                 guard unmoved,
                       (AXHandler.shared.lastMoveNewsAt[pid] ?? .distantPast) < at else { return }
+                // The focus stayed, but Tab chose something inside it, with no news of it: Calendar's Tab selects the
+                // next event in a day's list, and said nothing (11 Nov 2026). The item now chosen is read.
+                if !nowhere, let now = Self.chosen(in: before).first,
+                   !chosenBefore.contains(where: { CFEqual($0, now) }) {
+                    Log.io("tab trap: Tab chose an item inside the \(before.role), with no news; read")
+                    Speech.cancel(); Speech.speakObject(ObjectFactory.make(now), reason: .focus)
+                    return
+                }
                 let all = Self.controls(in: window, toolbars: true, unfocusable: true)
                 let forward = !g.modifiers.contains(.shift)
                 guard let here = all.firstIndex(where: { $0.isSame(before) }) else {
@@ -227,7 +236,15 @@ public final class SettingsPanePlugin: GlobalPlugin {
                     guard let target = forward ? inside.first : inside.last else {
                         // A control the window's list leaves out (Calendar's day list, 11 Nov 2026): on from where it
                         // sits among the window's controls.
-                        guard let around = Self.controlsAround(before, in: window) else { Log.io("tab trap: nowhere to go from \(before.role)"); return }
+                        guard let around = Self.controlsAround(before, in: window) else {
+                            // The focus is no longer in the window at all (Calendar put a welcome screen over its days,
+                            // and reported the hidden day list as its focus, 11 Nov 2026): the window's first control.
+                            if let first = forward ? all.first : all.last {
+                                Log.io("tab trap: the focus \(before.role) isn't in its window any more; to the window's \(first.role)")
+                                Self.focus(first, byTrap: true); Self.setTrapState(for: first); return
+                            }
+                            Log.io("tab trap: nowhere to go from \(before.role)"); return
+                        }
                         let (order, i) = around
                         let k = ((forward ? i + 1 : i - 1) + order.count) % order.count
                         Log.io("tab trap: the app ignored \(forward ? "Tab" : "Shift+Tab") on \(before.role); TurnOver moves to \(order[k].role)")
@@ -253,12 +270,16 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 Log.io("tab trap: the app ignored \(forward ? "Tab" : "Shift+Tab") on \(before.role); TurnOver moves to \(all[n].role) \(n + 1) of \(all.count)")
                 // Remember where the app ignores Tab (the group around the control): from now on Tab there is
                 // TurnOver's at once, with no wait (each step took 300 ms, "draggy", 5 Oct 2026).
-                if let zone = Self.zone(of: before), !Self.trapZones.contains(where: { $0.isSame(zone) }) {
+                // Not a whole window: Calendar's welcome screen sat in its main window, and the window kept as such a
+                // place took Tab from Calendar's own event to event Tab once the screen was gone (11 Nov 2026).
+                if let zone = Self.zone(of: before), zone.role != "AXWindow", !Self.trapZones.contains(where: { $0.isSame(zone) }) {
                     Log.io("tab trap: remembering \(zone.role) \"\(Log.words(zone.string(kAXDescriptionAttribute) ?? ""))\" as a place where Tab is TurnOver's")
                     Self.trapZones.append(zone)
                     if Self.trapZones.count > 20 { Self.trapZones.removeFirst() }
                 }
                 Self.trapList = (window, all, Date())
+                // Round to the same control (a window with one): said again, as Tab on Windows does.
+                if all[n].isSame(before) { Speech.cancel(); Speech.speakObject(ObjectFactory.make(before), reason: .focus); return }
                 Self.focus(all[n], byTrap: true)
                 Self.setTrapState(for: all[n])   // Mail's buttons do not take the focus: TurnOver holds the place
             }
@@ -361,6 +382,13 @@ public final class SettingsPanePlugin: GlobalPlugin {
         let yes = url.flatMap { Bundle(url: $0)?.object(forInfoDictionaryKey: "UIDeviceFamily") } != nil
         catalyst[pid] = yes
         return yes
+    }
+
+    /// What a list, table or outline has chosen: its selected rows or children.
+    static func chosen(in e: AXUIElement) -> [AXUIElement] {
+        guard ["AXList", "AXTable", "AXOutline", "AXGrid", "AXBrowser"].contains(e.role) else { return [] }
+        let rows = e.elements(kAXSelectedRowsAttribute)
+        return rows.isEmpty ? e.elements(kAXSelectedChildrenAttribute) : rows
     }
 
     /// The first or last control of a window's pane (from the tab bar: Tab goes to the first, Shift+Tab to the last).
