@@ -650,8 +650,11 @@ public final class MediaView {
                 }
                 return true
             }
-            if role == "AXGroup", pressable(e), !desc.isEmpty, e.elements(kAXChildrenAttribute).isEmpty {
-                current.items.append(Item(label: desc, element: e, press: e)); return true
+            // A cell that is pressed whole (Music's library grid: an album, its texts and a Favourite toggle inside):
+            // one item, pressed whole. Read inside, its texts were items with nothing to press, so Return on an album
+            // said "nothing to open" (a tester, 11 Nov 2026).
+            if role == "AXGroup", pressable(e), !desc.isEmpty {
+                current.items.append(Item(label: tidy(desc), element: e, press: e)); return true
             }
             return false
         }

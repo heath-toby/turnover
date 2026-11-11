@@ -149,7 +149,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // An iPad app (Catalyst): Tab is TurnOver's everywhere but in a text area or web content, as VoiceOver's
         // cursor goes. The app's own Tab is slow, and reports the focus still on a field it left: Phone's Tab and
         // Shift Tab went silent or round the toolbar for ever (a tester's idea, 11 Nov 2026).
-        let catalyst = isCatalyst(e.pid) && e.role != "AXTextArea" && !isInWeb(e)
+        let catalyst = isCatalyst(e.pid) && !moduleTakesTab(e.pid) && e.role != "AXTextArea" && !isInWeb(e)
         let inTrap = catalyst || (!keepsOwnTab(e) && inLoopWindow(e)) || !trapZones.isEmpty && !editable && {
             var p: AXUIElement? = e.element(kAXParentAttribute); var hops = 0
             while let x = p, hops < 6 { if trapZones.contains(where: { $0.isSame(x) }) { return true }; p = x.element(kAXParentAttribute); hops += 1 }
@@ -336,6 +336,17 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 lock.lock(); _heldByTrap = trap; lock.unlock()
             }
         }
+    }
+
+    /// The app's module has Tab keys of its own (Messages' and WhatsApp's parts, Podcasts' areas, Books): the iPad-app
+    /// rule leaves Tab to it. Global plugins come first, and the trap would have taken Tab from them. Kept per process.
+    private static var moduleTab: [pid_t: Bool] = [:]
+    static func moduleTakesTab(_ pid: pid_t) -> Bool {
+        if let known = moduleTab[pid] { return known }
+        let module = AppModuleHandler.shared.appModule(for: pid)
+        let yes = module.everyBinding.contains { id, _ in id == "kb:tab" || id == "kb:shift+tab" }
+        moduleTab[pid] = yes
+        return yes
     }
 
     /// Made with Mac Catalyst (an iPad app on the Mac: Phone, Journal, News, Maps, Home): its Info.plist names iPad
