@@ -24,6 +24,8 @@ The newest build is first. "Reported by a tester" marks a fix for something a te
 - System Settings: Tab and Shift Tab go round the sidebar, the search field and every control in the pane on the
   right, Accessibility, Battery and the rest. System Settings only lets Tab into the pane while VoiceOver runs, and
   TurnOver turns VoiceOver off, so Tab went only between the sidebar and the search field.
+- System Settings: a dialog over a pane, such as Bluetooth's Show Detail, is read as it opens, its text and then
+  its Done or OK button, and Tab, Shift Tab and object navigation go round the dialog, not the pane behind it.
 - "Nothing in this window can be read", with the keys for screen recognition, is a hint now: turning off Hints after
   a pause turns it off too. It is no longer said in Steam's Big Picture while TurnOver is reading it.
 

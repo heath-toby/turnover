@@ -38,6 +38,9 @@ package enum SystemSettingsPaneFocus {
     /// Tab's round in the window: the sidebar, the search field, then the pane's controls; empty if the window isn't
     /// laid out as System Settings' main window is.
     static func ring(in window: AXUIElement) -> (stops: [AXUIElement], paneStart: Int) {
+        // A sheet over the window (Bluetooth's Show Detail, 10 Nov 2026): Tab goes round the sheet alone, as a dialog's
+        // Tab does; TurnOver stayed in the pane behind it (a tester).
+        if let sheet = sheet(of: window) { return (controlsInOrder(sheet), 0) }
         guard let split = window.firstDescendant(role: "AXSplitGroup", maxVisited: 40) else { return ([], 0) }
         let parts = split.elements(kAXChildrenAttribute)
         guard let splitter = parts.firstIndex(where: { $0.role == "AXSplitter" }) else { return ([], 0) }
@@ -65,8 +68,7 @@ package enum SystemSettingsPaneFocus {
         let n = here.map { (forward ? $0 + 1 : $0 - 1 + ring.count) % ring.count } ?? (forward ? 0 : ring.count - 1)
         Log.io("system settings: \(forward ? "Tab" : "Shift+Tab") to stop \(n + 1) of \(ring.count), \(ring[n].role)")
         if n >= paneStart {
-            SettingsPanePlugin.holdVirtual(ring[n], ownTab: false)
-            Tones.focusTick()   // the move's sound, as a real focus change has (a tester, 10 Nov 2026)
+            place(ring[n])
         } else if let real = AXUIElementCreateApplication(ring[n].pid).element(kAXFocusedUIElementAttribute), related(real, ring[n]) {
             // The keyboard never left the sidebar or the search field while TurnOver held a place in the pane, so
             // focusing it again changes nothing and the app says nothing: TurnOver comes back to it itself. Without
@@ -80,6 +82,48 @@ package enum SystemSettingsPaneFocus {
             SettingsPanePlugin.focus(ring[n])
         }
         return true
+    }
+
+    /// The sheet over the window, if one is open.
+    static func sheet(of window: AXUIElement) -> AXUIElement? {
+        window.elements(kAXChildrenAttribute).last { $0.role == "AXSheet" }
+    }
+
+    /// TurnOver on a control of the pane or a sheet: the keyboard focus asked for (a sheet's buttons may take it), the
+    /// place held either way so Space and Return press it, the move's sound, and object navigation from there.
+    /// `interrupt`: false after something just said (a sheet's text), so the control is said after it, not over it.
+    static func place(_ e: AXUIElement, interrupt: Bool = true) {
+        _ = e.set(kAXFocusedAttribute, kCFBooleanTrue)
+        SettingsPanePlugin.holdVirtual(e, speak: interrupt, ownTab: false)
+        if !interrupt { Speech.speakObject(ObjectFactory.make(e), reason: .focus) }
+        Tones.focusTick()   // the move's sound, as a real focus change has (a tester, 10 Nov 2026)
+        ObjectNavigator.shared.releaseHold()
+        ObjectNavigator.shared.place(e)
+    }
+
+    /// Where a sheet opens: its default button, else its Done, OK, Close or Cancel, else its first control. Never a
+    /// first control like Bluetooth's "Forget This Device…", which Space would press, when a safe one is there.
+    static func landing(in sheet: AXUIElement) -> AXUIElement? {
+        if let d = sheet.element(kAXDefaultButtonAttribute) { return d }
+        let controls = controlsInOrder(sheet)
+        let safe = ["Done", "OK", "Close", "Cancel"]
+        return controls.first { c in safe.contains(c.string(kAXDescriptionAttribute) ?? "") || safe.contains(c.string(kAXTitleAttribute) ?? "") } ?? controls.first
+    }
+
+    /// A sheet's text as a dialog's is read when it opens ("Name, APH Mantis Q40…, Device Type, Bluetooth Device"):
+    /// its static texts in order, a text inside a text with the same words said once; at most 400 characters.
+    static func text(of sheet: AXUIElement) -> String {
+        var out: [String] = []
+        var visited = 0
+        func walk(_ e: AXUIElement) {
+            guard visited < 300 else { return }
+            visited += 1
+            if e.role == "AXStaticText", let v = e.string(kAXValueAttribute)?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty, out.last != v { out.append(v) }
+            for k in e.elements(kAXChildrenAttribute) { walk(k) }
+        }
+        walk(sheet)
+        let joined = out.joined(separator: ", ")
+        return joined.count > 400 ? String(joined.prefix(400)) : joined
     }
 
     /// The same control, or one inside the other within a few levels (the search field's stand-in, a sidebar row).
