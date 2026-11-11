@@ -607,17 +607,20 @@ public final class SettingsPanePlugin: GlobalPlugin {
     /// every call before reaching the buttons beside them. One stop for the trap: Up and Down go through the rows,
     /// Tab goes on past them (a tester's idea, 11 Nov 2026). Not a grid (Calculator's keys: not one column).
     static func collapsingRowLists(_ found: [(AXUIElement, CGRect)]) -> [(AXUIElement, CGRect)] {
-        var byContainer: [(container: AXUIElement, members: [(AXUIElement, CGRect)])] = []
+        var byContainer: [(container: AXUIElement, members: [(AXUIElement, CGRect)], wrapped: Bool)] = []
         for (e, f) in found where !["AXTable", "AXOutline", "AXList", "AXTextArea", "AXTextField", "AXSlider"].contains(e.role) {
             guard var c = e.element(kAXParentAttribute) else { continue }
             // A row's own wrapper (a group holding just this button) is not the list: its parent is.
-            if ["AXGroup", "AXCell", "AXRow"].contains(c.role), c.elements(kAXChildrenAttribute).count == 1, let up = c.element(kAXParentAttribute) { c = up }
-            if let i = byContainer.firstIndex(where: { CFEqual($0.container, c) }) { byContainer[i].members.append((e, f)) }
-            else { byContainer.append((c, [(e, f)])) }
+            var wrapped = false
+            if ["AXGroup", "AXCell", "AXRow"].contains(c.role), c.elements(kAXChildrenAttribute).count == 1, let up = c.element(kAXParentAttribute) { c = up; wrapped = true }
+            if let i = byContainer.firstIndex(where: { CFEqual($0.container, c) }) { byContainer[i].members.append((e, f)); byContainer[i].wrapped = byContainer[i].wrapped && wrapped }
+            else { byContainer.append((c, [(e, f)], wrapped)) }
         }
         var lists: [(rows: [AXUIElement], stop: AXUIElement, container: AXUIElement)] = []
         var drop: [AXUIElement] = []
-        for (c, members) in byContainer where members.count >= 3 {
+        // Rows each in a wrapper of their own (a list's cells), or five or more: an alert's buttons, stacked one
+        // under another, are three buttons, not a list (macOS 27's alerts, 11 Nov 2026).
+        for (c, members, wrapped) in byContainer where members.count >= (wrapped ? 3 : 5) {
             guard let cf = TurnOverObject.frame(c) else { continue }
             let first = members[0].1
             let column = members.allSatisfy { abs($0.1.minX - first.minX) < 3 && abs($0.1.width - first.width) < 3 }

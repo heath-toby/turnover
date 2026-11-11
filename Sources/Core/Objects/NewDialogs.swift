@@ -92,7 +92,10 @@ enum NewDialogs {
                 guard let target = bar ?? landing(in: window) else { return }
                 let words = text(of: window)
                 Log.io("dialogs: a window took the focus with nothing in it focused (\(words.count) characters); onto its \(target.role)")
-                if !words.isEmpty { Speech.speakMessage(words) }
+                // Not when the dialog itself was just said with these words (an alert announced as it came forward:
+                // its message twice, 11 Nov 2026).
+                let alreadySaid = !words.isEmpty && Speech.lastSpoken.contains(String(words.prefix(60)))
+                if !words.isEmpty, !alreadySaid { Speech.speakMessage(words) }
                 land(on: target, interrupt: false, ownWindow: window)
                 if let bar { ProgressWatch.watch(ObjectFactory.make(bar)) }
                 return
