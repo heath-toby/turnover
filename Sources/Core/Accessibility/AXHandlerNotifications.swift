@@ -204,13 +204,16 @@ extension AXHandler {
             EventHandler.queue(Event(.stateChange, object(for: element)))
         case kAXSheetCreatedNotification:
             if let (last, at) = lastSheet, last.isSame(element), Date().timeIntervalSince(at) < 1 { return }
+            // System Settings makes Bluetooth's Show Detail sheet twice, a third of a second apart, and it was said
+            // twice (11 Nov 2026, macOS 27.2): a second sheet of the same app so soon is taken over, not said again.
+            let again = lastSheet.map { $0.0.pid == pid && Date().timeIntervalSince($0.1) < 1 } ?? false
             lastSheet = (element, Date())
             lastEntered = (element, Date())
             let obj = ObjectFactory.make(element)
             lastForegroundTitle = obj.name
             focusWindow = element
             API.setForegroundObject(obj)
-            EventHandler.queue(Event(.focusEntered, obj))
+            if !again { EventHandler.queue(Event(.focusEntered, obj)); NewDialogs.announced = (pid, Date()) }
             NewDialogs.sheetAppeared(element, pid: pid)   // the focus left behind it: TurnOver goes in
         case kAXAnnouncementRequestedNotification:
             // Safari announces "Page Menu, Reader Available" as each page loads, sometimes twice: the same news once.

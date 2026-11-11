@@ -13,6 +13,27 @@ import AppKit
 import ApplicationServices
 
 enum NewDialogs {
+    /// When a sheet was last announced as it opened, and in which app: its text was said with it ("dialog, Name, …"),
+    /// so landing in it doesn't say it again (three times in all, 11 Nov 2026).
+    static var announced: (pid: pid_t, at: Date)?
+
+    /// Focus the app moves behind its sheet just as the sheet opens (System Settings makes Bluetooth's Show Detail
+    /// twice and moves its focus to the pane's switch in between: "Bluetooth switch on" between the sheet's text and
+    /// its Done button, 11 Nov 2026): within a second of the sheet, in its app and in no sheet.
+    static func isBehindNewSheet(_ e: AXUIElement) -> Bool {
+        guard let a = announced, Date().timeIntervalSince(a.at) < 1, e.pid == a.pid else { return false }
+        // Same app, and in no sheet. Not compared by window: System Settings' sheet hangs from another element than
+        // the window its pane's controls name (11 Nov 2026).
+        var p: AXUIElement? = e; var hops = 0
+        while let x = p, hops < 25 { if x.role == "AXSheet" { return false }; p = x.element(kAXParentAttribute); hops += 1 }
+        return true
+    }
+
+    static func textJustSaid(pid: pid_t) -> Bool {
+        guard let a = announced else { return false }
+        return a.pid == pid && Date().timeIntervalSince(a.at) < 2
+    }
+
     /// A sheet was created; a moment later, if the focus is still outside it, TurnOver goes in.
     static func sheetAppeared(_ sheet: AXUIElement, pid: pid_t) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
@@ -30,10 +51,10 @@ enum NewDialogs {
             }
             if let f = API.focusObject?.element, isInside(f, sheet) { return }
             guard let target = landing(in: sheet) else { return }
-            let words = text(of: sheet)
+            let words = textJustSaid(pid: pid) ? "" : text(of: sheet)
             Log.io("dialogs: a sheet opened with the focus outside it (\(words.count) characters of text); onto its \(target.role)")
             if !words.isEmpty { Speech.speakMessage(words) }
-            land(on: target, interrupt: words.isEmpty)
+            land(on: target, interrupt: false)   // after the sheet's announcement, not over it
         }
     }
 

@@ -94,6 +94,10 @@ package enum SystemSettingsPaneFocus {
     /// `interrupt`: false after something just said (a sheet's text), so the control is said after it, not over it.
     static func place(_ e: AXUIElement, interrupt: Bool = true) {
         _ = e.set(kAXFocusedAttribute, kCFBooleanTrue)
+        // The app answers by focusing its window, then the control, within 60 ms: the window was said between two
+        // "Bluetooth switch on" (11 Nov 2026). Its news for anything else is set aside a moment (ruleSetAside).
+        SettingsPanePlugin.expected = e
+        SettingsPanePlugin.ignoreOthersUntil = Date().addingTimeInterval(0.3)
         SettingsPanePlugin.holdVirtual(e, speak: interrupt, ownTab: false)
         if !interrupt { Speech.speakObject(ObjectFactory.make(e), reason: .focus) }
         Tones.focusTick()   // the move's sound, as a real focus change has (a tester, 10 Nov 2026)

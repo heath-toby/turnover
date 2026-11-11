@@ -32,6 +32,7 @@ extension AXHandler {
         ("not an application", ruleNotAnApplication),
         ("background application", ruleBackgroundApplication),
         ("set aside after a settings Tab", ruleSetAside),
+        ("behind a sheet just opened", ruleBehindNewSheet),
         ("untitled window", ruleUntitledWindow),
         ("helper's window", ruleHelperWindow),
         ("switching preference tabs", rulePreferenceTabSwitch),
@@ -89,6 +90,12 @@ extension AXHandler {
             Log.io("focus from \(app.localizedName ?? "pid \(pid)") in the background; ignored")
             return .ignore
         }
+        return .go(target)
+    }
+
+    /// Just after a sheet opened: the app's focus on its window behind it is not where the keys go (NewDialogs).
+    func ruleBehindNewSheet(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
+        if NewDialogs.isBehindNewSheet(target) { Log.io("focus to \(target.role) behind a sheet just opened; set aside"); return .ignore }
         return .go(target)
     }
 

@@ -78,7 +78,15 @@ public final class SystemPrompts {
                 AXHandler.shared.observe(pid)
                 let ax = AXUIElementCreateApplication(pid)
                 AXUIElementSetMessagingTimeout(ax, 0.5)
-                windows += ax.elements(kAXWindowsAttribute).map { ($0, pid) }
+                var value: CFTypeRef?
+                if AXUIElementCopyAttributeValue(ax, kAXWindowsAttribute as CFString, &value) == .success {
+                    windows += ((value as? [AXUIElement]) ?? []).map { ($0, pid) }
+                } else {
+                    // An agent too busy to answer (a timeout) still has its prompts: taken as gone, every waiting
+                    // prompt was read out again, over what was being said, with the focus thrown back to the app
+                    // (11 Nov 2026: four of them, each time a window opened).
+                    windows += shown.filter { $0.pid == pid }.map { ($0, pid) }
+                }
             }
         }
         let gone = !shown.isEmpty && !shown.allSatisfy { w in windows.contains { $0.0.isSame(w) } }

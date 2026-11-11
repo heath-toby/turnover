@@ -201,10 +201,10 @@ package final class SystemSettingsAppModule: AppModule {
     /// a place, so the module's Tab round goes on inside it (a tester, 10 Nov 2026).
     package override func sheetOpened(_ sheet: AXUIElement) -> Bool {
         guard let target = NewDialogs.landing(in: sheet) else { return false }
-        let words = NewDialogs.text(of: sheet)
+        let words = NewDialogs.textJustSaid(pid: sheet.pid) ? "" : NewDialogs.text(of: sheet)
         Log.io("system settings: a sheet opened, \(words.count) characters of text; onto its \(target.role)")
         if !words.isEmpty { Speech.speakMessage(words) }
-        SystemSettingsPaneFocus.place(target, interrupt: words.isEmpty)
+        SystemSettingsPaneFocus.place(target, interrupt: false)   // after the sheet's announcement, not over it
         return true
     }
     package override func handleEvent(_ event: Event, next: () -> Void) {
