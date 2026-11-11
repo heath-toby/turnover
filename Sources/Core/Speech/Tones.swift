@@ -79,9 +79,12 @@ public enum Tones {
         if Date().timeIntervalSince(lastTick) < 0.05 { return }   // a burst of focus events is one move
         lastTick = Date()
         if off("tick") { return }
+        Log.io("sound: tick")   // (the sweeps check every Tab that lands somewhere has it)
         if fresh("tick") { return }
         Speech.player?.playBell(frequencies: [2600], spacingMs: 0, ringMs: 18, volume: 0.07)
     }
+    /// The focus sound played within `seconds`.
+    public static func tickedWithin(_ seconds: TimeInterval) -> Bool { Date().timeIntervalSince(lastTick) < seconds }
     private static var lastTick = Date.distantPast
     /// An item was pressed (a link followed, a button pressed): a fuller click, lower, two partials together.
     public static func press() {

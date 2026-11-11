@@ -74,6 +74,14 @@ public enum Speech {
     /// Put before a capital letter said on its own, so that it is said at a raised pitch (NVDA's capital pitch change).
     public static let capitalMark = "\u{F8F2}"
 
+    /// Speech off (or beeps, or on demand): what would have been said still goes in the log on a developer's own Mac
+    /// (logSpeech), so a session can be checked afterwards with the speech silent (a tester, 11 Nov 2026).
+    private static func logUnspoken(_ text: String) {
+        guard logsWords, !privateNext else { return }
+        let s = cleaned(text)
+        if !s.isEmpty { Log.io("say [silent]: \(s.prefix(160))") }
+    }
+
     static func enqueue(_ text: String, language: String? = nil, onStart: (@Sendable () -> Void)? = nil, completion: (@Sendable (Bool) -> Void)? = nil) {
         if text.contains(capitalMark) {
             // Raised only when the capital is the whole utterance; inside longer speech ("word A") the mark just goes.
@@ -128,8 +136,8 @@ public enum Speech {
         case .onDemand where Date() < demandedUntil: break
         case .beeps:
             if !NSWorkspace.shared.isVoiceOverEnabled, Date().timeIntervalSince(lastBeep) > 0.1 { lastBeep = Date(); Tones.beep(1000, 15, volume: 0.25) }
-            completion?(false); return
-        default: completion?(false); return
+            logUnspoken(text); completion?(false); return
+        default: logUnspoken(text); completion?(false); return
         }
         // While VoiceOver is on it does the talking: TurnOver speaking too (its own menu-bar menu, read item by
         // item over VoiceOver, 3 Oct 2026) is two voices at once.
@@ -337,6 +345,10 @@ public enum Speech {
             dropForFocusUntil = nil
             if Date() < until, !words.isEmpty { cancel(); Log.io("focus moved on at once: the speech for the focus before it dropped") }
         }
+        // Every focus said has the focus sound with it, however it got here: a module's own redirect, a dialog
+        // entered, TurnOver's own held place. Several apps read the control Tab reached with no sound (a tester,
+        // 11 Nov 2026). (A focus event already played it; a burst is one sound.)
+        if reason == .focus || reason == .focusEntered, !words.isEmpty, !Tones.tickedWithin(0.4) { Tones.focusTick() }
         enqueue(words)
         if reason == .focus { Hints.schedule(Hints.forObject(obj)) }
     }
