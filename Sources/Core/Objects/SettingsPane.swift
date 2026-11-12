@@ -712,13 +712,24 @@ public final class SettingsPanePlugin: GlobalPlugin {
             let ys = members.map { $0.1.minY }
             let stacked = Set(ys.map { Int($0) }).count == members.count
             // Or a row of five or more items side by side, the same size (Stocks' chart: a point an hour, each a
-            // Tab, 12 Nov 2026): one stop, Left and Right through it. Not buttons: a row of buttons is a toolbar or a
-            // segmented choice, and keeps a stop each.
-            let sideways = !(column && wide && stacked) && members.count >= 5
-                && members.allSatisfy { abs($0.1.minY - first.minY) < 3 && abs($0.1.height - first.height) < 3 && abs($0.1.width - first.width) < 3 && !["AXButton", "AXRadioButton", "AXCheckBox", "AXPopUpButton", "AXMenuButton", "AXLink"].contains($0.0.role) }
-                && Set(members.map { Int($0.1.minX) }).count == members.count
+            // Tab, 12 Nov 2026): one stop, Left and Right through it. Not buttons, unless the row runs on past its
+            // container (Books' shelves: a Tab per book, 12 Nov 2026): a row of buttons in sight is a segmented
+            // choice or a dialog's buttons, and keeps a stop each. The row is the largest set of same-size items on one
+            // line: a shelf's heading button sits above its books.
+            var rowSet: [(AXUIElement, CGRect)] = []
+            if !(column && wide && stacked) {
+                var groups: [String: [(AXUIElement, CGRect)]] = [:]
+                for m in members { groups["\(Int(m.1.minY / 3)),\(Int(m.1.height / 3)),\(Int(m.1.width / 3))", default: []].append(m) }
+                rowSet = groups.values.max { $0.count < $1.count } ?? []
+            }
+            let buttonKinds = ["AXButton", "AXRadioButton", "AXCheckBox", "AXPopUpButton", "AXMenuButton", "AXLink"]
+            let overflows = rowSet.contains { !cf.insetBy(dx: -2, dy: -2).contains($0.1) }
+            let sideways = rowSet.count >= 5
+                && (overflows || rowSet.allSatisfy { !buttonKinds.contains($0.0.role) })
+                && Set(rowSet.map { Int($0.1.minX) }).count == rowSet.count
             guard (column && wide && stacked) || sideways else { continue }
             if sideways, !sidewaysLists.contains(where: { CFEqual($0, c) }) { sidewaysLists.append(c); if sidewaysLists.count > 12 { sidewaysLists.removeFirst() } }
+            let members = sideways ? rowSet : members
             let sorted = members.sorted { sideways ? $0.1.minX < $1.1.minX : $0.1.minY < $1.1.minY }
             let rows = sorted.map { $0.0 }
             // The list's stop: its first row in sight (rows scrolled out above sit outside the window, and the list
@@ -847,7 +858,16 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 // call's details: Tab wove the two together, a tester, 11 Nov 2026).
                 let columns = kids.count > 1 && kids.allSatisfy { $0.height >= f.height * 0.7 }
                     && zip(kids, kids.dropFirst()).allSatisfy { $0.maxX <= $1.minX + 2 }
-                if kids.count > 1, e.role == "AXSplitGroup" || columns { split = e; splitFrame = f; panes = kids }
+                // A split group's dividers say where its panes are. Its children's frames may not: Mail's message
+                // side reports the whole window's width, the sidebar inside it, so the sidebar sorted after the
+                // message (12 Nov 2026).
+                let dividers = e.role == "AXSplitGroup" ? e.elements(kAXChildrenAttribute).filter { $0.role == "AXSplitter" }.compactMap { TurnOverObject.frame($0) }
+                    .filter { $0.height >= f.height * 0.5 && $0.width < 20 }.map { $0.midX }.sorted() : []
+                if !dividers.isEmpty {
+                    let edges = [f.minX] + dividers + [f.maxX]
+                    split = e; splitFrame = f
+                    panes = zip(edges, edges.dropFirst()).map { CGRect(x: $0, y: f.minY, width: max(0, $1 - $0), height: f.height) }
+                } else if kids.count > 1, e.role == "AXSplitGroup" || columns { split = e; splitFrame = f; panes = kids }
             }
             if d < 5, ["AXWindow", "AXSheet", "AXPopover", "AXGroup", "AXSplitGroup", "AXScrollArea", "AXLayoutArea"].contains(role) { queue += e.elements(kAXChildrenAttribute).map { ($0, d + 1) } }
         }

@@ -41,7 +41,20 @@ extension SettingsPanePlugin {
 
     /// Which of the window's controls (as found by `controls(in:)`'s walk) are toolbar items, left to right.
     static func toolbarMembers(_ found: [(AXUIElement, CGRect)], strip: CGRect) -> [(AXUIElement, CGRect)] {
-        found.filter { inStrip($0.1, of: strip) && !typesText($0.0) }.sorted { $0.1.minX < $1.1.minX }
+        found.filter { inStrip($0.1, of: strip) && !typesText($0.0) && !inContent($0.0) }.sorted { $0.1.minX < $1.1.minX }
+    }
+
+    /// In a list, a scroll area or a split pane, outside the toolbar itself: the window's content, which runs up under a
+    /// see-through toolbar (Mail's sidebar header, Mailboxes and All Inboxes, sat in the toolbar's strip, 12 Nov 2026).
+    static func inContent(_ e: AXUIElement) -> Bool {
+        var p = e.element(kAXParentAttribute); var hops = 0
+        while let x = p, hops < 12 {
+            let r = x.role
+            if r == "AXToolbar" || r == "AXWindow" { return false }
+            if ["AXScrollArea", "AXOutline", "AXTable", "AXList", "AXSplitGroup", "AXRow", "AXWebArea"].contains(r) { return true }
+            p = x.element(kAXParentAttribute); hops += 1
+        }
+        return false
     }
 
     /// The toolbar's items in the window `e` is in, left to right, and the toolbar.
@@ -92,7 +105,7 @@ extension SettingsPanePlugin {
     static func noteToolbar(_ e: AXUIElement) -> Bool {
         var on = false
         if !typesText(e), controlRoles.contains(e.role) || isPressableItem(e), let w = windowOf(e), let (tb, strip) = toolbar(of: w),
-           let f = TurnOverObject.frame(e), inStrip(f, of: strip) {
+           let f = TurnOverObject.frame(e), inStrip(f, of: strip), !inContent(e) {
             on = true
             lastToolbarItem.removeAll { $0.toolbar.isSame(tb) || $0.toolbar.role == "?" }
             lastToolbarItem.insert((tb, e), at: 0)
@@ -139,7 +152,71 @@ extension SettingsPanePlugin {
         Self.setTrapState(for: all[n])
     }
 
+
+    // MARK: Apps whose own Tab skips the toolbar
+
+    /// Where an app's own Tab was seen to go round past the toolbar (Mail's went from the message's Attachments
+    /// button to the mailboxes, and its toolbar was never reached, 12 Nov 2026): the control it left from, and which
+    /// way. From then on Tab there goes to the toolbar, as on Windows, where a toolbar is in the Tab order.
+    static var toolbarSkips: [(window: AXUIElement, from: AXUIElement, forward: Bool)] = []
+
+    static func skipsToolbar(from e: AXUIElement, forward: Bool) -> Bool {
+        toolbarSkips.removeAll { $0.window.role == "?" || $0.from.role == "?" }
+        return toolbarSkips.contains { $0.forward == forward && $0.from.isSame(e) }
+    }
+
+    /// An app's own Tab or Shift Tab: if it went round the window and passed over the toolbar, TurnOver goes to the
+    /// toolbar instead, and remembers the place it went round from.
+    static func watchToolbarSkip(_ g: KeyboardGesture) {
+        // From web content too (Mail's attachment button in the message), but not from text, where Tab types.
+        guard g.keyName == "tab", g.modifiers.subtracting(.shift).isEmpty, !inToolbar, let before = API.focusObject?.element,
+              !["AXTextArea", "AXTextField", "AXWebArea"].contains(before.role), let window = scopeOf(before), window.role == "AXWindow", toolbar(of: window) != nil else { return }
+        let forward = !g.modifiers.contains(.shift)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            guard let after = API.focusObject?.element, !after.isSame(before), after.pid == before.pid, !inToolbar,
+                  !isInWeb(after), scopeOf(after).map({ $0.isSame(window) }) ?? false else { return }
+            let all = controls(in: window, toolbars: true, unfocusable: true)
+            guard let (tb, _) = toolbar(of: window), let items = toolbarItems(around: after)?.items,
+                  let stop = toolbarStop(tb, items), let t = all.firstIndex(where: { $0.isSame(stop) }),
+                  let a = place(before, in: all), let b = place(after, in: all) else { Log.io("toolbar: Tab's way round not placed"); return }
+            // The places passed over on the way, going round as Tab does.
+            let n = all.count
+            var k = a, passed = false
+            for _ in 0..<n { k = (k + (forward ? 1 : -1) + n) % n; if k == b { break }; if k == t { passed = true; break } }
+            guard passed else { return }
+            Log.io("toolbar: the app's \(forward ? "Tab" : "Shift Tab") went round past the toolbar; to the toolbar, and remembered")
+            toolbarSkips.removeAll { $0.from.isSame(before) && $0.forward == forward }
+            toolbarSkips.append((window, before, forward))
+            if toolbarSkips.count > 24 { toolbarSkips.removeFirst() }
+            Speech.cancel()
+            focus(stop)
+        }
+    }
+
+    /// Where a control sits among the window's stops: itself, or the stop holding it (a message's button is in its
+    /// web area, one stop).
+    static func place(_ e: AXUIElement, in all: [AXUIElement]) -> Int? {
+        var x: AXUIElement? = e; var hops = 0
+        while let y = x, hops < 15 { if let i = all.firstIndex(where: { $0.isSame(y) }) { return i }; x = y.element(kAXParentAttribute); hops += 1 }
+        return nil
+    }
+
+    /// Tab where the app's own would skip the toolbar: to the toolbar.
+    func toolbarEnter(_ g: KeyboardGesture) {
+        guard let cur = API.focusObject?.element, let (tb, items) = Self.toolbarItems(around: cur), let stop = Self.toolbarStop(tb, items) else { g.send(); return }
+        Log.io("toolbar: Tab here goes round past the toolbar; to it")
+        Self.focus(stop)
+    }
+
     func registerToolbarScripts() {
+        InputManager.passThroughWatchers.append(Self.watchToolbarSkip)
+        for (name, key, forward) in [("toolbar_enter", "kb:tab", true), ("toolbar_enterBack", "kb:shift+tab", false)] {
+            script(name, forward ? String(localized: "Where the app's Tab would skip the toolbar: to the toolbar", comment: "A command, as the key list and keyboard help say it")
+                                 : String(localized: "Where the app's Shift Tab would skip the toolbar: to the toolbar", comment: "A command, as the key list and keyboard help say it"),
+                   gestures: [key], category: "Settings") { [weak self] g in self?.toolbarEnter(g) }.isAvailable = {
+                !Self.inToolbar && (API.focusObject.map { Self.skipsToolbar(from: $0.element, forward: forward) } ?? false)
+            }
+        }
         // Still on the item noted: an app module moving TurnOver's focus itself (Messages' parts) sends no focus news.
         let along = { Self.inToolbar && !AXHandler.shared.isMenuOpen && !TurnOverMenu.shared.isOpen
             && (Self.lastToolbarItem.first.map { t in API.focusObject?.isSameElement(as: t.item) ?? false } ?? false) }

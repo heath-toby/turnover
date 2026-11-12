@@ -14,7 +14,11 @@ public enum Hints {
         generation += 1
         let g = generation
         let focusAt = API.focusObject?.element
+        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            // Another app came to the front meanwhile: its focus isn't known yet, and Messages' hint was said as Clock
+            // opened (12 Nov 2026).
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == front else { return }
             // Never over reading (a say all), and only for where the focus still is: a hint for the message list was
             // said as a message window came up (7 Oct 2026).
             guard g == generation, config.presentation.speakHints, !SayAll.isRunning else { return }

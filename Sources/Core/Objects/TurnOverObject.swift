@@ -33,7 +33,9 @@ open class TurnOverObject: ScriptableObject {
     // MARK: - Properties (lazy, cached per object: objects are made fresh per event)
 
     open var role: Role { _role }
-    private lazy var _role: Role = Role.from(axRole: axRole, subrole: axSubrole)
+    // An iPad app's item with a name and a press is a button to the user (Clock's recent timers said only "twenty-five
+    // minutes", Stocks' symbols; 12 Nov 2026), as VoiceOver says it. Tab already counts them as stops.
+    private lazy var _role: Role = axRole == "AXGenericElement" && SettingsPanePlugin.isPressableItem(element) ? .button : Role.from(axRole: axRole, subrole: axSubrole)
 
     /// A role's spoken name when the control supplies a better one (NVDA: roleText), or a plugin's.
     open var roleText: String? { profileLabel?.1 }
