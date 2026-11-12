@@ -242,10 +242,19 @@ enum DesktopNavigator {
             // Its first words, so the weather or the time is heard without going in.
             if let first = widgetLines(item.element).first(where: { !$0.heading }) { parts.append(first.words) }
         } else {
-            parts.append(String(localized: "icon", comment: "A role: a desktop icon"))
+            parts.append(kind(of: item.element) ?? String(localized: "icon", comment: "A role: a desktop icon"))
         }
         parts.append(Phrases.position(i + 1, of: all.count))
         Speech.speakItem(parts.joined(separator: ", "))
+    }
+
+    /// What an icon is, as Finder's Get Info says it ("volume", "folder", "PDF document"): every icon was "icon" (a
+    /// tester, 12 Nov 2026). The icon's AXURL is its file.
+    static func kind(of icon: AXUIElement) -> String? {
+        guard let url = icon.attr(kAXURLAttribute) as? URL ?? (icon.attr(kAXURLAttribute) as? NSURL).map({ $0 as URL }),
+              let k = try? url.resourceValues(forKeys: [.localizedTypeDescriptionKey]).localizedTypeDescription, !k.isEmpty else { return nil }
+        // "Volume", "Folder": said as a role, in lower case, but not a name in capitals ("PDF document" stays).
+        return k.prefix(2).allSatisfy(\.isUppercase) ? k : k.prefix(1).lowercased() + k.dropFirst()
     }
 
     /// A real focus change: on Finder's desktop itself, TurnOver goes to the desktop; anywhere else, out of it.

@@ -111,8 +111,9 @@ public final class AXHandler {
         // A system agent never activates, so one launched after TurnOver (Siri AI is started on demand and relaunched)
         // is observed when it starts, or Spotlight went unread until TurnOver restarted (code review, 21 Oct 2026).
         workspaceTokens.append(nc.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] n in
-            guard let app = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-                  Self.alwaysObserved.contains(app.bundleIdentifier ?? "") else { return }
+            guard let app = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            MainActor.assumeIsolated { self?.watchMenuExtraLater(app) }
+            guard Self.alwaysObserved.contains(app.bundleIdentifier ?? "") else { return }
             // A moment for the new process to answer accessibility questions before its notifications are asked for.
             let pid = app.processIdentifier, bundle = app.bundleIdentifier
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
@@ -128,6 +129,7 @@ public final class AXHandler {
             for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundle) { observe(app.processIdentifier) }
         }
         if let front = NSWorkspace.shared.frontmostApplication { appActivated(front) }
+        watchMenuExtras()
         SystemPrompts.shared.start()
         if !watchingSpotlightEscape { watchingSpotlightEscape = true; InputManager.passThroughWatchers.append { [weak self] g in self?.spotlightEscape(g) } }
     }
@@ -172,6 +174,7 @@ public final class AXHandler {
         workspaceTokens.removeAll()
         for (_, obs) in observers { removeSource(obs) }
         observers.removeAll()
+        unwatchMenuExtras()
         API.setFocusObject(nil, ancestors: [])
         API.setForegroundObject(nil)
         focusWindow = nil

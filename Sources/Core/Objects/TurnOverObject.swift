@@ -589,6 +589,12 @@ open class TurnOverObject: ScriptableObject {
         // An iPad app's menu (Maps, Messages) names a group in its window as its parent, not the menu bar's title: it
         // was said as a context menu, and Right went no further along the bar (the menu walk, 11 Nov 2026).
         if let owner = Self.menuBarItem(owning: element) { parent = owner }
+        // A menu that names the application, or its menu bar, as its parent: Electron's menu extras (1Password's) hang their menu off
+        // the application, and it was said as a context menu (12 Nov 2026). The extra holding it, or the one open, is its owner.
+        if ["AXApplication", "AXMenuBar"].contains(parent?.role ?? ""), let bar = AXUIElementCreateApplication(pid).element("AXExtrasMenuBar"),
+           let extra = bar.elements(kAXChildrenAttribute).first(where: { ($0.attr(kAXSelectedAttribute) as? Bool) == true || $0.elements(kAXChildrenAttribute).contains { $0.isSame(element) } }) {
+            parent = extra
+        }
         let parentRole = parent?.role ?? ""
         var menuName = name.isEmpty ? (parent?.string(kAXTitleAttribute) ?? "") : name
         // A status menu hangs off an unnamed menu extra: it is the application's menu ("a VPN app's menu").

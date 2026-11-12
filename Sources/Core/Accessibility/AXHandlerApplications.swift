@@ -109,6 +109,7 @@ extension AXHandler {
 
     func appTerminated(_ pid: pid_t) {
         if let obs = observers.removeValue(forKey: pid) { removeSource(obs) }
+        forgetMenuExtra(pid)
         ForeignChildren.forget(pid)
         AppModuleHandler.shared.remove(pid: pid)
         BrowseModeHandler.shared.forget(pid: pid)
