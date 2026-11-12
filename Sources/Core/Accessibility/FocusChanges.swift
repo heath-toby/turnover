@@ -611,6 +611,9 @@ extension AXHandler {
             if known.contains(where: { $0.isSameElement(as: a) }) || old?.isSameElement(as: a) == true { continue }
             if let w = focusWindow, a.isSameElement(as: w) { continue }   // the window was presented as the foreground
             if let (el, at) = lastEntered, el.isSame(a.element), Date().timeIntervalSince(at) < 1.5 { continue }   // a sheet announced on creation
+            // A part named as its window (Electron's root group: 1Password's window, then "Our Family — All Items —
+            // 1Password, grouping", 12 Nov 2026): the window said that.
+            if !a.name.isEmpty, ![.dialog, .sheet].contains(a.role), let w = focusWindow, a.name == w.string(kAXTitleAttribute) { continue }
             // A cell with the same name as the button in it (WhatsApp's Settings): the button says it.
             if !a.name.isEmpty, a.name == obj.name { continue }
             // Tab on a page: the group the control sits in is not news (BrowseModeDocument.lastTabFromCaretAt).
@@ -659,6 +662,8 @@ extension AXHandler {
         }
         let isDialog = obj.role == .dialog || obj.role == .sheet
         let shownTitle = appName == title ? "" : title
+        // A title with the app's name in it already ("Our Family — All Items — 1Password") isn't led by it again.
+        let appName = appName.map { !$0.isEmpty && title.localizedCaseInsensitiveContains($0) && !shownTitle.isEmpty ? "" : $0 }
         // The app's name alone with the role is one phrase, as the language says it ("Finder penceresi" in Turkish);
         // in English as before: "Finder, window" in the Mac style, "Finder window" in the Windows style.
         let text = if let appName, !appName.isEmpty, shownTitle.isEmpty {
@@ -672,7 +677,10 @@ extension AXHandler {
         // The focus itself just landed on this window and said it (Notes as its welcome sheet closed: the window's
         // name twice, 11 Nov 2026): once is enough.
         let justSaid = API.focusObject?.isSameElement(as: obj) == true && Speech.sinceFocusSpoken < 0.5
-        if obj is Dialog { EventHandler.queue(Event(.focusEntered, obj)) } else if justSaid { Log.io("foreground: the window the focus just said") } else { Speech.speakOnly(text) }   // a window's name: the display shows the focus in it
+        // A system agent's window (coreautha's Touch ID prompt: "Untitled window" after its words, 12 Nov 2026): the
+        // prompt's reading said it.
+        let agentWindow = !(obj is Dialog) && SystemPrompts.isProtected(window.pid)
+        if obj is Dialog { EventHandler.queue(Event(.focusEntered, obj)) } else if justSaid || agentWindow { Log.io(agentWindow ? "foreground: a system agent's window; its prompt was read" : "foreground: the window the focus just said") } else { Speech.speakOnly(text) }   // a window's name: the display shows the focus in it
         // A window with nothing to read (OpenGL, custom drawing): said a moment later, with the recognition key (issue 74).
         if !(obj is Dialog), window.pid != ProcessInfo.processInfo.processIdentifier { EmptyWindowNotice.check(window, pid: window.pid) }
     }

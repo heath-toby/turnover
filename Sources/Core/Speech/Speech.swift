@@ -223,10 +223,14 @@ public enum Speech {
     /// (speakObject, reason focus). A nameless pane or a blip the module ignores on the way to a control used to cut
     /// the control's speech and say nothing in its place (code review, 16 Oct 2026).
     private static var dropForFocusUntil: Date?
+    /// What was said for the window or dialog the focus last entered, and when.
+    private static var contextWords: (words: String, at: Date)?
+    /// A dialog was just read (its own words, not the focus's): kept through the focus moving on at once inside it.
+    public static func noteContext(_ words: String) { if !words.isEmpty { contextWords = (words, Date()) } }
     /// For the tests: whether a drop is waiting for the next focus's words, and whether a capital's pitch is pending.
     public static var testDropForFocusPending: Bool { dropForFocusUntil != nil }
     public static var testPitchPending: Bool { pitchNext != nil }
-    public static func testResetFocusTiming() { lastFocusAt = .distantPast; dropForFocusUntil = nil }
+    public static func testResetFocusTiming() { lastFocusAt = .distantPast; dropForFocusUntil = nil; contextWords = nil }
     public static func focusMoving() {
         Tones.focusTick()
         if Date().timeIntervalSince(lastFocusAt) < 0.4 { dropForFocusUntil = Date().addingTimeInterval(0.5) }
@@ -366,8 +370,15 @@ public enum Speech {
         }
         if reason == .focus, let until = dropForFocusUntil {
             dropForFocusUntil = nil
-            if Date() < until, !words.isEmpty { cancel(); Log.io("focus moved on at once: the speech for the focus before it dropped") }
+            if Date() < until, !words.isEmpty {
+                cancel(); Log.io("focus moved on at once: the speech for the focus before it dropped")
+                // The window or dialog just entered isn't the focus before: it is where the new one is. The logout
+                // dialog's question was cut off 20 ms in by its focus going checkbox, Cancel, checkbox as it opened (a
+                // tester, 12 Nov 2026: neither its title nor its words were heard). Said again, ahead of the focus.
+                if let c = contextWords, Date().timeIntervalSince(c.at) < 1.0 { enqueue(c.words); Log.io("focus moved on at once: the window just entered said again first") }
+            }
         }
+        if reason == .focusEntered, !words.isEmpty, obj.element.role == "AXWindow" || [.dialog, .sheet].contains(obj.role) { contextWords = (words, Date()) }
         // Every focus said has the focus sound with it, however it got here: a module's own redirect, a dialog
         // entered, TurnOver's own held place. Several apps read the control Tab reached with no sound (a tester,
         // 11 Nov 2026). (A focus event already played it; a burst is one sound.)
@@ -464,8 +475,12 @@ public enum Speech {
         // The pieces, each as the rules above and below give it, then said in the order the verbosity list sets
         // (Settings, Item details; everywhere or for this app), the pieces turned off left out (27 Oct 2026).
         var pieces: [(String, [String])] = []
-        if !name.isEmpty { pieces.append(("name", [name])) }
-        if parts.count > (name.isEmpty ? 0 : 1) { pieces.append(("role", [parts.last!])) }
+        let hasRole = parts.count > (name.isEmpty ? 0 : 1)
+        // A name that is only the role again (1Password's lock screen field: "password edit, password edit", 12 Nov
+        // 2026) is said once.
+        let nameIsRole = hasRole && name.caseInsensitiveCompare(parts.last!) == .orderedSame
+        if !name.isEmpty, !nameIsRole { pieces.append(("name", [name])) }
+        if hasRole { pieces.append(("role", [parts.last!])) }
         // A value that only repeats the name is not said twice (Excel's headings give both, 10 Oct 2026).
         if !reportsText, reason != .focusEntered, !Role.silentValues.contains(role), let v = obj.value, !v.isEmpty, v != name { pieces.append(("value", [v])) }
         let states = statesSpeech(role: role, states: obj.states, reason: reason)

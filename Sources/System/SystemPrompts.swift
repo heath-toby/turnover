@@ -170,9 +170,19 @@ public final class SystemPrompts {
         if readAt.count > 50 { readAt = readAt.filter { Date().timeIntervalSince($0.value) < 120 } }
         Log.io("system prompt from pid \(pid): \(texts.count) lines")
         Speech.cancel()
-        Speech.speakMessage(([Self.isProtected(pid) ? String(localized: "system dialog", comment: "A role: a macOS system dialog") : Role.dialog.displayString] + texts).joined(separator: ", "))
+        let words = ([Self.isProtected(pid) ? String(localized: "system dialog", comment: "A role: a macOS system dialog") : Role.dialog.displayString] + texts).joined(separator: ", ")
+        Speech.speakMessage(words)
+        // Read: the agent coming forward enters the window as a dialog, and it isn't read again ("system dialog, Crash
+        // Test quit unexpectedly…", then "alert, Crash Test quit unexpectedly…", 12 Nov 2026). Its words outlast the
+        // focus settling on a button.
+        Dialog.spokenAt = (window, Date())
+        Speech.noteContext(words)
         let ax = AXUIElementCreateApplication(pid)
-        if let f = ax.element(kAXFocusedUIElementAttribute) {
+        // A prompt with nothing focused in it (the "quit unexpectedly" report: Ignore, Report, Reopen, and no focus at
+        // all, 12 Nov 2026) left TurnOver's focus in the app behind it, and Tab moved Finder's sidebar under the
+        // report. Its default button, or its first, takes the focus.
+        let named = window.elements(kAXChildrenAttribute).first { $0.role == "AXButton" && !($0.string(kAXTitleAttribute) ?? "").isEmpty }
+        if let f = ax.element(kAXFocusedUIElementAttribute) ?? window.element(kAXDefaultButtonAttribute) ?? named {
             giveKeyboard(to: f)
             AXHandler.shared.focusChanged(f, pid: pid)
         }

@@ -146,9 +146,13 @@ open class Dialog: TurnOverObject {
         Self.spokenAt = (element, Date())
         let list = choices.map(\.1)
         let text = dialogText
-        var parts = [name, role.displayString, text].filter { !$0.isEmpty }
+        // AppKit's alerts have no title, only the description "alert" (loginwindow's Log Out, Restart and Shut Down,
+        // 12 Nov 2026: "alert, dialog, Are you sure…"). That is the role already.
+        let alertOnly = (element.string(kAXTitleAttribute) ?? "").isEmpty && name.lowercased() == "alert"
+        var parts = [name, alertOnly ? "" : role.displayString, text].filter { !$0.isEmpty }
         if choicesToo, !list.isEmpty, !isNotificationCentre { parts.append(Self.choices(list)) }   // (said by app there)
         Speech.speakMessage(parts.joined(separator: ", "))
+        Speech.noteContext(parts.joined(separator: ", "))
         // A sheet announced before it is filled in (iPad apps' sheets: News' "Keep Up with Your News", TV's
         // notifications sheet, 12 Nov 2026, said only "dialog"): its words when they come, once.
         if text.isEmpty, !isNotificationCentre {
