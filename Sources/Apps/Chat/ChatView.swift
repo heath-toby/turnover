@@ -82,6 +82,8 @@ public final class ChatView {
 
     /// A sheet is up (WhatsApp's Settings): the window's own keys and TurnOver's usual ones work there, not the chat's.
     public var inSheet: Bool {
+        // Or a page's own dialog over the chat (Discord's What's New: Tab said "no conversations", 12 Nov 2026).
+        if let f = API.focusObject, f.pid == pid, BrowseModeDocument.inWebDialog(f.element) { return true }
         guard let w = window else { return false }
         return w.role == "AXSheet" || w.string(kAXSubroleAttribute) == "AXDialog"
     }
@@ -342,6 +344,7 @@ public final class ChatView {
     /// and still holds conversations): a fresh search of WhatsApp's window took 170 ms and 650 questions on every Tab
     /// (15 Oct 2026: "should all be snappy"). A section pressed, or search results, look afresh.
     public func enter(_ p: Pane, at element: AXUIElement? = nil, keepList: Bool = false) {
+        leftParts = false
         if keepList, conversationsParent != nil { conversationsCacheUntil = Date().addingTimeInterval(3) }
         else { conversationsCacheUntil = .distantPast }   // entering a part looks again (another section, search results)
         loading = false; exhausted = nil
@@ -455,6 +458,10 @@ public final class ChatView {
         switch (pane, forward) {
         case (.sections, true): enter(.conversations, keepList: true)
         case (.sections, false): composer == nil ? enter(.conversations, keepList: true) : toComposer()
+        // No conversation open and no sections: Tab goes on to the rest of the window, the app's own Tab from where its
+        // focus is (Discord's Friends page: Tab went round the conversations alone, 12 Nov 2026).
+        case (.conversations, true) where composer == nil && !hasSections: leaveParts(forward: true)
+        case (.conversations, false) where composer == nil && !hasSections: leaveParts(forward: false)
         case (.conversations, true): composer == nil ? enter(hasSections ? .sections : .conversations, keepList: true) : enter(.transcript)
         case (.conversations, false): hasSections ? enter(.sections) : (composer == nil ? enter(.conversations, keepList: true) : toComposer())
         case (.transcript, true): composer == nil ? enter(.conversations, keepList: true) : toComposer()
@@ -466,6 +473,16 @@ public final class ChatView {
     }
 
     public var isBrowsing: Bool { pane != .composer && pane != .control }
+
+    /// Out of the parts, with no conversation open: the app's own Tab carries on, and Tab is the app's until the
+    /// conversations are entered again (TurnOver Shift F6 and the arrows still reach them).
+    public private(set) var leftParts = false
+    private func leaveParts(forward: Bool) {
+        pane = .composer; leftParts = true
+        Braille.releaseItem()
+        Log.io("chat: no conversation open; Tab goes on to the rest of the window")
+        KeyboardGesture(identifier: forward ? "kb:tab" : "kb:shift+tab")?.send()
+    }
 
     /// The keyboard went elsewhere (a click, a sheet): the parts are left as they are.
     public func focusLeft() { pane = .composer; Braille.releaseItem() }

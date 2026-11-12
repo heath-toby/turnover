@@ -741,10 +741,13 @@ public final class SettingsPanePlugin: GlobalPlugin {
             let sideways = rowSet.count >= 5
                 && (overflows || rowSet.allSatisfy { !buttonKinds.contains($0.0.role) })
                 && Set(rowSet.map { Int($0.1.minX) }).count == rowSet.count
-            guard (column && wide && stacked) || sideways else { continue }
+            // Or a picture holding places to press (Maps' map: forty-odd markers, a Tab each, 12 Nov 2026): one
+            // stop, Up and Down through the places, top to bottom.
+            let picture = c.role == "AXImage" && members.count >= 3
+            guard (column && wide && stacked) || sideways || picture else { continue }
             if sideways, !sidewaysLists.contains(where: { CFEqual($0, c) }) { sidewaysLists.append(c); if sidewaysLists.count > 12 { sidewaysLists.removeFirst() } }
             let members = sideways ? rowSet : members
-            let sorted = members.sorted { sideways ? $0.1.minX < $1.1.minX : $0.1.minY < $1.1.minY }
+            let sorted = members.sorted { sideways ? $0.1.minX < $1.1.minX : abs($0.1.minY - $1.1.minY) > 3 ? $0.1.minY < $1.1.minY : $0.1.minX < $1.1.minX }
             let rows = sorted.map { $0.0 }
             // The list's stop: its first row in sight (rows scrolled out above sit outside the window, and the list
             // was put in the wrong place in the order, Phone, 11 Nov 2026).

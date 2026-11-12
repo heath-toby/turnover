@@ -43,7 +43,7 @@ final class ChatAppModule: AppModule {
         // No conversation open (WhatsApp with its chat closed): Tab and Shift Tab reach the conversations, to open one.
         let noChat: () -> Bool = { [weak self] in
             guard let self, !view.isBrowsing, let f = API.focusObject, f.pid == pid,
-                  ![.editableText, .searchField, .comboBox, .passwordEdit].contains(f.role), !inSearch(), !view.inSheet else { return false }
+                  ![.editableText, .searchField, .comboBox, .passwordEdit].contains(f.role), !inSearch(), !view.inSheet, !view.leftParts else { return false }
             return view.composer == nil
         }
         script("chat_noChatToConversations", String(localized: "With no conversation open: to the conversations", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: cat) { [weak self] _ in
