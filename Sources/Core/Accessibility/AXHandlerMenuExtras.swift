@@ -12,7 +12,7 @@ import AppKit
 import ApplicationServices
 
 extension AXHandler {
-    /// The light observers, by process (main thread).
+    /// The light observers, by process (main thread): menus opening, and the focus moving in a panel that has the keys.
     static var menuExtraObservers: [pid_t: AXObserver] = [:]
 
     func watchMenuExtras() {
@@ -55,6 +55,9 @@ extension AXHandler {
         }, &obs) == .success, let obs else { return }
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         guard AXObserverAddNotification(obs, ax, kAXMenuOpenedNotification as CFString, refcon) == .success else { return }
+        // A panel of its own that takes the keys while the app before stays active (1Password's Quick Access, opened
+        // by its shortcut): silent after TurnOver started until 1Password had once been the active app (12 Nov 2026).
+        AXObserverAddNotification(obs, ax, kAXFocusedUIElementChangedNotification as CFString, refcon)
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(obs), .defaultMode)
         Self.menuExtraObservers[pid] = obs
         Log.info("menu extras: watching \(app.bundleIdentifier ?? "pid \(pid)") for its menu opening")
@@ -64,9 +67,23 @@ extension AXHandler {
         let pid = element.pid
         // Watched in full by now (it came to the front, or TurnOver opened the menu): that observer has it.
         guard running, observers[pid] == nil else { return }
-        Log.io("menu extras: a menu of pid \(pid) opened, from outside TurnOver; watched in full from now")
+        if name == kAXFocusedUIElementChangedNotification as String {
+            // Only a focus that has the keys: an app in the background moves its focus about unheard.
+            guard (AXUIElementCreateApplication(pid).attr(kAXFrontmostAttribute) as? Bool) == true else { return }
+            Log.io("menu extras: pid \(pid) took the keys with a panel of its own; watched in full from now")
+        } else {
+            Log.io("menu extras: a menu of pid \(pid) opened, from outside TurnOver; watched in full from now")
+        }
         forgetMenuExtra(pid)
         observe(pid)
-        notification(name, element, nil)
+        guard name == kAXFocusedUIElementChangedNotification as String else { notification(name, element, nil); return }
+        // Watched in full, an Electron app builds its tree afresh: the panel's window and focus are asked for again
+        // once it has (the first notice's element said nothing, 12 Nov 2026).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self, self.running else { return }
+            let app = AXUIElementCreateApplication(pid)
+            if let w = app.element(kAXFocusedWindowAttribute) { self.foregroundChanged(w, appName: nil) }
+            if let f = app.element(kAXFocusedUIElementAttribute) { self.focusChanged(f, pid: pid) }
+        }
     }
 }

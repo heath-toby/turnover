@@ -629,6 +629,8 @@ extension AXHandler {
         API.setFocusObject(obj, ancestors: ancestors, interceptor: interceptor)
         ObjectNavigator.shared.focusMoved(to: obj.element, pid: pid)
         EventHandler.queue(Event(.gainFocus, obj))
+        // (Its list may come only with the first letter: whether it owns it is asked at typing time.)
+        if ["AXTextField", "AXComboBox", "AXSearchField"].contains(target.role) { TurnOverObject.listField = target }
         // Notification Centre's panel taking the focus (Fn N): it has opened, whatever the foreground flag says (an
         // Escape that closed it left the flag set, and the next opening went unnoticed, 12 Nov 2026).
         if target.role == "AXWindow", pid == NotificationCentrePanel.centrePid() { NotificationCentrePanel.panelFocused(target) }

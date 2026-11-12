@@ -336,6 +336,10 @@ public final class BrowseModeDocument: ScriptableObject {
         }
         script("disablePassThrough", String(localized: "Switches back to browse mode", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:escape"], category: nav) { [weak self] g in
             guard let self else { return }
+            // Inside a web dialog or application, Escape is the page's: NVDA keeps such places in focus mode. 1Password's
+            // Quick Access, a dialog from end to end, never closed on Escape, and its next shortcut closed it rather
+            // than opening it (a tester, 12 Nov 2026).
+            if passThrough, let f = API.focusObject, Self.inWebDialog(f.element) { g.send(); return }
             if passThrough {
                 // The virtual caret goes to the control that had focus (NVDA): on a page that was still arriving when
                 // the field took focus, the field was not in the buffer yet and the caret stayed at the top.
@@ -737,4 +741,16 @@ public final class BrowseModeDocument: ScriptableObject {
     /// the document (set as the focus is presented): back from outside onto that control, the reading position stays.
     var lastFocusElement: AXUIElement?
     public var focusFromOutside = false
+}
+
+extension BrowseModeDocument {
+    /// Whether `e` sits in an ARIA dialog or application inside its web area.
+    static func inWebDialog(_ e: AXUIElement) -> Bool {
+        var p: AXUIElement? = e; var hops = 0
+        while let x = p, hops < 25, x.role != "AXWebArea" {
+            if ["AXApplicationDialog", "AXApplicationAlertDialog", "AXWebApplication"].contains(x.string(kAXSubroleAttribute) ?? "") || x.role == "AXWebApplication" { return true }
+            p = x.element(kAXParentAttribute); hops += 1
+        }
+        return false
+    }
 }

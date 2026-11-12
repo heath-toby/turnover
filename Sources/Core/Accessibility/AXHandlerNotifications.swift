@@ -46,6 +46,18 @@ extension AXHandler {
             }
             focusChanged(element, pid: pid)
         case kAXFocusedWindowChangedNotification:
+            // A window change in an app that is neither active nor holding the keys: a panel of its own closing
+            // (1Password's Quick Access, on Escape, from Finder). Its main window behind was announced and the focus
+            // left in 1Password, with Finder in front (a tester, 12 Nov 2026). The active app gets the focus back.
+            if pid != activePid, NSWorkspace.shared.frontmostApplication?.processIdentifier != pid, !SystemPrompts.isProtected(pid),
+               (AXUIElementCreateApplication(pid).attr(kAXFrontmostAttribute) as? Bool) != true {
+                if API.focusObject?.pid == pid, activePid > 0 {
+                    Log.io("a window of pid \(pid) in the background took over from its panel; focus back to the active app")
+                    lastForegroundTitle = ""   // (the panel opening again is news again)
+                    refocus(pid: activePid)
+                }
+                return
+            }
             foregroundChanged(element, appName: nil)
             // The window's own focus follows; if the app does not say, ask it.
             if let app = observers[pid].map({ _ in AXUIElementCreateApplication(pid) }), let f = app.element(kAXFocusedUIElementAttribute), !f.isSame(element) {

@@ -34,6 +34,7 @@ public enum Hints {
     public static func forObject(_ obj: TurnOverObject) -> String {
         if obj.states.contains(.unavailable) { return "" }
         if let hint = obj.appModule.hint(for: obj) { return hint }
+        if let own = ownWords(obj) { return own }
         if let b = NSRunningApplication(processIdentifier: obj.pid)?.bundleIdentifier, let h = forApp(b, obj) { return h }
         switch obj.role {
         case .button, .toggleButton: return String(localized: "Space presses it.", comment: "A hint, said after a pause on an item")
@@ -49,6 +50,18 @@ public enum Hints {
         case .list, .table, .outline, .treeView: return String(localized: "Up and Down move through the items.", comment: "A hint, said after a pause on an item")
         default: return ""
         }
+    }
+
+    /// The app's own guidance on a web menu item, in its value beside the name: 1Password's Quick Access results,
+    /// "RedSpot, Password, 22 Jan…, Enter/Return to smart action or right arrow for more actions", named only "RedSpot, -
+    /// 22 Jan…, View Details" (a tester, 12 Nov 2026: the hints were missing). The parts the name doesn't have.
+    static func ownWords(_ obj: TurnOverObject) -> String? {
+        guard obj.element.role == "AXMenuItem", SettingsPanePlugin.isInWeb(obj.element),
+              let v = obj.element.string(kAXValueAttribute), v.count > obj.name.count / 2 else { return nil }
+        let name = obj.name.lowercased()
+        let extra = v.components(separatedBy: ", ").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty && !name.contains($0.lowercased()) }
+        guard !extra.isEmpty else { return nil }
+        return extra.joined(separator: ". ")
     }
 
     /// The approved apps' own places (7 Oct 2026: "tool tips in all approved apps").

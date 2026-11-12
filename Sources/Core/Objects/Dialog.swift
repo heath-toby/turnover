@@ -41,6 +41,12 @@ open class Dialog: TurnOverObject {
         // Notification Centre's panel: its notifications are said by app (NotificationCentreNavigator), not all at once
         // as the panel opens (they were said twice, 11 Nov 2026).
         if isNotificationCentre { return "" }
+        // A dialog in a web page: its message is its description (aria-describedby), as NVDA reads it, not all it
+        // holds. 1Password's Quick Access is a dialog from end to end, and its shortcut footer was read as the
+        // message: "dialog, ⌥, ⌘, \, Show Quick Access, /, Keyboard Shortcuts" (12 Nov 2026).
+        if element.role != "AXWindow", element.role != "AXSheet", SettingsPanePlugin.isInWeb(element) {
+            return (element.string(kAXDescriptionAttribute) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         var texts: [String] = []
         var labels = Set<String>()
         let choiceNames = Set(choices.map(\.1))
@@ -149,6 +155,11 @@ open class Dialog: TurnOverObject {
         // AppKit's alerts have no title, only the description "alert" (loginwindow's Log Out, Restart and Shut Down,
         // 12 Nov 2026: "alert, dialog, Are you sure…"). That is the role already.
         let alertOnly = (element.string(kAXTitleAttribute) ?? "").isEmpty && name.lowercased() == "alert"
+        // A nameless, wordless dialog in a web page, entered on the way to its focus: nothing to add (the window said
+        // where you are).
+        if name.isEmpty, text.isEmpty, !choicesToo, element.role != "AXWindow", SettingsPanePlugin.isInWeb(element) {
+            Log.io("dialog: a nameless web dialog filling the window; the window said it"); return
+        }
         var parts = [name, alertOnly ? "" : role.displayString, text].filter { !$0.isEmpty }
         if choicesToo, !list.isEmpty, !isNotificationCentre { parts.append(Self.choices(list)) }   // (said by app there)
         Speech.speakMessage(parts.joined(separator: ", "))

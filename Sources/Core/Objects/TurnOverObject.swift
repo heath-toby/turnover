@@ -661,7 +661,20 @@ open class TurnOverObject: ScriptableObject {
     /// When a context menu was last asked for by key; the menu that opens then is announced as one.
     public static var contextMenuRequestedAt = Date.distantPast
     open func event_menuEnd() {}
+    /// The last text field the focus was on (a combo box's search field owns its list of results).
+    public static var listField: AXUIElement?
+    /// The focus moved into the results of a search field that keeps the keys (1Password's Quick Access: the first
+    /// letter moves the focus to the first result, and the rest went unechoed, 12 Nov 2026): the field the keys go to.
+    static func typingField(for e: AXUIElement) -> AXUIElement? {
+        guard let f = listField, f.role != "?", !CFEqual(f, e) else { return nil }
+        let owned = f.elements("AXOwns") + f.elements("AXLinkedUIElements")
+        guard !owned.isEmpty else { return nil }
+        var p: AXUIElement? = e; var hops = 0
+        while let x = p, hops < 8 { if owned.contains(where: { CFEqual($0, x) }) { return f }; p = x.element(kAXParentAttribute); hops += 1 }
+        return nil
+    }
     open func event_typedCharacter(_ ch: Character) {
+        if !hasNavigableText, let f = Self.typingField(for: element) { ObjectFactory.make(f).event_typedCharacter(ch); return }
         // Keys that come while a word's end waits for the field are held back, so they reach the echo in order.
         if Self.waitingForField { Self.heldTyped.append((self, ch)); return }
         if role == .passwordEdit || Speech.typingIntoSecretField { Speech.speakSecureCharacter(); return }
