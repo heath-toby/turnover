@@ -542,9 +542,13 @@ public final class SettingsPanePlugin: GlobalPlugin {
             // focus change speaks it.
             if let window {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-                    guard let t = window.string(kAXTitleAttribute), !t.isEmpty, t != titleBefore else { return }
-                    Log.io("settings: the press changed the window's title; saying it")
+                    // Or took away what was pressed, its view with it: Stocks' Back goes from a stock to the list
+                    // under the same title, and said nothing (12 Nov 2026).
+                    let gone = v.role == "?" || Self.windowOf(v) == nil
+                    guard let t = window.string(kAXTitleAttribute), !t.isEmpty, t != titleBefore || gone else { return }
+                    Log.io(gone ? "settings: the press took its control away; saying the window" : "settings: the press changed the window's title; saying it")
                     Speech.speakItem(t)
+                    if gone { Self.dropDeadHold() }
                 }
             }
             if ["AXCheckBox", "AXRadioButton"].contains(v.role) { DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { Speech.speakCheckState(of: v) } }

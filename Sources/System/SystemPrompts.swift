@@ -57,6 +57,8 @@ public final class SystemPrompts {
         summaries.filter { p in shown.contains { $0.isSame(p.window) } && p.window.role != "?" && !p.window.role.isEmpty }
     }
     private var lastReminder = Date.distantPast
+    /// The application in front when a prompt was given the keyboard: it comes back when the prompts close.
+    private var returnTo: NSRunningApplication?
 
     /// Another application came to the front while a prompt waits: say so, after the application, with the way to it.
     public func remindIfWaiting(activated pid: pid_t) {
@@ -105,9 +107,20 @@ public final class SystemPrompts {
         shown.removeAll { w in goneNow.contains { $0.isSame(w) } }
         summaries.removeAll { p in !shown.contains { $0.isSame(p.window) } }
         if gone, shown.isEmpty, let front = NSWorkspace.shared.frontmostApplication {
-            Log.io("system prompt closed; focus back to \(front.localizedName ?? "?")")
             if handsToVoiceOver { onPromptChange?(false) }
-            AXHandler.shared.refocus(pid: front.processIdentifier)
+            // The agent TurnOver brought forward for the prompt stays the active application when its window goes:
+            // "focus back to CoreLocationAgent", a window gone and nothing to read until Command Tab (a tester, after
+            // allowing News the location, 12 Nov 2026). The application that was in front before comes back.
+            if let b = front.bundleIdentifier, Self.agents.contains(b), let back = returnTo, !back.isTerminated {
+                Log.io("system prompt closed; focus back to \(back.localizedName ?? "?"), in front before it")
+                back.activate()
+                let pid = back.processIdentifier
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { AXHandler.shared.refocus(pid: pid) }
+            } else {
+                Log.io("system prompt closed; focus back to \(front.localizedName ?? "?")")
+                AXHandler.shared.refocus(pid: front.processIdentifier)
+            }
+            returnTo = nil
         }
         for (w, pid) in windows where !shown.contains(where: { $0.isSame(w) }) {
             let first = shown.isEmpty
@@ -176,6 +189,7 @@ public final class SystemPrompts {
     /// agent forward, raise its window and focus the control.
     public func giveKeyboard(to control: AXUIElement) {
         let pid = control.pid
+        if let front = NSWorkspace.shared.frontmostApplication, front.processIdentifier != pid, !Self.agents.contains(front.bundleIdentifier ?? "") { returnTo = front }
         NSRunningApplication(processIdentifier: pid)?.activate()
         let app = AXUIElementCreateApplication(pid)
         _ = app.set(kAXFrontmostAttribute, kCFBooleanTrue)
