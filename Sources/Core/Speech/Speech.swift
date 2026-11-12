@@ -209,7 +209,9 @@ public enum Speech {
         // Bidi isolates and marks, zero-width joiners and spaces, soft hyphens, byte order marks: e-mail previews are full of them.
         let invisible: Set<UInt32> = [0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0x00AD, 0xFEFF, 0x2060, 0xFFFC, 0xF8F2]
         return String(String.UnicodeScalarView(raw.unicodeScalars.filter { !(0x2066...0x2069).contains($0.value) && !invisible.contains($0.value) && !isIconGlyph($0) }))
-            .replacingOccurrences(of: "  ", with: " ")
+            // Runs of spaces, no-break ones too: Stocks pads a story's link with dozens of them between its title and
+            // its words ("Link Button          Warburg Pincus…", 12 Nov 2026).
+            .replacingOccurrences(of: "[ \u{00A0}\u{2007}\u{202F}]{2,}", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

@@ -157,6 +157,7 @@ func pureTests() {
         }
         check(!UserGestures.isProtected(KeyboardGesture(identifier: "kb:turnover+t")!), "an ordinary key isn't")
         check(Speech.cleaned("\u{200B}\u{200C}\u{200E}").isEmpty, "zero-width marks clean to nothing")
+        expect(Speech.cleaned("Link Button \u{00A0} \u{00A0} \u{00A0} Story"), "Link Button Story", "runs of spaces, no-break ones too, are one space")
     }
     test("privacy: braille input and spoken text are redacted in a report") {
         let r = Feedback.redact("[  1.0] IO braille input: dots 123\n[  1.1] IO say: hunter2 is the word\n[  1.2] IO braille shows (line): secret line")
