@@ -421,7 +421,10 @@ final class MenuNavigationPlugin: GlobalPlugin {
     /// and starts its section (first in the menu, or just after a separator). Not every dimmed item: an unavailable
     /// command is not a heading.
     static func isHeading(_ item: AXUIElement) -> Bool {
+        // Not an unavailable command with a shortcut, nor a ticked choice: DBT's dimmed Undo (Command Z) and its
+        // ticked "Print Font", each first in its section, were said as headings (12 Nov 2026).
         guard (item.attr(kAXEnabledAttribute) as? Bool) == false, !(item.string(kAXTitleAttribute) ?? "").isEmpty,
+              (item.string("AXMenuItemCmdChar") ?? "").isEmpty, (item.string("AXMenuItemMarkChar") ?? "").isEmpty,
               item.elements(kAXChildrenAttribute).isEmpty, let menu = item.element(kAXParentAttribute) else { return false }
         let kids = menu.elements(kAXChildrenAttribute)
         guard let i = kids.firstIndex(where: { $0.isSame(item) }) else { return false }
@@ -443,7 +446,7 @@ final class MenuNavigationPlugin: GlobalPlugin {
             // ...and is the same kind of item as those under it (Mail gives its account headings its mailbox items'
             // identifier). Typing in Mail's context menu dims every command that doesn't match, and "Mark as
             // Unread" was read as a heading (5 Oct 2026).
-            if !enabled, (k.string("AXMenuItemCmdChar") ?? "").isEmpty, k.elements(kAXChildrenAttribute).isEmpty,
+            if !enabled, (k.string("AXMenuItemCmdChar") ?? "").isEmpty, (k.string("AXMenuItemMarkChar") ?? "").isEmpty, k.elements(kAXChildrenAttribute).isEmpty,
                j == 0 || (kids[j - 1].string(kAXTitleAttribute) ?? "").isEmpty,
                (k.string(kAXIdentifierAttribute) ?? "") == (item.string(kAXIdentifierAttribute) ?? "") {
                 return title

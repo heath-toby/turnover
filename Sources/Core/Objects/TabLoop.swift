@@ -32,6 +32,9 @@ extension SettingsPanePlugin {
 
     /// Whether `e` is in a window where Tab is TurnOver's.
     static func inLoopWindow(_ e: AXUIElement) -> Bool {
+        // A Save sheet is one too (TextEdit's "keep this new document?": Tab went name, tags, name, 12 Nov 2026). Not
+        // remembered: the window stays when the sheet goes.
+        if let sheet = scopeOf(e), sheet.role == "AXSheet", let id = sheet.string(kAXIdentifierAttribute), ["open-panel", "save-panel"].contains(id) { return true }
         guard let w = windowOf(e) else { return false }
         loopWindows.removeAll { $0.role == "?" }   // closed windows
         if loopWindows.contains(where: { $0.isSame(w) }) { return true }

@@ -145,9 +145,23 @@ open class Dialog: TurnOverObject {
         if let (e, at) = Self.spokenAt, e.isSame(element), Date().timeIntervalSince(at) < 0.8 { return }
         Self.spokenAt = (element, Date())
         let list = choices.map(\.1)
-        var parts = [name, role.displayString, dialogText].filter { !$0.isEmpty }
+        let text = dialogText
+        var parts = [name, role.displayString, text].filter { !$0.isEmpty }
         if choicesToo, !list.isEmpty, !isNotificationCentre { parts.append(Self.choices(list)) }   // (said by app there)
         Speech.speakMessage(parts.joined(separator: ", "))
+        // A sheet announced before it is filled in (iPad apps' sheets: News' "Keep Up with Your News", TV's
+        // notifications sheet, 12 Nov 2026, said only "dialog"): its words when they come, once.
+        if text.isEmpty, !isNotificationCentre {
+            let me = self, saidChoices = choicesToo && !list.isEmpty
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                guard me.element.role != "?" else { return }
+                let later = me.dialogText
+                guard !later.isEmpty else { return }
+                Log.io("dialog: its words came after it opened")
+                let now = me.choices.map(\.1)
+                Speech.speakMessage(([later] + (saidChoices || now.isEmpty ? [] : [Self.choices(now)])).joined(separator: ", "))
+            }
+        }
     }
 
     open override func event_focusEntered() {
@@ -155,18 +169,6 @@ open class Dialog: TurnOverObject {
         // (Word passes the focus through the document behind the sheet on its way, so it is "entered" afresh.)
         if let (e, at) = Self.spokenAt, e.isSame(element), Date().timeIntervalSince(at) < 60 { return }
         announce(choicesToo: false)
-        // A sheet entered before it is filled in (an iPad app's: News' "Keep Up with Your News", 12 Nov 2026, said
-        // only "dialog"): its words when they come, once.
-        if dialogText.isEmpty, choices.isEmpty {
-            let me = self
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                let text = me.dialogText
-                guard !text.isEmpty, me.element.role != "?" else { return }
-                Log.io("dialog: its words came after it opened")
-                let list = me.choices.map(\.1)
-                Speech.speakMessage(([text] + (list.isEmpty ? [] : [Self.choices(list)])).joined(separator: ", "))
-            }
-        }
     }
 
     /// The dialog itself has the focus (no control in it does): read it, with its choices, and let the keys move
