@@ -503,8 +503,14 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         // (macOS's fastest repeat is about 30 ms). On 4 Oct 2026 Left Arrow came back 394 times in a second while
         // VoiceOver was still shutting down after the hand-over (TurnOver's own re-posted key, its marker gone), and
         // the edge sound played for each. Drop the copies: that breaks the loop.
+        // Not keys another application types on purpose: 1Password fills a login by posting each character as key 0
+        // with its text attached, a few milliseconds apart, and the copies dropped left 4 of a username's 11 letters
+        // and no password (12 Nov 2026). The loop was TurnOver's own key (or VoiceOver's, handing over).
         let nowNs = DispatchTime.now().uptimeNanoseconds
-        if code == echoCode, nowNs &- echoAt < 8_000_000 { echoCount += 1 } else { echoCount = 0 }
+        let poster = pid_t(event.getIntegerValueField(.eventSourceUnixProcessID))
+        let typedByAnApp = poster > 0 && poster != getpid() && NSRunningApplication(processIdentifier: poster).map { $0.bundleIdentifier != "com.apple.VoiceOver" && $0.bundleIdentifier != "com.apple.ScreenReaderUIServer" } == true
+        if typedByAnApp { echoCount = 0 }
+        else if code == echoCode, nowNs &- echoAt < 8_000_000 { echoCount += 1 } else { echoCount = 0 }
         echoCode = code; echoAt = nowNs
         if echoCount >= 2 {
             if echoCount == 2 {

@@ -89,7 +89,11 @@ extension AXHandler {
     func ruleBackgroundApplication(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
         if pid != activePid, let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular,
            !isHelperOfActiveApp(app), !AXHandler.systemUIAgents.contains(app.bundleIdentifier ?? ""),
-           NSWorkspace.shared.frontmostApplication?.processIdentifier != pid {
+           NSWorkspace.shared.frontmostApplication?.processIdentifier != pid,
+           // Unless it says it has the keys: 1Password's Quick Access is a panel that takes the keyboard while the
+           // app before stays active, and its search and results were silent (12 Nov 2026). The application element
+           // says it is frontmost then; a page reloading behind another app doesn't.
+           (AXUIElementCreateApplication(pid).attr(kAXFrontmostAttribute) as? Bool) != true {
             Log.io("focus from \(app.localizedName ?? "pid \(pid)") in the background; ignored")
             return .ignore
         }
