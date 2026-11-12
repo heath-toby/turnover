@@ -351,7 +351,12 @@ public enum Speech {
             // Calc's cells were "A1, edit" with 12 in them (parts sweep, 14 Oct 2026).
             parts.append(v.count > 500 ? String(v.prefix(500)) : v)
         }
-        let words = joined(parts)
+        var words = joined(parts)
+        // A focus with nothing to say at all, an empty unnamed group (1Password's scroll track takes Tab): its role,
+        // so a Tab is never only the sound (12 Nov 2026). One with something inside is left to what it holds.
+        if reason == .focus, words.isEmpty, obj.element.role == "AXGroup", obj.element.elements(kAXChildrenAttribute).isEmpty {
+            words = obj.element.string(kAXRoleDescriptionAttribute) ?? ""
+        }
         // The same focus reported twice within half a second says it once (Excel after Return and Up: "12, A1" twice;
         // the stress test of 17 Oct 2026). Compared once the words are whole: compared on the object alone, two
         // "list view" outlines in a row (Finder opening a folder) looked the same with different rows selected.

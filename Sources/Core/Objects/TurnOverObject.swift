@@ -104,7 +104,13 @@ open class TurnOverObject: ScriptableObject {
         if [.tableRow, .tableCell, .listItem, .treeViewItem, .cell].contains(role) { return contentText(limit: 8) }
         // An item, button or link whose name is only in the text it holds (Electron apps: GitHub Desktop's repository
         // list is menu items with the repository's name in a child, so each was a nameless "menu item", 21 Oct 2026).
-        if [.menuItem, .button, .link].contains(role) { return contentText(limit: 4) }
+        if [.menuItem, .button, .link].contains(role) {
+            let t = contentText(limit: 4)
+            // Nothing inside, the words in its value: Chromium's options built as menu items (1Password's items: the
+            // item list was nameless menu items, 12 Nov 2026).
+            if t.isEmpty, role == .menuItem, let v = element.string(kAXValueAttribute)?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty { return v }
+            return t
+        }
         return ""
     }
 
@@ -403,6 +409,12 @@ open class TurnOverObject: ScriptableObject {
             let shown = steps > 0 && !Self.hasDisclosureTriangle(top) ? level - 1 : level
             if shown > 0 { p.level = shown + 1 }   // NVDA-style: the top level goes without saying
         }
+        // A web page's own count (aria-posinset, aria-setsize): the whole list, where only the rows in view exist.
+        // 1Password's items said no place at all: nameless menu items, not counted as siblings (12 Nov 2026).
+        if let i = element.int("AXARIAPosInSet"), let n = element.int("AXARIASetSize"), i > 0, i <= n {
+            p.index = i; p.count = n
+            return p
+        }
         if let parent = element.element(kAXParentAttribute) {
             var count: CFIndex = 0
             let attr = parent.role == "AXTable" || parent.role == "AXOutline" ? "AXRows" : kAXChildrenAttribute
@@ -490,7 +502,21 @@ open class TurnOverObject: ScriptableObject {
         // The selection event that follows on the same element is the same news (LibreOffice Calc's cells take the
         // focus and are selected on each arrow: every cell was said twice, parts sweep 14 Oct 2026).
         TurnOverObject.noteSelectionSpoken(element)
+        if let chosen = TurnOverObject.chosenInGroup(element) {
+            Speech.speakMessage(String(localized: "list", comment: "A role: a list"))
+            Speech.speakObject(ObjectFactory.make(chosen), reason: .focus)
+            return
+        }
         Speech.speakObject(self, reason: .focus)
+    }
+
+    /// The one item chosen in a group that holds the focus and keeps a selection of its own: a web list built of
+    /// plain blocks (1Password's items, a listbox whose options are menu items). The group's name is all its text,
+    /// so the focus and each arrow read the whole list (12 Nov 2026); its chosen item is the news.
+    public static func chosenInGroup(_ e: AXUIElement) -> AXUIElement? {
+        guard e.role == "AXGroup" else { return nil }
+        let chosen = e.elements(kAXSelectedChildrenAttribute)
+        return chosen.count == 1 ? chosen[0] : nil
     }
 
     /// The focus's name as last spoken. Claude's collapsed summary button ("Ran 23 commands (2 failed), compacted the
@@ -538,6 +564,8 @@ open class TurnOverObject: ScriptableObject {
     }
     open func event_nameChange() {
         guard role != .window, API.focusObject?.isSameElement(as: self) == true else { return }
+        // A list group's name is its text: its selection says what changed.
+        if TurnOverObject.chosenInGroup(element) != nil { return }
         // The name read afresh, as event_valueChange reads the value: this is the focus object, made when the item
         // took the focus, and its name is remembered from then. A cell renamed for each chosen item (LaunchBar's bar)
         // was compared with its first name each time and nothing was said (10 Nov 2026).
@@ -555,7 +583,8 @@ open class TurnOverObject: ScriptableObject {
         if let (e, t) = TurnOverObject.lastSelectionSpoken, Date().timeIntervalSince(t) < 0.6, e.isSame(element) { return }
         TurnOverObject.lastSelectionSpoken = (element, Date())
         // A nameless cell (a SwiftUI collection's group): read by what it holds (Shortcuts' grid, 12 Nov 2026).
-        if name.isEmpty, axRole == "AXGroup", let inner = TurnOverObject.namedInside(element) { Speech.speakObject(ObjectFactory.make(inner), reason: .focus) }
+        if let chosen = TurnOverObject.chosenInGroup(element) { Speech.speakObject(ObjectFactory.make(chosen), reason: .focus) }
+        else if name.isEmpty, axRole == "AXGroup", let inner = TurnOverObject.namedInside(element) { Speech.speakObject(ObjectFactory.make(inner), reason: .focus) }
         else { Speech.speakObject(self, reason: .focus) }
         if let note = TurnOverObject.selectionNote { TurnOverObject.selectionNote = nil; Speech.speakMessage(note) }   // "3 selected", after the row that changed
     }
