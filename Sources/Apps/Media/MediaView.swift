@@ -1275,6 +1275,8 @@ public final class MediaView {
         // outside the item pieces; Number in list must not be hardcoded back on here (#187, 29 Oct 2026).
         parts += Speech.arranged(pieces, by: config.presentation.verbosity(for: bundleIdentifier))
         Speech.speakItem(parts.joined(separator: ", "), processed: true)
+        // Object navigation starts from the item Tab or the arrows reached (a tester, 12 Nov 2026).
+        ObjectNavigator.shared.focusMoved(to: item.element, pid: item.element.pid)
         Hints.schedule(hint(for: item))
     }
 

@@ -522,6 +522,7 @@ public final class AppStoreView {
         let hint = hint(for: e)
         guard acceptsCurrentPage() else { return }
         Speech.speakItem(s)
+        ObjectNavigator.shared.focusMoved(to: e.element, pid: e.element.pid)   // object navigation starts here
         Hints.schedule(hint)
     }
 
