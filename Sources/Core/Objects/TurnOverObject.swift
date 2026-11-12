@@ -554,8 +554,20 @@ open class TurnOverObject: ScriptableObject {
         // A list that announces its own selection and the script that waited for it can both report one row.
         if let (e, t) = TurnOverObject.lastSelectionSpoken, Date().timeIntervalSince(t) < 0.6, e.isSame(element) { return }
         TurnOverObject.lastSelectionSpoken = (element, Date())
-        Speech.speakObject(self, reason: .focus)
+        // A nameless cell (a SwiftUI collection's group): read by what it holds (Shortcuts' grid, 12 Nov 2026).
+        if name.isEmpty, axRole == "AXGroup", let inner = TurnOverObject.namedInside(element) { Speech.speakObject(ObjectFactory.make(inner), reason: .focus) }
+        else { Speech.speakObject(self, reason: .focus) }
         if let note = TurnOverObject.selectionNote { TurnOverObject.selectionNote = nil; Speech.speakMessage(note) }   // "3 selected", after the row that changed
+    }
+    /// The first named thing inside a nameless wrapper, looking at twenty elements at most.
+    public static func namedInside(_ e: AXUIElement) -> AXUIElement? {
+        var queue = e.elements(kAXChildrenAttribute); var n = 0
+        while !queue.isEmpty, n < 20 {
+            let x = queue.removeFirst(); n += 1
+            if !ObjectFactory.make(x).name.isEmpty { return x }
+            queue.append(contentsOf: x.elements(kAXChildrenAttribute))
+        }
+        return nil
     }
     /// Set by the selection notification when several rows are selected: said after the row that changed.
     public static var selectionNote: String?

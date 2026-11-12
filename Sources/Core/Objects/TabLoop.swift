@@ -35,6 +35,10 @@ extension SettingsPanePlugin {
         guard let w = windowOf(e) else { return false }
         loopWindows.removeAll { $0.role == "?" }   // closed windows
         if loopWindows.contains(where: { $0.isSame(w) }) { return true }
+        // Open and Save panels, in every app: their Tab goes list, sidebar, search field and never reaches New
+        // Document, Open or Cancel, and before this it took seven Tabs in each new app to see (TextEdit, 12 Nov 2026).
+        // macOS names them.
+        if let id = w.string(kAXIdentifierAttribute), ["open-panel", "save-panel"].contains(id) { loopWindows.append(w); return true }
         // The same kind of window seen looping before (each Save sheet is a new window: four Tabs each time before
         // TurnOver took over): the app and the window's title.
         if let k = loopKind(w), loopKinds.contains(k) { loopWindows.append(w); return true }

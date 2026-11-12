@@ -20,6 +20,13 @@ open class SelectableList: TurnOverObject {
         // Only when the row has a check box to tick. Otherwise Space is the application's: play and pause in
         // Podcasts and Music, Quick Look in Finder (10 Oct 2026: Space did nothing in Podcasts).
         script(named: "list_toggleCheckBox")?.isAvailable = { [weak self] in self?.selectedRowCheckBox() != nil }
+        // A grid of items (a collection): Left and Right move in it too, and are read the same way. Shortcuts' grid
+        // of shortcuts moved with every arrow and said nothing (12 Nov 2026).
+        if axSubrole == "AXCollectionList" {
+            for key in ["leftArrow", "rightArrow"] {
+                script("list_\(key)", "Moves the selection and reads it", gestures: ["kb:\(key)"], category: cat) { [weak self] g in self?.moveSelection(g) }
+            }
+        }
         if axRole == "AXOutline" {
             script("tree_expandCollapse", String(localized: "Expands or collapses the item, and says which", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:rightArrow", "kb:leftArrow"], category: cat) { [weak self] g in self?.expandOrCollapse(g) }
         }
@@ -139,8 +146,19 @@ open class SelectableList: TurnOverObject {
             return
         }
         if virtualRow != nil, g.modifiers.isEmpty, ["upArrow", "downArrow", "home", "end"].contains(key) { moveVirtually(key); return }
+        let before = element.elements(rowsAndKey.1).first
         g.send()
         if waitForSelection() { return }   // the selection event reads the row
+        // A collection may move its selection a little later still.
+        if axSubrole == "AXCollectionList" { _ = Poll.pumping(every: 0.03, limit: 0.4) { EventHandler.isPending(.selection) || self.element.elements(self.rowsAndKey.1).first.map { b in before.map { !$0.isSame(b) } ?? true } == true }
+            if EventHandler.isPending(.selection) { return } }
+        // The selection moved and nothing said so (SwiftUI's collections post no event: Shortcuts, 12 Nov 2026): read
+        // the item now selected.
+        if let now = element.elements(rowsAndKey.1).first, before.map({ !$0.isSame(now) }) ?? true {
+            Log.io("list: the selection moved without an event; reading it")
+            speakItem(now)
+            return
+        }
         // An empty list: the arrow has nothing to move to; say so rather than nothing (Finder's empty folder).
         if g.modifiers.isEmpty, ["upArrow", "downArrow"].contains(key), rowsAndKey.0.isEmpty {
             Log.io("list: empty")
@@ -208,6 +226,19 @@ open class SelectableList: TurnOverObject {
         guard let box = selectedRowCheckBox() else { g.send(); return }
         AXUIElementPerformAction(box, kAXPressAction as CFString)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { Speech.speakCheckState(of: box) }
+    }
+
+    /// An item read with its place: by its own name, or, for a nameless wrapper (a SwiftUI cell's group), by the
+    /// first named thing inside it.
+    private func speakItem(_ row: AXUIElement) {
+        let target = ObjectFactory.make(row).name.isEmpty ? (TurnOverObject.namedInside(row) ?? row) : row
+        TurnOverObject.noteSelectionSpoken(row)
+        let rows = rowsAndKey.0
+        var parts = Speech.objectPropertiesSpeech(ObjectFactory.make(target), reason: .focus).filter { !Phrases.isPosition($0) }
+        if let i = rows.firstIndex(where: { $0.isSame(row) }) { parts.append(Phrases.position(i + 1, of: rows.count)) }
+        Tones.focusTick()
+        Speech.cancel()
+        Speech.speakMessage(parts.joined(separator: ", "))
     }
 
     /// Speak the selected row, as a selection event would.

@@ -84,7 +84,18 @@ public final class SettingsPanePlugin: GlobalPlugin {
     private func trapMove(_ g: KeyboardGesture, forward: Bool) {
         // From TurnOver's held place when the app's buttons do not take the focus, else from the focus.
         Self.dropDeadHold()
-        guard let current = Self.virtual ?? API.focusObject?.element, let window = Self.scopeOf(current) else { g.send(); return }
+        guard let current = Self.virtual ?? API.focusObject?.element, let window = Self.scopeOf(current) else {
+            // Nowhere to go from (the place and the focus both gone with the view they were in): the front window's
+            // first control, or last for Shift Tab.
+            if let app = NSWorkspace.shared.frontmostApplication, let w = AXUIElementCreateApplication(app.processIdentifier).element(kAXFocusedWindowAttribute),
+               let target = forward ? Self.controls(in: w, toolbars: true, unfocusable: true).first : Self.controls(in: w, toolbars: true, unfocusable: true).last {
+                Log.io("tab trap: no place left to go from; to the window's \(forward ? "first" : "last") control")
+                Self.focus(target, byTrap: true)
+                Self.setTrapState(for: target)
+                return
+            }
+            g.send(); return
+        }
         var all: [AXUIElement]
         if let c = Self.trapList, c.window.isSame(window), Date().timeIntervalSince(c.at) < 5 { all = c.controls }
         else { all = Self.controls(in: window, toolbars: true, unfocusable: true); Self.trapList = (window, all, Date()) }
@@ -337,8 +348,10 @@ public final class SettingsPanePlugin: GlobalPlugin {
             }
         }
         script("trap_next", String(localized: "Where the app ignores Tab: the next control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Settings") { [weak self] g in self?.trapMove(g, forward: true) }.isAvailable = { Self.inTrapZone }
-        script("rowList_up", String(localized: "In a column of rows TurnOver reads as a list: the row above", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:upArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(-1) }.isAvailable = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) } != nil }
-        script("rowList_down", String(localized: "In a column of rows TurnOver reads as a list: the row below", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:downArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(1) }.isAvailable = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) } != nil }
+        script("rowList_up", String(localized: "In a column of rows TurnOver reads as a list: the row above", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:upArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(-1) }.isAvailable = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) }.map { !Self.isSideways($0.container) } == true }
+        script("rowList_down", String(localized: "In a column of rows TurnOver reads as a list: the row below", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:downArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(1) }.isAvailable = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) }.map { !Self.isSideways($0.container) } == true }
+        script("rowList_left", String(localized: "In a row of items TurnOver reads as a list: the item to the left", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:leftArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(-1) }.isAvailable = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) }.map { Self.isSideways($0.container) } == true }
+        script("rowList_right", String(localized: "In a row of items TurnOver reads as a list: the item to the right", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:rightArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(1) }.isAvailable = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) }.map { Self.isSideways($0.container) } == true }
         script("trap_previous", String(localized: "Where the app ignores Shift+Tab: the previous control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Settings") { [weak self] g in self?.trapMove(g, forward: false) }.isAvailable = { Self.inTrapZone }
         script("settings_next", String(localized: "In a settings pane: the next control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Settings") { [weak self] g in self?.move(g, forward: true) }.isAvailable = { Self.inPane }
         script("settings_previous", String(localized: "In a settings pane: the previous control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Settings") { [weak self] g in self?.move(g, forward: false) }.isAvailable = { Self.inPane }
@@ -517,16 +530,29 @@ public final class SettingsPanePlugin: GlobalPlugin {
     private func pressHeld(_ g: KeyboardGesture) {
         guard let v = Self.virtual, API.focusObject?.isSameElement(as: v) == true,
               v.pid == NSWorkspace.shared.frontmostApplication?.processIdentifier else { g.send(); return }
+        let window = Self.windowOf(v), titleBefore = window?.string(kAXTitleAttribute)
         let r = AXUIElementPerformAction(v, kAXPressAction as CFString)
         Log.io("settings: pressed the held \(v.role) → \(describeError(r))")
         if r == .success {
             Tones.press()
+            // A press that changes the whole view says where it went, by the window's new title. Pressing a stock in
+            // Stocks showed its page and said nothing (12 Nov 2026); the focus stays put in an iPad app, so no
+            // focus change speaks it.
+            if let window {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                    guard let t = window.string(kAXTitleAttribute), !t.isEmpty, t != titleBefore else { return }
+                    Log.io("settings: the press changed the window's title; saying it")
+                    Speech.speakItem(t)
+                }
+            }
             if ["AXCheckBox", "AXRadioButton"].contains(v.role) { DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { Speech.speakCheckState(of: v) } }
         }
     }
     /// A held place on a control the app has since thrown away (a pane rebuilt): let go, and back to the app's focus.
     static func dropDeadHold() {
-        guard let v = virtual, v.role == "?" else { return }
+        // Gone, or cut loose from its window: an iPad app's view replaced by another keeps answering for the old
+        // one's buttons, but with no window (Stocks' Right Arrow to the next story, 12 Nov 2026: Tab said nothing).
+        guard let v = virtual, v.role == "?" || windowOf(v) == nil else { return }
         virtual = nil; lock.lock(); _holding = false; lock.unlock()
         Log.io("settings: the held control is gone; back to the app's focus")
         if let pid = API.focusObject?.element.pid, let f = AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute) {
@@ -569,6 +595,15 @@ public final class SettingsPanePlugin: GlobalPlugin {
                                             // A grid (Calendar's month of day lists): one stop, its own arrows inside.
                                             "AXGrid"]
 
+    /// An item iPad apps make pressable without calling it a button: Stocks' symbols and news stories are generic
+    /// elements with a name and a press, so Tab never reached the stock list or the news (12 Nov 2026).
+    static func isPressableItem(_ e: AXUIElement) -> Bool {
+        guard e.role == "AXGenericElement", !(e.string(kAXDescriptionAttribute) ?? "").isEmpty else { return false }
+        var acts: CFArray?
+        guard AXUIElementCopyActionNames(e, &acts) == .success else { return false }
+        return ((acts as? [String]) ?? []).contains(kAXPressAction)
+    }
+
     /// The pane's controls in screen order: rows top to bottom (within 8 points is one row), then left to right.
     /// `unfocusable`: with the enabled controls that refuse the focus too (the Tab trap's stops: TurnOver holds them).
     static func controls(in window: AXUIElement, toolbars: Bool = false, unfocusable withUnfocusable: Bool = false) -> [AXUIElement] {
@@ -584,7 +619,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
             if role == "AXToolbar", !toolbars { return }
             let sub = e.string(kAXSubroleAttribute) ?? ""
             if ["AXCloseButton", "AXZoomButton", "AXMinimizeButton", "AXFullScreenButton"].contains(sub) { return }
-            if controlRoles.contains(role), (e.attr(kAXEnabledAttribute) as? Bool) != false, let f = TurnOverObject.frame(e), f.width > 0, f.height > 0 {
+            if controlRoles.contains(role) || isPressableItem(e), (e.attr(kAXEnabledAttribute) as? Bool) != false, let f = TurnOverObject.frame(e), f.width > 0, f.height > 0 {
                 var settable: DarwinBoolean = false
                 AXUIElementIsAttributeSettable(e, kAXFocusedAttribute as CFString, &settable)
                 if settable.boolValue { found.append((e, f)) } else { unfocusable.append((e, f)) }
@@ -619,6 +654,10 @@ public final class SettingsPanePlugin: GlobalPlugin {
 
     /// Rows found as lists: each list's rows, top to bottom (main thread; refreshed by each walk of a window).
     static var rowLists: [(rows: [AXUIElement], stop: AXUIElement, container: AXUIElement)] = []
+    /// Row lists that run left to right (their containers): Left and Right move in them, not Up and Down.
+    static var sidewaysLists: [AXUIElement] = []
+    static func isSideways(_ container: AXUIElement) -> Bool { sidewaysLists.contains { CFEqual($0, container) } }
+
     /// How many rows lie above the rows in sight, counted as the list is scrolled (the list being read).
     static var rowOffset: (container: AXUIElement, n: Int)?
 
@@ -647,8 +686,15 @@ public final class SettingsPanePlugin: GlobalPlugin {
             let wide = first.width >= cf.width * 0.5
             let ys = members.map { $0.1.minY }
             let stacked = Set(ys.map { Int($0) }).count == members.count
-            guard column, wide, stacked else { continue }
-            let sorted = members.sorted { $0.1.minY < $1.1.minY }
+            // Or a row of five or more items side by side, the same size (Stocks' chart: a point an hour, each a
+            // Tab, 12 Nov 2026): one stop, Left and Right through it. Not buttons: a row of buttons is a toolbar or a
+            // segmented choice, and keeps a stop each.
+            let sideways = !(column && wide && stacked) && members.count >= 5
+                && members.allSatisfy { abs($0.1.minY - first.minY) < 3 && abs($0.1.height - first.height) < 3 && abs($0.1.width - first.width) < 3 && !["AXButton", "AXRadioButton", "AXCheckBox", "AXPopUpButton", "AXMenuButton", "AXLink"].contains($0.0.role) }
+                && Set(members.map { Int($0.1.minX) }).count == members.count
+            guard (column && wide && stacked) || sideways else { continue }
+            if sideways, !sidewaysLists.contains(where: { CFEqual($0, c) }) { sidewaysLists.append(c); if sidewaysLists.count > 12 { sidewaysLists.removeFirst() } }
+            let sorted = members.sorted { sideways ? $0.1.minX < $1.1.minX : $0.1.minY < $1.1.minY }
             let rows = sorted.map { $0.0 }
             // The list's stop: its first row in sight (rows scrolled out above sit outside the window, and the list
             // was put in the wrong place in the order, Phone, 11 Nov 2026).
@@ -698,7 +744,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
         if rows.indices.contains(j) { Self.landInRowList(rows, at: j, entering: false); return }
         // Past the rows in sight: the list is scrolled a page, read again, and the move goes on from the same row
         // (found by its words if the list made it anew). Unafraid to scroll (a tester, 11 Nov 2026).
-        guard Self.scrolls(container) else { Tones.edge(); return }
+        guard Self.scrolls(container), !Self.isSideways(container) else { Tones.edge(); return }
         let name = ObjectFactory.make(v).name
         let r = AXUIElementPerformAction(container, (delta > 0 ? "AXScrollDownByPage" : "AXScrollUpByPage") as CFString)
         Log.io("row list: scrolled \(delta > 0 ? "down" : "up") a page → \(describeError(r))")
@@ -732,7 +778,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
         Tones.focusTick()
         Speech.cancel()
         let container = rowList(of: row)?.container
-        let scrolling = container.map(scrolls) ?? false
+        let scrolling = container.map { scrolls($0) && !isSideways($0) } ?? false
         if entering { rowOffset = container.map { ($0, 0) } }
         let offset = (container.flatMap { c in rowOffset.flatMap { $0.container.isSame(c) ? $0.n : nil } }) ?? 0
         var parts: [String] = []
