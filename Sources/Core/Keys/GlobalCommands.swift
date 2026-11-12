@@ -129,7 +129,12 @@ public final class GlobalCommands: ScriptableObject {
         }.isAvailable = windowsOn
         // Option+D is Windows+D, the desktop: Finder's Desktop folder in a window, its items under the arrow keys (an
         // AppleVis reader asked how to reach the desktop in the NVDA style, 25 Oct 2026). F11 only clears the screen.
-        script("showDesktop", String(localized: "Opens the Desktop folder in Finder, its items under the arrows (Windows: Windows+D)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:option+d"], category: win) { _ in
+        // Option D: the desktop itself, its icons and widgets under the arrows (a tester's design, 12 Nov 2026); the
+        // Desktop folder in a Finder window, as Option D did before, is Option Shift D.
+        script("desktop", String(localized: "The desktop: its icons and widgets under the arrows, Return opens or goes in (Windows: Windows+D)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:option+d"], category: win) { _ in
+            DesktopNavigator.enter()
+        }.isAvailable = windowsOn
+        script("showDesktop", String(localized: "Opens the Desktop folder in Finder, its items under the arrows (Option Shift D)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:option+shift+d"], category: win) { _ in
             // Off the main thread: the open is TurnOver's own first touch of Desktop, a folder macOS protects, and macOS
             // asks for the Desktop folder permission while the call waits. On the main thread that held TurnOver silent
             // until the watchdog gave speech back to VoiceOver and then relaunched it (27 Oct 2026, macOS 27.0.1: the

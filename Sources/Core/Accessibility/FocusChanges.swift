@@ -625,6 +625,7 @@ extension AXHandler {
         // Notification Centre's panel taking the focus (Fn N): it has opened, whatever the foreground flag says (an
         // Escape that closed it left the flag set, and the next opening went unnoticed, 12 Nov 2026).
         if target.role == "AXWindow", pid == NotificationCentrePanel.centrePid() { NotificationCentrePanel.panelFocused(target) }
+        DesktopNavigator.focusChanged(target, pid: pid)
     }
 
     /// A dialog or sheet is in front in this application: its focused window is one, or has one on it (Word's Save

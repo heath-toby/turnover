@@ -120,6 +120,7 @@ public enum Core {
         if Edition.includesPlugins { GlobalPluginHandler.shared.register(ProfilesPlugin.self) }   // first: the user's own fixes
         GlobalPluginHandler.shared.register(MenuNavigationPlugin.self)
         GlobalPluginHandler.shared.register(VoiceOverKeysPlugin.self)
+        GlobalPluginHandler.shared.register(DesktopNavigatorPlugin.self)   // the desktop's arrows, while TurnOver is there
         GlobalPluginHandler.shared.register(NotificationCentreNavigatorPlugin.self)   // before the held list: its arrows while the panel is open
         GlobalPluginHandler.shared.register(HeldListPlugin.self)
         GlobalPluginHandler.shared.register(SettingsPanePlugin.self)
