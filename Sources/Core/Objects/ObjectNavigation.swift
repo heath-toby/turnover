@@ -54,7 +54,16 @@ public final class ObjectNavigator {
             while let x = p, hops < 10 { if x.isSame(f.element) { inside = true; break }; p = x.element(kAXParentAttribute); hops += 1 }
             if !inside { Log.io("review: the focus moved on to \(e.role) after following the cursor; the cursor stays"); return }
         }
-        current = e; currentPid = pid; labelSource = nil; heldList = nil
+        current = Self.chosenRow(in: e) ?? e; currentPid = pid; labelSource = nil; heldList = nil
+    }
+    /// A list or table with the focus is read by its chosen row, and the cursor starts there: it started on the list
+    /// itself, so TurnOver Right from Finder's fifth file went to the first (12 Nov 2026).
+    static func chosenRow(in e: AXUIElement) -> AXUIElement? {
+        switch e.role {
+        case "AXOutline", "AXTable": return e.elements(kAXSelectedRowsAttribute).first
+        case "AXList": return e.elements(kAXSelectedChildrenAttribute).first
+        default: return nil
+        }
     }
     private var keepHoldUntil = Date.distantPast
 

@@ -166,7 +166,9 @@ extension GlobalCommands {
         add("reviewNextLine", String(localized: "Moves the review cursor to the next line (NVDA+Down Arrow, laptop)", comment: "A command, as the key list and keyboard help say it"), ["kb:turnover+downArrow"]) { _ in TextReview.move(.line, 1) }
         // In text, NVDA's review by character; elsewhere TurnOver's flattened object moves answer (12 Oct 2026:
         // same key, same purpose, the method adapted to the Mac).
-        let inText: () -> Bool = { (API.focusTreeInterceptor.map { !$0.passThrough } ?? false) || (API.focusObject?.hasNavigableText ?? false) }
+        // Only while object navigation is on the text itself: moved off it (out to the toolbar round Finder's search
+        // field), TurnOver Left and Right are object navigation's again (12 Nov 2026: they kept saying "Search").
+        let inText: () -> Bool = { (API.focusTreeInterceptor.map { !$0.passThrough } ?? false) || ((API.focusObject?.hasNavigableText ?? false) && ObjectNavigator.shared.element.map { e in API.focusObject?.isSameElement(as: e) ?? false } ?? true) }
         add("reviewPreviousCharacter", String(localized: "In text, moves the review cursor to the previous character (NVDA+Left Arrow)", comment: "A command, as the key list and keyboard help say it"), ["kb:turnover+leftArrow"], available: inText) { _ in TextReview.move(.character, -1) }
         add("reviewNextCharacter", String(localized: "In text, moves the review cursor to the next character (NVDA+Right Arrow)", comment: "A command, as the key list and keyboard help say it"), ["kb:turnover+rightArrow"], available: inText) { _ in TextReview.move(.character, 1) }
         add("reviewTop", String(localized: "Moves the review cursor to the top line (NVDA+Control+Home)", comment: "A command, as the key list and keyboard help say it"), ["kb:turnover+control+home"]) { _ in TextReview.edge(last: false) }

@@ -230,6 +230,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
         }
         let e = obj.element
         setTrapState(for: e)
+        noteToolbar(e)
         let onTab = e.role == "AXRadioButton" && ribbon(of: e) != nil && ribbonCommands(of: e) == nil
         lock.lock(); _onRibbonTab = onTab; lock.unlock()
         if ribbonCommands(of: e) != nil { lock.lock(); _inPane = true; lock.unlock(); return }
@@ -368,6 +369,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
             if r != .success { g.send() } else { SystemPrompts.checkPress(of: b, name: ObjectFactory.make(b).name) }
         }.isAvailable = { Self.returnWouldMissFocus }
         script("settings_pressHeld", String(localized: "In a settings pane: presses the control TurnOver is holding", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:space", "kb:enter"], category: "Settings") { [weak self] g in self?.pressHeld(g) }.isAvailable = { Self.holdingVirtual }
+        registerToolbarScripts()
     }
 
     // MARK: Holding the place on a control that will not take the focus
@@ -523,9 +525,15 @@ public final class SettingsPanePlugin: GlobalPlugin {
         let obj = ObjectFactory.make(target)
         API.setFocusObject(obj, ancestors: API.focusAncestors)
         ObjectNavigator.shared.focusMoved(to: target, pid: target.pid)   // the context menu key acts where the cursor is
+        let ontoToolbar = noteToolbar(target)
         lock.lock(); _inPane = ownTab; lock.unlock()
         Log.io("settings: \(target.role) will not keep the focus; TurnOver holds the place on it")
-        if speak { Speech.cancel(); Speech.speakObject(obj, reason: .focus) }
+        if speak {
+            Speech.cancel()
+            // Onto a toolbar held by TurnOver: said, as the focus's ancestors say it when the app's focus goes there.
+            if ontoToolbar { Speech.speakMessage(Role.toolBar.displayString) }
+            Speech.speakObject(obj, reason: .focus)
+        }
     }
 
     /// Space or Return on a held control: press it.
@@ -662,6 +670,8 @@ public final class SettingsPanePlugin: GlobalPlugin {
             }
             kept.append((e, f)); keptNames.append("")
         }
+        // A toolbar is one stop; the arrows go along it (Toolbar.swift).
+        if toolbars { kept = collapsingToolbar(kept, in: window) }
         return paneOrdered(collapsingRowLists(kept), in: window)
     }
 
@@ -798,6 +808,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // The review cursor too: the context menu key opens the menu for what it is on, and it stayed on the call
         // the app had chosen (a tester, 11 Nov 2026).
         ObjectNavigator.shared.focusMoved(to: row, pid: row.pid)
+        noteToolbar(row)
         Tones.focusTick()
         Speech.cancel()
         let container = rowList(of: row)?.container

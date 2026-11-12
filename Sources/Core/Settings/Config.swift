@@ -69,7 +69,7 @@ public struct Config: Codable {
         public var navigateByGroups = true
         /// The Windows style's review keys (TurnOver Left and Right) move by groups too, the VoiceOver way (a tester, 9 Oct
         /// 2026); off, NVDA's flat review.
-        public var groupsInWindowsStyle = false
+        public var groupsInWindowsStyle = true
         /// Whether the review keys move by groups in the style in use.
         public var movesByGroups: Bool { navigateByGroups && (!windowsKeys || groupsInWindowsStyle) }
         /// The keyboard focus follows the cursor as it lands on something that can take it: "auto" (VoiceOver's way
@@ -109,7 +109,7 @@ public struct Config: Codable {
             handOverNothing = (try? c.decodeIfPresent(Bool.self, forKey: .handOverNothing)) ?? false
             keysWhereVoiceOverReads = (try? c.decodeIfPresent(Bool.self, forKey: .keysWhereVoiceOverReads)) ?? true
             navigateByGroups = (try? c.decodeIfPresent(Bool.self, forKey: .navigateByGroups)) ?? true
-            groupsInWindowsStyle = (try? c.decodeIfPresent(Bool.self, forKey: .groupsInWindowsStyle)) ?? false
+            groupsInWindowsStyle = (try? c.decodeIfPresent(Bool.self, forKey: .groupsInWindowsStyle)) ?? true
             focusFollowsCursor = (try? c.decodeIfPresent(String.self, forKey: .focusFollowsCursor)).flatMap { ["auto", "on", "off"].contains($0) ? $0 : nil } ?? "auto"
             turnOverKey = (try? c.decodeIfPresent(String.self, forKey: .turnOverKey)) ?? "both"
             handOverChimes = (try? c.decodeIfPresent(Bool.self, forKey: .handOverChimes)) ?? false

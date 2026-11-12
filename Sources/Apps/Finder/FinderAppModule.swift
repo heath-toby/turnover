@@ -64,20 +64,29 @@ final class FinderAppModule: AppModule {
             guard let self, let sb = sidebar() else { g.send(); return }
             ObjectNavigator.shared.enterHold(sb, name: "sidebar")
         }.isAvailable = { [weak self] in
-            guard let self, let f = API.focusObject, f.pid == pid,
-                  let tb = window()?.elements(kAXChildrenAttribute).first(where: { $0.role == "AXToolbar" }),
-                  let first = Self.firstFocusable(in: tb) else { return false }
-            return CFEqual(first, f.element)
+            // From anywhere on the toolbar: it is one stop, the arrows along it (Toolbar.swift, 12 Nov 2026).
+            guard let self, let f = API.focusObject, f.pid == pid else { return false }
+            return SettingsPanePlugin.inToolbar
         }
         ObjectNavigator.shared.heldTab = { [weak self] forward in
             guard let self, API.focusPid == pid else { return false }
             if forward {   // the sidebar's Tab: round to the toolbar's first control
-                guard let w = window(), let first = Self.firstFocusable(in: w.elements(kAXChildrenAttribute).first { $0.role == "AXToolbar" }) else { return false }
+                // On the item last used there (a toolbar is one stop), else its first.
+                guard let w = window(), let tb = w.elements(kAXChildrenAttribute).first(where: { $0.role == "AXToolbar" }) else { return false }
+                let target = SettingsPanePlugin.toolbarItems(around: tb).flatMap { SettingsPanePlugin.toolbarStop($0.toolbar, $0.items.filter { x in
+                    var ok: DarwinBoolean = false; AXUIElementIsAttributeSettable(x, kAXFocusedAttribute as CFString, &ok); return ok.boolValue }) } ?? Self.firstFocusable(in: tb)
+                guard let first = target else { return false }
                 _ = first.set(kAXFocusedAttribute, kCFBooleanTrue)
                 return true
             }
-            // The sidebar's Shift Tab: back to the files.
+            // The sidebar's Shift Tab: back to the files. The keyboard may be elsewhere by now (the toolbar, reached
+            // by Tab from the sidebar): it is put on the files (12 Nov 2026: Shift Tab said the toolbar's button).
             guard let f = API.focusObject else { return false }
+            if let w = window(), let files = SettingsPanePlugin.controls(in: w).first(where: { ["AXOutline", "AXTable", "AXList", "AXBrowser"].contains($0.role) && ($0.string(kAXDescriptionAttribute) ?? "").lowercased() != "sidebar" }),
+               !f.isSameElement(as: files) {
+                _ = files.set(kAXFocusedAttribute, kCFBooleanTrue)
+                return true
+            }
             Speech.speakObject(f, reason: .focus)
             return true
         }

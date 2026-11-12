@@ -370,6 +370,7 @@ public final class ChatView {
         guard let c = composer else { Speech.speakMessage(String(localized: "no conversation open", comment: "Spoken message")); return }
         pane = .composer
         Braille.releaseItem()
+        SettingsPanePlugin.noteToolbar(c)
         // The box usually still has the keyboard (TurnOver only moved its cursor), so no focus event comes: say it.
         let had = (c.attr(kAXFocusedAttribute) as? Bool) == true
         _ = c.set(kAXFocusedAttribute, kCFBooleanTrue)
@@ -381,17 +382,15 @@ public final class ChatView {
 
     /// The button held now (pane `control`).
     private var heldControl: AXUIElement?
+    /// The toolbar's items when the stops were last worked out.
+    private var toolbarHeld: [AXUIElement] = []
     private enum Stop { case part(Pane), control(AXUIElement) }
 
-    /// The window's toolbar buttons with a name, and the conversation's title where it is a button (Messages'
-    /// Conversation Details), left to right.
-    private func toolbarControls() -> [AXUIElement] {
-        guard let w = window else { return [] }
-        let kinds = ["AXButton", "AXMenuButton", "AXPopUpButton"]
-        var out = w.elements(kAXChildrenAttribute).filter { $0.role == "AXToolbar" }.flatMap { $0.elements(kAXChildrenAttribute) }
-            .filter { kinds.contains($0.role) && !ObjectFactory.make($0).name.isEmpty }
-        if let t = find(spec.titleID), t.role == "AXButton", !out.contains(where: { CFEqual($0, t) }) { out.append(t) }
-        return out.sorted { (TurnOverObject.frame($0)?.minX ?? 0) < (TurnOverObject.frame($1)?.minX ?? 0) }
+    /// The toolbar's items, left to right: the AXToolbar's and what sits in its strip (Messages' Conversation Details
+    /// and FaceTime). One Tab stop, the arrows along it, as every toolbar (a tester, 12 Nov 2026).
+    private func toolbarControls() -> (toolbar: AXUIElement, items: [AXUIElement])? {
+        guard let w = window, let anchor = w.elements(kAXChildrenAttribute).first(where: { $0.role == "AXToolbar" }) else { return nil }
+        return SettingsPanePlugin.toolbarItems(around: anchor)
     }
 
     /// The named buttons in the message box's row (Messages: add; Record audio, Emoji picker).
@@ -410,7 +409,13 @@ public final class ChatView {
     private func stops(box: AXUIElement) -> [Stop] {
         var out: [Stop] = spec.sectionsPrefix != nil ? [.part(.sections)] : []
         out.append(.part(.conversations))
-        out += toolbarControls().map { .control($0) }
+        if let (tb, items) = toolbarControls(), let stop = SettingsPanePlugin.toolbarStop(tb, items) {
+            out.append(.control(stop))
+            toolbarHeld = items
+        }
+        // The conversation's title where it is a button (Messages' Conversation Details): under the toolbar, not in
+        // it, so a stop of its own.
+        if let t = find(spec.titleID), t.role == "AXButton", !toolbarHeld.contains(where: { CFEqual($0, t) }) { out.append(.control(t)) }
         out.append(.part(.transcript))
         let row = boxRow(box), mid = TurnOverObject.frame(box)?.midX ?? 0
         out += row.filter { (TurnOverObject.frame($0)?.midX ?? 0) < mid }.map { .control($0) }
@@ -435,7 +440,8 @@ public final class ChatView {
             let at = all.firstIndex { stop in
                 switch stop {
                 case .part(let p): return p == pane
-                case .control(let e): return pane == .control && heldControl.map { CFEqual($0, e) } == true
+                // Any of the toolbar's items stands for its stop (the arrows moved along it).
+                case .control(let e): return pane == .control && heldControl.map { h in CFEqual(h, e) || (toolbarHeld.contains { CFEqual($0, h) } && toolbarHeld.contains { CFEqual($0, e) }) } == true
                 }
             } ?? all.firstIndex { if case .part(.composer) = $0 { return true }; return false } ?? 0
             switch all[(at + (forward ? 1 : -1) + all.count) % all.count] {
@@ -590,6 +596,10 @@ public final class ChatView {
         let shift = pane == .conversations ? listShift : 0
         parts.append(Phrases.position(i + 1 + shift, of: items.count + shift))
         Speech.speakItem(parts.joined(separator: ", "), processed: true)
+        // Object navigation starts from here, as from any focus (a tester, 12 Nov 2026: Tab showed one part while the
+        // review cursor stayed where it was left).
+        ObjectNavigator.shared.focusMoved(to: e, pid: pid)
+        SettingsPanePlugin.noteToolbar(e)   // off the toolbar: the arrows are the list's
         Hints.schedule(pane == .transcript
             ? String(localized: "Up and Down move through the messages; the shortcut menu has reply, tapback and copy. Escape goes back to the message box.", comment: "A hint in a chat app")
             : pane == .sections ? String(localized: "Return shows that section. Tab goes on.", comment: "A hint in a chat app") : String(localized: "Return opens the conversation. Escape goes back to the message box.", comment: "A hint in a chat app"))
