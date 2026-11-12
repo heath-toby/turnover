@@ -565,7 +565,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
     static let controlRoles: Set<String> = ["AXButton", "AXPopUpButton", "AXCheckBox", "AXRadioButton", "AXTextField", "AXTextArea", "AXComboBox",
                                             "AXSlider", "AXTable", "AXOutline", "AXList", "AXIncrementor", "AXMenuButton", "AXColorWell", "AXDateField", "AXLink",
                                             // A document in the window (Mail's message): one stop, read in browse mode there.
-                                            "AXWebArea"]
+                                            "AXWebArea",
+                                            // A grid (Calendar's month of day lists): one stop, its own arrows inside.
+                                            "AXGrid"]
 
     /// The pane's controls in screen order: rows top to bottom (within 8 points is one row), then left to right.
     /// `unfocusable`: with the enabled controls that refuse the focus too (the Tab trap's stops: TurnOver holds them).
@@ -586,7 +588,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 var settable: DarwinBoolean = false
                 AXUIElementIsAttributeSettable(e, kAXFocusedAttribute as CFString, &settable)
                 if settable.boolValue { found.append((e, f)) } else { unfocusable.append((e, f)) }
-                if ["AXTable", "AXOutline", "AXList", "AXTextArea", "AXWebArea"].contains(role) { return }   // one stop each
+                if ["AXTable", "AXOutline", "AXList", "AXTextArea", "AXWebArea", "AXGrid"].contains(role) { return }   // one stop each
             }
             for k in e.elements(kAXChildrenAttribute) { walk(k, depth + 1) }
         }
