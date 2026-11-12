@@ -70,8 +70,12 @@ public enum NotificationCentrePanel {
         if isPanel != open {
             Log.io("notification centre: panel \(isPanel ? "open" : "closed") (foreground window)")
         }
+        let opened = isPanel && !open
         open = isPanel
         openPid = pid
+        // Opened (Fn N, a click, TurnOver's own key): after the dialog's own words would start, TurnOver's summary by
+        // app takes over and lands on the first app (NotificationCentreNavigator).
+        if opened, !opening, Date().timeIntervalSince(enteredAt) > 1.5 { enteredAt = Date(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { if isOpen { NotificationCentreNavigator.enter() } } }
         if !isPanel, opening {
             // Closed (Escape, a click, the clock) before the cursor got in, or it was open before TurnOver started and
             // the press closed it: said, so the press is not silent; the next press opens.
@@ -81,6 +85,17 @@ public enum NotificationCentrePanel {
             Speech.speakMessage(String(localized: "Notification Centre closed", comment: "Spoken message"))
         }
         cursorBackIfStranded()
+    }
+
+    /// The panel's window took the focus: open, and read by app (once for each opening).
+    private static var enteredAt = Date.distantPast
+    static func panelFocused(_ window: AXUIElement) {
+        guard let pid = centrePid(), !opening else { return }
+        if !open || openPid != pid { Log.io("notification centre: panel open (its window has the focus)") }
+        open = true; openPid = pid
+        guard Date().timeIntervalSince(enteredAt) > 1.5 else { return }
+        enteredAt = Date()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { if isOpen { NotificationCentreNavigator.enter() } }
     }
 
     /// Opens the panel and goes in, or closes it if it is open.
@@ -145,10 +160,8 @@ public enum NotificationCentrePanel {
     }
 
     private static func enter(_ list: AXUIElement) {
-        let alerts = list.elements(kAXChildrenAttribute).filter { $0.string(kAXSubroleAttribute) == alertSubrole }
-        Log.io("notification centre: open, \(alerts.count) notifications")
-        Speech.speakMessage(alerts.isEmpty ? String(localized: "Notification Centre, no notifications", comment: "Spoken message") : String(localized: "Notification Centre", comment: "Spoken message"))
-        ObjectNavigator.shared.moveTo(alerts.first ?? list)
+        Log.io("notification centre: open, entered by the key")
+        NotificationCentreNavigator.enter()
     }
 
     /// Called when the foreground window changes and on every layout change in Notification Centre, whether or not

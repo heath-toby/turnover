@@ -34,7 +34,13 @@ open class Dialog: TurnOverObject {
 
     /// NVDA's getDialogText: the dialog's message, from static text and read-only text areas (TV's notification
     /// sheet keeps its message in AXTextAreas), leaving out labels of controls and the choices themselves.
+    /// Notification Centre's panel, which NotificationCentreNavigator reads by app.
+    var isNotificationCentre: Bool { NSRunningApplication(processIdentifier: element.pid)?.bundleIdentifier == "com.apple.notificationcenterui" }
+
     open var dialogText: String {
+        // Notification Centre's panel: its notifications are said by app (NotificationCentreNavigator), not all at once
+        // as the panel opens (they were said twice, 11 Nov 2026).
+        if isNotificationCentre { return "" }
         var texts: [String] = []
         var labels = Set<String>()
         let choiceNames = Set(choices.map(\.1))
@@ -140,7 +146,7 @@ open class Dialog: TurnOverObject {
         Self.spokenAt = (element, Date())
         let list = choices.map(\.1)
         var parts = [name, role.displayString, dialogText].filter { !$0.isEmpty }
-        if choicesToo, !list.isEmpty { parts.append(Self.choices(list)) }
+        if choicesToo, !list.isEmpty, !isNotificationCentre { parts.append(Self.choices(list)) }   // (said by app there)
         Speech.speakMessage(parts.joined(separator: ", "))
     }
 
