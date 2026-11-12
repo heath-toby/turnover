@@ -461,7 +461,13 @@ public enum Braille {
             let b = windowEnd(start) < cellMap.count ? cellMap[windowEnd(start)] : (text as NSString).length
             let shown = (text as NSString).substring(with: NSRange(location: min(a, (text as NSString).length), length: max(0, min(b, (text as NSString).length) - min(a, (text as NSString).length))))
             if case .message = source, messagePrivate { Log.io("braille shows (\(kind)): (private, \(shown.count) cells)") }
-            else if Speech.logsWords { Log.io("braille shows (\(kind)\(messageUntil != nil ? ", held" : "")): \(shown)") }
+            else if Speech.logsWords {
+                // The dots themselves, as the display has them (the cursor's and selection's dots too), so a table's
+                // output can be checked against what it should be, not only what it was made from (a tester, 12 Nov 2026).
+                var dots = window; while dots.last == 0 { dots.removeLast() }
+                let pattern = String(String.UnicodeScalarView(dots.compactMap { UnicodeScalar(0x2800 + UInt32($0)) }))
+                Log.io("braille shows (\(kind)\(messageUntil != nil ? ", held" : "")): \(shown) ⟦\(pattern)⟧")
+            }
             else { Log.io("braille shows (\(kind)\(messageUntil != nil ? ", held" : "")): [\(shown.count) cells]") }
         }
         lastWritten = window

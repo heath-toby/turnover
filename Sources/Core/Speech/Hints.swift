@@ -86,7 +86,7 @@ public enum Hints {
             if role == .editableText || role == .searchField { return String(localized: "Shift Tab goes back to the conversation.", comment: "A hint, said after a pause on an item") }
         case "com.apple.MobileSMS", "net.whatsapp.WhatsApp":
             if ["messageBodyField", "ChatBar_ComposerTextView"].contains(obj.element.string(kAXIdentifierAttribute) ?? "") {
-                return String(localized: "Tab goes to the messages, Shift Tab to the conversations. TurnOver 1 reads the newest message.", comment: "A hint, said after a pause on an item")
+                return String(localized: "Tab and Shift Tab go round the conversations, the toolbar, the messages and the buttons. TurnOver 1 reads the newest message.", comment: "A hint, said after a pause on an item")
             }
         case "com.apple.TextEdit":
             if role == .editableText || role == .document { return "" }

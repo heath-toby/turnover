@@ -55,7 +55,8 @@ public final class ChatView {
         }
     }
 
-    public enum Pane { case composer, transcript, conversations, sections }
+    /// `control`: a button TurnOver holds, in the toolbar or beside the message box.
+    public enum Pane { case composer, transcript, conversations, sections, control }
 
     public let pid: pid_t
     public let spec: Spec
@@ -378,9 +379,72 @@ public final class ChatView {
         if had { Speech.speakObject(ObjectFactory.make(c), reason: .focus) } else { AXHandler.shared.refocus(pid: pid) }
     }
 
+    /// The button held now (pane `control`).
+    private var heldControl: AXUIElement?
+    private enum Stop { case part(Pane), control(AXUIElement) }
+
+    /// The window's toolbar buttons with a name, and the conversation's title where it is a button (Messages'
+    /// Conversation Details), left to right.
+    private func toolbarControls() -> [AXUIElement] {
+        guard let w = window else { return [] }
+        let kinds = ["AXButton", "AXMenuButton", "AXPopUpButton"]
+        var out = w.elements(kAXChildrenAttribute).filter { $0.role == "AXToolbar" }.flatMap { $0.elements(kAXChildrenAttribute) }
+            .filter { kinds.contains($0.role) && !ObjectFactory.make($0).name.isEmpty }
+        if let t = find(spec.titleID), t.role == "AXButton", !out.contains(where: { CFEqual($0, t) }) { out.append(t) }
+        return out.sorted { (TurnOverObject.frame($0)?.minX ?? 0) < (TurnOverObject.frame($1)?.minX ?? 0) }
+    }
+
+    /// The named buttons in the message box's row (Messages: add; Record audio, Emoji picker).
+    private func boxRow(_ box: AXUIElement) -> [AXUIElement] {
+        guard let bf = TurnOverObject.frame(box), let parent = box.element(kAXParentAttribute) else { return [] }
+        return parent.elements(kAXChildrenAttribute).filter { e in
+            guard ["AXButton", "AXMenuButton", "AXPopUpButton"].contains(e.role), !ObjectFactory.make(e).name.isEmpty,
+                  let f = TurnOverObject.frame(e) else { return false }
+            return abs(f.midY - bf.midY) < max(20, bf.height)
+        }.sorted { (TurnOverObject.frame($0)?.minX ?? 0) < (TurnOverObject.frame($1)?.minX ?? 0) }
+    }
+
+    /// Every stop of Tab, in the screen's order (a tester, 12 Nov 2026: "Conversation list, the toolbar with compose,
+    /// start call, info, … the message list, then add button, message edit, then … the emoji picker and the
+    /// dictate/record audio buttons"): the toolbar and the box's own buttons were never reached.
+    private func stops(box: AXUIElement) -> [Stop] {
+        var out: [Stop] = spec.sectionsPrefix != nil ? [.part(.sections)] : []
+        out.append(.part(.conversations))
+        out += toolbarControls().map { .control($0) }
+        out.append(.part(.transcript))
+        let row = boxRow(box), mid = TurnOverObject.frame(box)?.midX ?? 0
+        out += row.filter { (TurnOverObject.frame($0)?.midX ?? 0) < mid }.map { .control($0) }
+        out.append(.part(.composer))
+        out += row.filter { (TurnOverObject.frame($0)?.midX ?? 0) > mid }.map { .control($0) }
+        return out
+    }
+
+    private func hold(_ e: AXUIElement) {
+        pane = .control; heldControl = e
+        Braille.releaseItem()
+        // Space and Return press it, and its actions (VO-Command-Space) are the cursor's: the tab trap's held place.
+        SettingsPanePlugin.holdVirtual(e, speak: true, ownTab: false)
+    }
+
     /// Tab and Shift Tab round the parts in the screen's order (13 Oct 2026: the box comes after the
-    /// conversation): sections, conversations, messages, box, and round; Shift Tab the other way.
+    /// conversation): sections, conversations, the toolbar, messages, the box with its buttons, and round; Shift Tab
+    /// the other way.
     public func cycle(forward: Bool) {
+        if let box = composer {
+            let all = stops(box: box)
+            let at = all.firstIndex { stop in
+                switch stop {
+                case .part(let p): return p == pane
+                case .control(let e): return pane == .control && heldControl.map { CFEqual($0, e) } == true
+                }
+            } ?? all.firstIndex { if case .part(.composer) = $0 { return true }; return false } ?? 0
+            switch all[(at + (forward ? 1 : -1) + all.count) % all.count] {
+            case .part(.composer): toComposer()
+            case .part(let p): enter(p, keepList: true)
+            case .control(let e): hold(e)
+            }
+            return
+        }
         let hasSections = spec.sectionsPrefix != nil
         switch (pane, forward) {
         case (.sections, true): enter(.conversations, keepList: true)
@@ -391,10 +455,11 @@ public final class ChatView {
         case (.transcript, false): enter(.conversations, keepList: true)
         case (.composer, true): enter(hasSections ? .sections : .conversations, keepList: true)
         case (.composer, false): enter(.transcript)
+        case (.control, _): enter(.conversations, keepList: true)   // (no box: no buttons were held)
         }
     }
 
-    public var isBrowsing: Bool { pane != .composer }
+    public var isBrowsing: Bool { pane != .composer && pane != .control }
 
     /// The keyboard went elsewhere (a click, a sheet): the parts are left as they are.
     public func focusLeft() { pane = .composer; Braille.releaseItem() }
