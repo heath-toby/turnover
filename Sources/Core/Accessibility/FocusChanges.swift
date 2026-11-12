@@ -259,10 +259,12 @@ extension AXHandler {
     /// Mail's Tab order stops on its message list's hidden scroll bar between the list and the message: a stop
     /// with nothing to say or do. Tab on past it, as the user meant.
     func ruleHiddenScrollBar(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
-        guard target.role == "AXScrollBar", (target.attr("AXHidden") as? Bool) == true else { return .go(target) }
+        // Likewise a split view or its divider, nameless (Freeform's Tab stopped on its split group, 12 Nov 2026).
+        let layout = ["AXSplitGroup", "AXSplitter"].contains(target.role) && ObjectFactory.make(target).name.isEmpty
+        guard target.role == "AXScrollBar" && (target.attr("AXHidden") as? Bool) == true || layout else { return .go(target) }
         let key = InputManager.lastKeyIdentifier
         if Date().timeIntervalSince(InputManager.lastKeyDownAt) < 1.5, key == "kb:tab" || key == "kb:shift+tab", let g = KeyboardGesture(identifier: key) {
-            Log.io("focus on a hidden scroll bar after \(key); passing on")
+            Log.io("focus on a \(layout ? "nameless \(target.role)" : "hidden scroll bar") after \(key); passing on")
             g.send()
             return .done
         }
@@ -390,6 +392,17 @@ extension AXHandler {
     /// the focus (arrows must stay in the list); in a message window the host's web area is what to read. A nameless
     /// container with a document inside (Mail's message window: an AXGroup or AXUnknown over the message body) is
     /// followed into the document.
+    /// The outermost named control inside `e` (a few levels down) that says it is focused.
+    static func focusedInside(_ e: AXUIElement) -> AXUIElement? {
+        var queue: [(AXUIElement, Int)] = e.elements(kAXChildrenAttribute).prefix(12).map { ($0, 1) }, seen = 0
+        while !queue.isEmpty, seen < 40 {
+            let (x, d) = queue.removeFirst(); seen += 1
+            if (x.attr(kAXFocusedAttribute) as? Bool) == true, SettingsPanePlugin.controlRoles.contains(x.role) { return x }
+            if d < 3 { queue += x.elements(kAXChildrenAttribute).prefix(12).map { ($0, d + 1) } }
+        }
+        return nil
+    }
+
     func ruleNamelessContainer(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
         let axRole = target.role
         guard axRole == "AXUnknown" || axRole == "AXGroup", let current = API.focusObject else { return .go(target) }
@@ -408,6 +421,12 @@ extension AXHandler {
                 Log.io("focus on a nameless \(axRole) while the \(holder.role) \"\(Log.words(holder.string(kAXDescriptionAttribute) ?? holder.string(kAXTitleAttribute) ?? ""))\" still reports focus; ignored")
                 return .ignore
             }
+        }
+        // A descendant says it has the keyboard (Photos: the focus on a nameless group, the "All Photos" list inside it
+        // focused; Tab there was silent, 12 Nov 2026): that is the focus.
+        if let inner = Self.focusedInside(target) {
+            Log.io("focus on a nameless \(axRole): following it to the focused \(inner.role) inside")
+            return .follow(inner)
         }
         if let web = target.firstDescendant(role: "AXWebArea", maxVisited: 300) {
             if sameWindow, axRole == "AXUnknown" { Log.io("focus on a nameless \(axRole) in the same window; ignored"); return .ignore }

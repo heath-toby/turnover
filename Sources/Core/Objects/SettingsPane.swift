@@ -609,6 +609,17 @@ public final class SettingsPanePlugin: GlobalPlugin {
                                             // A grid (Calendar's month of day lists): one stop, its own arrows inside.
                                             "AXGrid"]
 
+    /// A scroll area that takes the keyboard itself and holds no list, table, text or page of its own: a board or a
+    /// canvas (Freeform's). Scroll areas round lists and documents don't count: what they hold is the stop.
+    static func canvas(_ e: AXUIElement) -> Bool {
+        var settable: DarwinBoolean = false
+        guard AXUIElementIsAttributeSettable(e, kAXFocusedAttribute as CFString, &settable) == .success, settable.boolValue else { return false }
+        let held: Set<String> = ["AXTable", "AXOutline", "AXList", "AXTextArea", "AXWebArea", "AXGrid", "AXBrowser"]
+        if e.elements(kAXChildrenAttribute).contains(where: { held.contains($0.role) }) { return false }
+        // Nor a page a little way in (Mail's message: a group holding a web area).
+        return e.firstDescendant(role: "AXWebArea", maxVisited: 40) == nil
+    }
+
     /// An item iPad apps make pressable without calling it a button: Stocks' symbols and news stories are generic
     /// elements with a name and a press, so Tab never reached the stock list or the news (12 Nov 2026).
     static func isPressableItem(_ e: AXUIElement) -> Bool {
@@ -640,6 +651,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
             if role == "AXScrollArea", let f = TurnOverObject.frame(e), f.width > 0, f.height > 0 { clip = clip.map { $0.intersection(f) } ?? f }
             let sub = e.string(kAXSubroleAttribute) ?? ""
             if ["AXCloseButton", "AXZoomButton", "AXMinimizeButton", "AXFullScreenButton"].contains(sub) { return }
+            // A canvas: a scroll area that takes the keyboard itself (Freeform's board), where the app's keys work.
+            // Tab never came back to it (12 Nov 2026). Still walked into: what's on it may be controls of its own.
+            if role == "AXScrollArea", canvas(e), let f = TurnOverObject.frame(e), f.width > 0, f.height > 0 { found.append((e, f)) }
             if controlRoles.contains(role) || isPressableItem(e), (e.attr(kAXEnabledAttribute) as? Bool) != false, let whole = TurnOverObject.frame(e), whole.width > 0, whole.height > 0 {
                 // Out of view altogether: where it is (a row scrolled away is still in its place in the order).
                 let seen = clip.map { whole.intersection($0) }, f = seen.map { $0.isNull || $0.isEmpty ? whole : $0 } ?? whole

@@ -358,7 +358,8 @@ public enum Speech {
         var words = joined(parts)
         // A focus with nothing to say at all, an empty unnamed group (1Password's scroll track takes Tab): its role,
         // so a Tab is never only the sound (12 Nov 2026). One with something inside is left to what it holds.
-        if reason == .focus, words.isEmpty, obj.element.role == "AXGroup", obj.element.elements(kAXChildrenAttribute).isEmpty {
+        // A nameless scroll area that takes the keyboard (Freeform's board, 12 Nov 2026) says its role too.
+        if reason == .focus, words.isEmpty, obj.element.role == "AXGroup" && obj.element.elements(kAXChildrenAttribute).isEmpty || obj.element.role == "AXScrollArea" && words.isEmpty && reason == .focus {
             words = obj.element.string(kAXRoleDescriptionAttribute) ?? ""
         }
         // The same focus reported twice within half a second says it once (Excel after Return and Up: "12, A1" twice;

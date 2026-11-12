@@ -148,7 +148,11 @@ extension SettingsPanePlugin {
             Self.setTrapState(for: rows[0])
             return
         }
-        Self.focus(all[n], byTrap: Self.inTrapZone)
+        // Counted towards a short loop as the app's own landings are: Freeform's Tab went sidebar, toolbar, sidebar
+        // (its own Tab from the sidebar back to the toolbar, TurnOver's from the toolbar on to the sidebar) and never
+        // reached the board (12 Nov 2026).
+        Self.noteLanding(all[n], forward: forward)
+        Self.focus(all[n], byTrap: Self.inTrapZone || Self.inLoopWindow(all[n]))
         Self.setTrapState(for: all[n])
     }
 
