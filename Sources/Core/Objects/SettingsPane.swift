@@ -173,9 +173,11 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // Round to the same control (a window with one, Reminders' Continue): nothing changes, so nothing would be
         // said; it is said again, as Tab on Windows says it (the sweep, 11 Nov 2026).
         if all[n].isSame(current) { Speech.cancel(); Speech.speakObject(ObjectFactory.make(current), reason: .focus); return }
-        // Into a list the trap made: on its first row (from the end, Shift Tab: its last).
-        if let (rows, _, _, _) = Self.rowList(of: all[n]) {
-            Self.landInRowList(rows, at: forward ? 0 : rows.count - 1, entering: true)
+        // Into a list the trap made: on the row last read there, as Windows' lists keep their place; else its first,
+        // either way (Shift Tab landed on the last row, 12 Nov 2026).
+        if let (rows, _, _, container) = Self.rowList(of: all[n]) {
+            let back = Self.lastRow.first { $0.container.isSame(container) }.flatMap { r in rows.firstIndex { $0.isSame(r.row) } }
+            Self.landInRowList(rows, at: back ?? 0, entering: true)
             Self.setTrapState(for: rows[0])
             return
         }
@@ -612,22 +614,31 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // the window had no stops and Tab did nothing. Used when there is nothing else; TurnOver holds the place.
         var unfocusable: [(AXUIElement, CGRect)] = []
         var visited = 0
-        func walk(_ e: AXUIElement, _ depth: Int) {
+        // `clip`: what can be seen of the scroll areas around. A list's frame is all its rows: Contacts' list of 164
+        // was 8,000 points tall, its middle far below the window, so it sorted after the card beside it, and Shift
+        // Tab from it went to the card, not to the search field above it (12 Nov 2026). Placed by what's in view.
+        func walk(_ e: AXUIElement, _ depth: Int, _ clip: CGRect?) {
             guard visited < 600, depth < 14 else { return }
             visited += 1
             let role = e.role
             if role == "AXToolbar", !toolbars { return }
+            // A scroll bar's arrows and page areas are buttons no one Tabs to (two nameless stops in Contacts).
+            if role == "AXScrollBar" { return }
+            var clip = clip
+            if role == "AXScrollArea", let f = TurnOverObject.frame(e), f.width > 0, f.height > 0 { clip = clip.map { $0.intersection(f) } ?? f }
             let sub = e.string(kAXSubroleAttribute) ?? ""
             if ["AXCloseButton", "AXZoomButton", "AXMinimizeButton", "AXFullScreenButton"].contains(sub) { return }
-            if controlRoles.contains(role) || isPressableItem(e), (e.attr(kAXEnabledAttribute) as? Bool) != false, let f = TurnOverObject.frame(e), f.width > 0, f.height > 0 {
+            if controlRoles.contains(role) || isPressableItem(e), (e.attr(kAXEnabledAttribute) as? Bool) != false, let whole = TurnOverObject.frame(e), whole.width > 0, whole.height > 0 {
+                // Out of view altogether: where it is (a row scrolled away is still in its place in the order).
+                let seen = clip.map { whole.intersection($0) }, f = seen.map { $0.isNull || $0.isEmpty ? whole : $0 } ?? whole
                 var settable: DarwinBoolean = false
                 AXUIElementIsAttributeSettable(e, kAXFocusedAttribute as CFString, &settable)
                 if settable.boolValue { found.append((e, f)) } else { unfocusable.append((e, f)) }
                 if ["AXTable", "AXOutline", "AXList", "AXTextArea", "AXWebArea", "AXGrid"].contains(role) { return }   // one stop each
             }
-            for k in e.elements(kAXChildrenAttribute) { walk(k, depth + 1) }
+            for k in e.elements(kAXChildrenAttribute) { walk(k, depth + 1, clip) }
         }
-        walk(window, 0)
+        walk(window, 0, nil)
         if withUnfocusable { found += unfocusable }
         // Twins: one control inside another in the same place, the same name (Weather's tabs, a radio button with a
         // button in it): one stop, the outer one. Each tab was said twice, a Tab each (11 Nov 2026).
@@ -765,8 +776,16 @@ public final class SettingsPanePlugin: GlobalPlugin {
     }
 
     /// On a row of a row list: held, said with its place in the list.
+    /// The row last read in each list (latest first, a few lists).
+    static var lastRow: [(container: AXUIElement, row: AXUIElement)] = []
+
     static func landInRowList(_ rows: [AXUIElement], at i: Int, entering: Bool) {
         let row = rows[i]
+        if let c = rowList(of: row)?.container {
+            lastRow.removeAll { $0.container.isSame(c) }
+            lastRow.insert((c, row), at: 0)
+            if lastRow.count > 8 { lastRow.removeLast() }
+        }
         scrollIntoView(row)
         virtual = row
         lock.lock(); _holding = true; _heldByTrap = true; _inPane = false; lock.unlock()
@@ -779,7 +798,8 @@ public final class SettingsPanePlugin: GlobalPlugin {
         Speech.cancel()
         let container = rowList(of: row)?.container
         let scrolling = container.map { scrolls($0) && !isSideways($0) } ?? false
-        if entering { rowOffset = container.map { ($0, 0) } }
+        // Counted afresh in a list newly entered; kept on coming back to the one being read (still scrolled as it was).
+        if entering, let c = container, rowOffset.map({ !$0.container.isSame(c) }) ?? true { rowOffset = (c, 0) }
         let offset = (container.flatMap { c in rowOffset.flatMap { $0.container.isSame(c) ? $0.n : nil } }) ?? 0
         var parts: [String] = []
         // A list that scrolls holds only the rows in sight: no count of them all is known.
@@ -803,7 +823,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
             let (e, d) = queue.removeFirst(); seen += 1
             let role = e.role
             if ["AXSplitGroup", "AXGroup"].contains(role), let f = TurnOverObject.frame(e), f.height > 0, role == "AXSplitGroup" || f.height >= tall {
-                let kids = e.elements(kAXChildrenAttribute).filter { $0.role != "AXSplitter" }.compactMap { TurnOverObject.frame($0) }.filter { $0.width > 0 && $0.height > 0 }
+                // Panes are containers: the Save sheet's split group holds its controls themselves beside a divider
+                // of no width, and each became a pane of its own, Delete first (12 Nov 2026).
+                let kids = e.elements(kAXChildrenAttribute).filter { ["AXGroup", "AXScrollArea", "AXSplitGroup", "AXTabGroup", "AXLayoutArea", "AXList", "AXOutline", "AXTable", "AXWebArea", "AXBrowser"].contains($0.role) }.compactMap { TurnOverObject.frame($0) }.filter { $0.width > 0 && $0.height > 0 }
                     .sorted { $0.minX != $1.minX ? $0.minX < $1.minX : $0.minY < $1.minY }
                 // A split group, or a plain group laid out as columns: its children side by side, each the group's
                 // height, none overlapping. iPad apps build their sidebar and detail so (Phone's Recents beside the
@@ -816,13 +838,19 @@ public final class SettingsPanePlugin: GlobalPlugin {
         }
         // The toolbar comes first, whole: it sits over the columns, and its buttons were dealt out among them.
         let toolbars = window.elements(kAXChildrenAttribute).filter { $0.role == "AXToolbar" }.compactMap { TurnOverObject.frame($0) }
+        // Rows: middles within 8 points of a row's first are one row. Cut into fixed 8-point bands, two buttons a
+        // point apart could fall either side of a line (a Save sheet's Delete went after Cancel and Save, 12 Nov 2026).
+        var rowStarts: [CGFloat] = []
+        for y in found.map({ $0.1.midY }).sorted() where rowStarts.last.map({ y - $0 > 8 }) ?? true { rowStarts.append(y) }
         func key(_ f: CGRect) -> (Int, Int, Int, CGFloat) {
-            let row = Int(f.midY / 8)
+            let row = rowStarts.lastIndex { $0 <= f.midY } ?? 0
             if toolbars.contains(where: { $0.contains(CGPoint(x: f.midX, y: f.midY)) }) { return (-1, 0, row, f.minX) }
             guard let sf = splitFrame else { return (0, 0, row, f.minX) }
             if f.midY < sf.minY { return (0, 0, row, f.minX) }
             if f.midY > sf.maxY { return (2, 0, row, f.minX) }
-            let pane = panes.firstIndex { $0.insetBy(dx: -1, dy: -1).contains(CGPoint(x: f.midX, y: f.midY)) } ?? panes.count
+            // In none (Contacts' search field, over its list but outside the list's scroll area): the column it's in.
+            let pane = panes.firstIndex { $0.insetBy(dx: -1, dy: -1).contains(CGPoint(x: f.midX, y: f.midY)) }
+                ?? panes.firstIndex { f.midX >= $0.minX - 1 && f.midX <= $0.maxX + 1 } ?? panes.count
             return (1, pane, row, f.minX)
         }
         return found.map { ($0.0, key($0.1)) }.sorted { a, b in a.1 < b.1 }.map { $0.0 }
