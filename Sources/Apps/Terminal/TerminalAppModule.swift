@@ -421,17 +421,26 @@ final class TerminalText: TurnOverObject {
         // Always sent: at column 0 or a line's end the key still means something to nano, vim or a program's input
         // box, which the shell's prompt doesn't describe (a review, 13 Nov 2026: Left at column 0 and Right at the
         // end never reached them). A bump, as an edit field gives, only when the cursor didn't move.
+        // Looked at after 50 ms and again at 150 ms before the bump: over ssh, or in vim, the cursor moves later, and
+        // one look at 50 ms gave a false edge and silence (a review, 13 Nov 2026).
         for key in ["leftArrow", "rightArrow"] {
             script("terminal_\(key)", String(localized: "Moves the shell's cursor and reads the character there", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:\(key)"], category: cat) { [weak self] g in
                 let before = self?.cursor
                 g.send()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    guard let self, let c = self.cursor else { return }
-                    if c == before { Tones.edge(); return }
-                    guard let ch = self.character(at: c) else { return }
-                    Speech.speakText(ch.isEmpty || ch == "\n" ? "blank" : ch, symbolLevel: .all)
-                }
+                self?.readCharacterAfterMove(from: before, at: [0.05, 0.15])
             }
+        }
+    }
+
+    /// The character under the cursor once it has moved from `before`, looked at after each delay in turn (seconds
+    /// from the key); a bump when it never moved.
+    private func readCharacterAfterMove(from before: Int?, at delays: [Double], waited: Double = 0) {
+        guard let next = delays.first else { Tones.edge(); return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, next - waited)) { [weak self] in
+            guard let self, let c = self.cursor else { return }
+            if c == before { self.readCharacterAfterMove(from: before, at: Array(delays.dropFirst()), waited: next); return }
+            guard let ch = self.character(at: c) else { return }
+            Speech.speakText(ch.isEmpty || ch == "\n" ? "blank" : ch, symbolLevel: .all)
         }
     }
 
