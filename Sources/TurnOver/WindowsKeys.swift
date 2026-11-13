@@ -102,8 +102,16 @@ nonisolated enum WindowsRemap {
 /// Where TurnOver reads, TurnOver's own key tap has the keys and this layer is stopped.
 nonisolated final class WindowsKeyLayer: @unchecked Sendable {   // its state belongs to the tap thread
     static let shared = WindowsKeyLayer()
-    private var thread: Thread?
-    private var runLoop: CFRunLoop?
+    /// Which start is wanted, and the run loop of the thread serving it: read and written only under
+    /// `lifecycle.lock`, by start and stop (main) and by the tap thread as it begins and ends. The run loop was set by
+    /// the new thread and read by stop() unlocked; a stop before the thread ran found none, forgot the thread, and the
+    /// thread then put up a tap no one could stop, and the next start a second (a review, 13 Nov 2026).
+    private struct Lifecycle {
+        var generation: UInt64 = 0
+        var requested: UInt64?
+        var runLoop: (generation: UInt64, loop: CFRunLoop)?
+    }
+    private let lifecycle = Locked(Lifecycle())
     /// What one tap thread set up, torn down by that thread and no other: a stop and a start at once (a style change,
     /// or the layer refreshed on activation) had the old thread's tear-down clear the new thread's tap (issue 53;
     /// KeyboardHandler's Layer did the same for TurnOver's own tap, 8 Oct 2026).
@@ -118,16 +126,28 @@ nonisolated final class WindowsKeyLayer: @unchecked Sendable {   // its state be
     private var loneCommand = LoneModifier()
     private var loneOption = LoneModifier(), optionCode: Int64 = 0
 
-    var isOn: Bool { thread != nil }
+    var isOn: Bool { lifecycle.value.requested != nil }
 
     func start() {
         MainActor.assumeIsolated { Self.buildStyleChords() }   // start() is called on the main thread (refreshWindowsLayer); again on a style change while running
-        guard thread == nil else { return }
+        let generation: UInt64? = {
+            lifecycle.lock.lock(); defer { lifecycle.lock.unlock() }
+            guard lifecycle.unsafeValue.requested == nil else { return nil }
+            lifecycle.unsafeValue.generation &+= 1
+            lifecycle.unsafeValue.requested = lifecycle.unsafeValue.generation
+            return lifecycle.unsafeValue.generation
+        }()
+        guard let generation else { return }
         WindowsRemap.watchFrontApp()
-        let mine = Layer()
-        layer = mine
         let t = Thread { [self] in
-            runLoop = CFRunLoopGetCurrent()
+            // Stopped before this thread ran: nothing is set up. Otherwise its run loop is known before anything
+            // is, so a stop from now on reaches it (a block performed on it waits for CFRunLoopRun below).
+            lifecycle.lock.lock()
+            guard lifecycle.unsafeValue.requested == generation else { lifecycle.lock.unlock(); return }
+            lifecycle.unsafeValue.runLoop = (generation, CFRunLoopGetCurrent())
+            lifecycle.lock.unlock()
+            let mine = Layer()
+            layer = mine
             let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(kIOHIDSystemClass))
             if service != 0 { IOServiceOpen(service, mach_task_self_, UInt32(kIOHIDParamConnectType), &mine.connect); IOObjectRelease(service) }
             openHID(mine)
@@ -140,7 +160,11 @@ nonisolated final class WindowsKeyLayer: @unchecked Sendable {   // its state be
                 Log.error("NVDA keys where VoiceOver reads: no event tap")
                 if let m = mine.manager { IOHIDManagerClose(m, IOOptionBits(kIOHIDOptionsTypeNone)) }
                 if mine.connect != 0 { IOServiceClose(mine.connect) }
-                if layer === mine { layer = nil; thread = nil; runLoop = nil }
+                if layer === mine { layer = nil }
+                lifecycle.lock.lock()
+                if lifecycle.unsafeValue.requested == generation { lifecycle.unsafeValue.requested = nil }
+                if lifecycle.unsafeValue.runLoop?.generation == generation { lifecycle.unsafeValue.runLoop = nil }
+                lifecycle.lock.unlock()
                 return
             }
             mine.tap = tp
@@ -154,19 +178,26 @@ nonisolated final class WindowsKeyLayer: @unchecked Sendable {   // its state be
             if mine.connect != 0 { IOServiceClose(mine.connect); mine.connect = 0 }
             // The key state is the running layer's: a newer thread's is left alone.
             if layer === mine { layer = nil; capsDown = false; browse = false; swallowedUps.removeAll() }
+            lifecycle.lock.lock()
+            if lifecycle.unsafeValue.runLoop?.generation == generation { lifecycle.unsafeValue.runLoop = nil }
+            lifecycle.lock.unlock()
             Log.info("NVDA keys where VoiceOver reads: off")
         }
         t.name = "turnover.windowskeys"
         t.qualityOfService = .userInteractive
-        thread = t
         t.start()
     }
 
     func stop() {
-        guard let rl = runLoop else { thread = nil; return }
+        lifecycle.lock.lock()
+        lifecycle.unsafeValue.requested = nil
+        let rl = lifecycle.unsafeValue.runLoop?.loop
+        lifecycle.unsafeValue.runLoop = nil
+        lifecycle.lock.unlock()
+        // No run loop yet: the thread, when it runs, finds the request gone and sets nothing up.
+        guard let rl else { return }
         CFRunLoopPerformBlock(rl, CFRunLoopMode.defaultMode.rawValue) { CFRunLoopStop(rl) }
         CFRunLoopWakeUp(rl)
-        thread = nil; runLoop = nil
     }
 
     private func openHID(_ mine: Layer) {
