@@ -626,8 +626,18 @@ public final class MediaView {
         var shelves: [Shelf] = []
         var current = Shelf(title: "", items: [])
         var visited = 0
+        // A shelf's See All, last in it: go down the shelf, then See All if what you want isn't there (a tester, 13 Nov
+        // 2026: it was missing; Music's header button is its See All).
+        var seeAll: AXUIElement?
+        func closeShelf() {
+            if !current.items.isEmpty {
+                if let b = seeAll { current.items.append(Item(label: String(localized: "See All", comment: "The last item of a shelf of music or podcasts: opens the whole list"), element: b, press: b)) }
+                shelves.append(current)
+            }
+            seeAll = nil
+        }
         func startShelf(_ title: String, at e: AXUIElement? = nil) {
-            if !current.items.isEmpty { shelves.append(current) }
+            closeShelf()
             current = Shelf(title: title, items: [], top: e.flatMap { Self.position($0)?.y }, heading: e)
         }
         func pressable(_ e: AXUIElement) -> Bool {
@@ -679,6 +689,8 @@ public final class MediaView {
                 let own = [desc, title].first { !$0.isEmpty }
                 let t = own ?? e.elements(kAXChildrenAttribute).compactMap { $0.string(kAXDescriptionAttribute) ?? $0.string(kAXTitleAttribute) }.first { !$0.isEmpty } ?? ElementMatcher.text(of: e)
                 startShelf(t, at: e)
+                // Pressed, the header opens the whole shelf: its See All.
+                seeAll = pressable(e) ? e : first(in: e, depth: 3) { $0.role == "AXButton" && pressable($0) }
                 return
             }
             if role == "AXList", sub == "AXSectionList" {
@@ -709,7 +721,7 @@ public final class MediaView {
                 if !it.label.isEmpty { current.items.append(it) }
                 return
             }
-            if id.contains("seeAll"), role == "AXButton" { current.items.append(Item(label: "See all", element: e, press: e)); return }
+            if id.contains("seeAll"), role == "AXButton" { seeAll = e; return }   // (put last, as the shelf closes)
             // An item.
             // A page's header (Podcasts' show and episode headers): its words as one item, then each of its buttons
             // (Follow, Play, Download, Save) as an item of its own, so they can be reached and pressed.
@@ -727,7 +739,7 @@ public final class MediaView {
             for c in e.elements(kAXChildrenAttribute) { walk(c, depth: depth + 1) }
         }
         walk(window, depth: 0)
-        if !current.items.isEmpty { shelves.append(current) }
+        closeShelf()
         // The apps' own status lines are not items: Podcasts' "Refreshing content" was the first thing read on Home
         // every time; Music's "Loading Cloud Library…", "Updating artist artwork…".
         let status = try? NSRegularExpression(pattern: "^(Refreshing content|Content refreshed|Loading.*…|Updating.*…|Adding item to Library)$", options: .caseInsensitive)
