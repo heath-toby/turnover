@@ -26,12 +26,30 @@ extension SettingsPanePlugin {
         ["AXTextField", "AXSearchField", "AXComboBox", "AXTextArea"].contains(e.role) || e.string(kAXSubroleAttribute) == "AXSearchField"
     }
 
-    /// The window's toolbar (its strip on screen), if it has one.
-    static func toolbar(of window: AXUIElement) -> (AXUIElement, CGRect)? {
-        for k in window.elements(kAXChildrenAttribute) where k.role == "AXToolbar" {
-            if let f = TurnOverObject.frame(k), f.width > 0, f.height > 0 { return (k, f) }
+    /// A toolbar: the window's own, or a group that calls itself one (Outlook's two groups titled "Toolbar", 13 Nov 2026).
+    static func isToolbar(_ e: AXUIElement) -> Bool {
+        let r = e.role
+        if r == "AXToolbar" { return true }
+        guard r == "AXGroup" else { return false }
+        let name = ((e.string(kAXTitleAttribute) ?? "") + " " + (e.string(kAXDescriptionAttribute) ?? "")).lowercased()
+        return name.trimmingCharacters(in: .whitespaces) == "toolbar" || name.hasSuffix(" toolbar") || name.hasSuffix("tool bar")
+    }
+
+    /// The window's toolbars, with their strips on screen: its own first.
+    static func toolbars(of window: AXUIElement) -> [(AXUIElement, CGRect)] {
+        var out: [(AXUIElement, CGRect)] = []
+        for k in window.elements(kAXChildrenAttribute) where isToolbar(k) {
+            if let f = TurnOverObject.frame(k), f.width > 0, f.height > 0 { out.append((k, f)) }
         }
-        return nil
+        return out.sorted { a, b in (a.0.role == "AXToolbar") && b.0.role != "AXToolbar" }
+    }
+    static func toolbar(of window: AXUIElement) -> (AXUIElement, CGRect)? { toolbars(of: window).first }
+
+    /// The toolbar a control is an item of.
+    static func toolbarFor(_ e: AXUIElement, in w: AXUIElement) -> (AXUIElement, CGRect)? {
+        if isToolbar(e), let f = TurnOverObject.frame(e) { return (e, f) }
+        guard let f = TurnOverObject.frame(e), !inContent(e) else { return nil }
+        return toolbars(of: w).first { inStrip(f, of: $0.1) }
     }
 
     /// Whether a control sits in the toolbar's strip: inside the AXToolbar, or its middle within the strip.
@@ -50,7 +68,7 @@ extension SettingsPanePlugin {
         var p = e.element(kAXParentAttribute); var hops = 0
         while let x = p, hops < 12 {
             let r = x.role
-            if r == "AXToolbar" || r == "AXWindow" { return false }
+            if r == "AXWindow" || isToolbar(x) { return false }
             if ["AXScrollArea", "AXOutline", "AXTable", "AXList", "AXSplitGroup", "AXRow", "AXWebArea"].contains(r) { return true }
             p = x.element(kAXParentAttribute); hops += 1
         }
@@ -59,7 +77,7 @@ extension SettingsPanePlugin {
 
     /// The toolbar's items in the window `e` is in, left to right, and the toolbar.
     static func toolbarItems(around e: AXUIElement) -> (toolbar: AXUIElement, items: [AXUIElement])? {
-        guard let w = windowOf(e), let (tb, strip) = toolbar(of: w) else { return nil }
+        guard let w = windowOf(e), let (tb, strip) = toolbarFor(e, in: w) else { return nil }
         var found: [(AXUIElement, CGRect)] = []
         var visited = 0
         func walk(_ x: AXUIElement, _ depth: Int) {
@@ -90,12 +108,15 @@ extension SettingsPanePlugin {
 
     /// One stop for the toolbar among a window's controls: its other items are dropped (`controls(in:)`).
     static func collapsingToolbar(_ found: [(AXUIElement, CGRect)], in window: AXUIElement) -> [(AXUIElement, CGRect)] {
-        guard let (tb, strip) = toolbar(of: window) else { return found }
-        let members = toolbarMembers(found, strip: strip)
-        guard members.count > 1, let stop = toolbarStop(tb, members.map { $0.0 }) else { return found }
-        let drop = members.map { $0.0 }.filter { !CFEqual($0, stop) }
-        // Placed where the toolbar starts, whichever item stands for it: a search field at its end comes after it.
-        return found.filter { x in !drop.contains { CFEqual($0, x.0) } }.map { CFEqual($0.0, stop) ? ($0.0, members[0].1) : $0 }
+        var out = found
+        for (tb, strip) in toolbars(of: window) {
+            let members = toolbarMembers(out, strip: strip)
+            guard members.count > 1, let stop = toolbarStop(tb, members.map { $0.0 }) else { continue }
+            let drop = members.map { $0.0 }.filter { !CFEqual($0, stop) }
+            // Placed where the toolbar starts, whichever item stands for it: a search field at its end comes after it.
+            out = out.filter { x in !drop.contains { CFEqual($0, x.0) } }.map { CFEqual($0.0, stop) ? ($0.0, members[0].1) : $0 }
+        }
+        return out
     }
 
     /// The focus moved (or TurnOver holds a place): whether it is on a toolbar item, and that item is remembered.
@@ -104,8 +125,7 @@ extension SettingsPanePlugin {
     @discardableResult
     static func noteToolbar(_ e: AXUIElement) -> Bool {
         var on = false
-        if !typesText(e), controlRoles.contains(e.role) || isPressableItem(e), let w = windowOf(e), let (tb, strip) = toolbar(of: w),
-           let f = TurnOverObject.frame(e), inStrip(f, of: strip), !inContent(e) {
+        if !typesText(e), controlRoles.contains(e.role) || isPressableItem(e), let w = windowOf(e), let (tb, _) = toolbarFor(e, in: w) {
             on = true
             lastToolbarItem.removeAll { $0.toolbar.isSame(tb) || $0.toolbar.role == "?" }
             lastToolbarItem.insert((tb, e), at: 0)
@@ -180,7 +200,7 @@ extension SettingsPanePlugin {
             guard let after = API.focusObject?.element, !after.isSame(before), after.pid == before.pid, !inToolbar,
                   !isInWeb(after), scopeOf(after).map({ $0.isSame(window) }) ?? false else { return }
             let all = controls(in: window, toolbars: true, unfocusable: true)
-            guard let (tb, _) = toolbar(of: window), let items = toolbarItems(around: after)?.items,
+            guard let (tb, _) = toolbar(of: window), let items = toolbarItems(around: tb)?.items,
                   let stop = toolbarStop(tb, items), let t = all.firstIndex(where: { $0.isSame(stop) }),
                   let a = place(before, in: all), let b = place(after, in: all) else { Log.io("toolbar: Tab's way round not placed"); return }
             // The places passed over on the way, going round as Tab does.
@@ -207,7 +227,8 @@ extension SettingsPanePlugin {
 
     /// Tab where the app's own would skip the toolbar: to the toolbar.
     func toolbarEnter(_ g: KeyboardGesture) {
-        guard let cur = API.focusObject?.element, let (tb, items) = Self.toolbarItems(around: cur), let stop = Self.toolbarStop(tb, items) else { g.send(); return }
+        guard let cur = API.focusObject?.element, let w = Self.scopeOf(cur), let (anchor, _) = Self.toolbar(of: w),
+              let (tb, items) = Self.toolbarItems(around: anchor), let stop = Self.toolbarStop(tb, items) else { g.send(); return }
         Log.io("toolbar: Tab here goes round past the toolbar; to it")
         Self.focus(stop)
     }
