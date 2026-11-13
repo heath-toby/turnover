@@ -930,16 +930,33 @@ public final class ChatView {
         let from = all.lastIndex { Self.withoutStatus($0) == Self.withoutStatus(previous) }.map { $0 + 1 } ?? max(0, all.count - 1)
         var fresh = Array(all[min(from, all.count)...].suffix(5))
         if fresh.isEmpty { fresh = [now] }
-        fresh.removeAll { m in
-            if m.hasPrefix("Your message") { return true }
-            // Sent from here a moment ago: the box emptied, and the message holds its words.
-            if let js = justSent, Date().timeIntervalSince(js.at) < 5, m.contains(String(js.text.prefix(40))) { return true }
-            return false
+        fresh.removeAll { $0.hasPrefix("Your message") }
+        // Sent from here a moment ago: the box emptied, and one message holds its words whole. Only that one, and then
+        // no other: after "ok", a reply holding "ok" in the next five seconds was dropped (a review, 13 Nov 2026).
+        if let js = justSent, Date().timeIntervalSince(js.at) < 5, let i = fresh.firstIndex(where: { Self.isOwnMessage($0, sent: js.text) }) {
+            fresh.remove(at: i); justSent = nil
         }
         if fresh.isEmpty { Log.io("chat: a message was sent"); justSent = nil; return }
         if SayAll.isRunning { return }
         Log.io("chat: \(fresh.count) new message(s) arrived")
         Speech.redactedInLog("message") { for m in fresh { Speech.speakText(m) } }
+    }
+
+    /// Whether a message's words are the text just sent: whitespace and line breaks run together on both sides (a
+    /// message of two lines is read with them joined), the text the whole message or whole parts of it ("Alex, ok,
+    /// 14:53": "ok", not the "ok" in "ok thanks"). A long text the app may shorten: its first 40 characters at the start
+    /// of a part. Pure.
+    package static func isOwnMessage(_ message: String, sent: String) -> Bool {
+        func normal(_ t: String) -> String {
+            t.replacingOccurrences(of: "\u{200E}", with: "").replacingOccurrences(of: "\u{200F}", with: "")
+                .split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
+        }
+        let m = normal(message), t = normal(sent)
+        guard !t.isEmpty else { return false }
+        if m == t || m.hasSuffix(", " + t) || m.hasPrefix(t + ", ") || m.contains(", " + t + ", ") { return true }
+        guard t.count > 40 else { return false }
+        let head = String(t.prefix(40))
+        return m.hasPrefix(head) || m.contains(", " + head)
     }
 
     /// A message's words without its delivery status at the end ("…, 14:53, Sent to Alex, Delivered").

@@ -165,23 +165,41 @@ open class TurnOverObject: ScriptableObject {
         if parent.role == "AXScrollArea", parent.elements(kAXChildrenAttribute).count == 1,
            let outer = parent.element(kAXParentAttribute), let sf = Self.frame(parent), sf.height < 120 { parent = outer; me = sf }   // (a small one: a tall text view's "left" reached any text beside it)
         guard let texts = Self.siblingTexts(in: parent) else { return nil }
-        var left: (String, CGFloat)?, above: (String, CGFloat)?
+        var left: (String, CGRect)?, above: (String, CGFloat)?
         for (t, f) in texts {
-            if Self.isLeftLabel(f, of: me) {
-                if left == nil || f.maxX > left!.1 { left = (t, f.maxX) }
+            if Self.isLeftLabel(f, of: me, reach: Self.farLabelReach) {
+                if left == nil || f.maxX > left!.1.maxX { left = (t, f) }
             } else if f.maxY <= me.minY + 4, me.minY - f.maxY < 30, abs(f.minX - me.minX) < 80 {
                 if above == nil || f.maxY > above!.1 { above = (t, f.maxY) }
             }
         }
-        return (left ?? above).map { $0.0.trimmingCharacters(in: CharacterSet(charactersIn: ": ")) }
+        // The nearest text on the row, further than 150 points: a label only with no control between it and the field
+        // (a wide form's labels in a column; a review, 13 Nov 2026). Asked only then: the siblings' frames cost a question each.
+        if let (_, f) = left, !Self.isLeftLabel(f, of: me) {
+            let others = parent.elements(kAXChildrenAttribute).prefix(80).filter { $0.role != "AXStaticText" && !CFEqual($0, element) }.compactMap { Self.frame($0) }
+            if !Self.isFarLeftLabel(f, of: me, between: others) { left = nil }
+        }
+        return (left.map { ($0.0, $0.1.maxX) } ?? above).map { $0.0.trimmingCharacters(in: CharacterSet(charactersIn: ": ")) }
     }
 
     /// A text that labels a field from its left: on the field's row (centred with it and overlapping it vertically),
     /// ending before it and no more than 150 points away. Without the distance, any text on the row labelled the field
     /// however far across the window it was (a review, 13 Nov 2026). Pure.
-    nonisolated public static func isLeftLabel(_ f: CGRect, of me: CGRect) -> Bool {
+    nonisolated public static func isLeftLabel(_ f: CGRect, of me: CGRect, reach: CGFloat = 150) -> Bool {
         abs(f.midY - me.midY) <= max(6, me.height / 2) && f.minY < me.maxY && f.maxY > me.minY
-            && f.maxX <= me.minX + 8 && me.minX - f.maxX < 150
+            && f.maxX <= me.minX + 8 && me.minX - f.maxX < reach
+    }
+
+    /// How far a left label may be when it is the nearest text on the row and nothing stands between.
+    nonisolated public static let farLabelReach: CGFloat = 300
+
+    /// The nearest text to a field's left, up to 300 points away, labels it when no other control on the row sits
+    /// between them: a wide form with its labels in a left column (a review, 13 Nov 2026). Pure.
+    nonisolated public static func isFarLeftLabel(_ f: CGRect, of me: CGRect, between others: [CGRect]) -> Bool {
+        guard isLeftLabel(f, of: me, reach: farLabelReach) else { return false }
+        return !others.contains { o in
+            o.minX >= f.maxX - 2 && o.maxX <= me.minX + 2 && o.minY < me.maxY && o.maxY > me.minY
+        }
     }
 
     /// A parent's short static texts and their frames, for neighbourLabel; nil where it isn't looked in (more than

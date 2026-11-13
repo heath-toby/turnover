@@ -30,6 +30,42 @@ func pureTests() {
             check(!TerminalRules.isPasswordPrompt(line), "\(line) is not a password prompt")
         }
         check(!TerminalRules.isPasswordPrompt(nil), "no line is no prompt")
+        for line in ["[sudo: authenticate] Password: *", "[sudo: authenticate] Password: ****", "Password:***", "Password: •••  "] {
+            check(TerminalRules.isPasswordPrompt(line), "\(line): the stars drawn per key leave it a prompt")
+        }
+        check(!TerminalRules.isPasswordPrompt("Pinned items: *"), "a star after another line is not a prompt")
+    }
+    test("terminal: a command that asks for a password next, and keys typed ahead of its prompt are secret") {
+        for line in ["toby@mac ~ % sudo ls", "sudo -k", "toby@mac ~ % ssh host", "$ su -", "passwd", "cd x && sudo make install",
+                     "make;sudo cp a b", "/usr/bin/sudo ls", "❯ doas sh", "toby@mac ~ % git pull | ssh x"] {
+            check(TerminalRules.asksForPassword(commandLine: line), "\(line) asks for a password next")
+        }
+        for line in ["toby@mac ~ % echo sudo", "toby@mac ~ % ls", "man ssh", "toby@mac ~ % grep su file", ""] {
+            check(!TerminalRules.asksForPassword(commandLine: line), "\(line) does not")
+        }
+        let t0 = Date()
+        var s = TerminalSecret()
+        check(!s.isSecret(now: t0), "nothing secret at first")
+        s.returnPressed(commandLine: "toby@mac ~ % sudo ls", at: t0)
+        check(s.isSecret(now: t0.addingTimeInterval(1)), "typed ahead of sudo's prompt: secret")
+        check(!s.isSecret(now: t0.addingTimeInterval(2.5)), "not after two seconds without a prompt")
+        s.keyTypedAhead(backspace: false); s.keyTypedAhead(backspace: false); s.keyTypedAhead(backspace: false); s.keyTypedAhead(backspace: true)
+        expect(s.aheadKeys, 2, "keys typed ahead counted, Backspace taking one off")
+        expect(TerminalRules.withoutTypedAhead("ab[sudo] password for toby:", keys: 2), "[sudo] password for toby:", "their echo before the prompt taken off")
+        s.sawPrompt()
+        check(s.isSecret(now: t0.addingTimeInterval(60)), "at the prompt: secret until Return")
+        expect(s.aheadKeys, 0, "the count goes at the prompt")
+        s.returnPressed(commandLine: "Password:", at: t0.addingTimeInterval(60))
+        check(s.isSecret(now: t0.addingTimeInterval(61)), "a retry may be typed ahead too")
+        s.outputArrived()
+        check(!s.isSecret(now: t0.addingTimeInterval(61)), "output arrived: typing is not secret")
+        s.returnPressed(commandLine: "toby@mac ~ % ls", at: t0.addingTimeInterval(70))
+        check(!s.isSecret(now: t0.addingTimeInterval(70.5)), "an ordinary command: not secret")
+        s.returnPressed(commandLine: "toby@mac ~ % ssh host", at: t0.addingTimeInterval(80))
+        s.keyTypedAhead(backspace: false)
+        s.returnPressed(commandLine: "", at: t0.addingTimeInterval(81))
+        check(s.isSecret(now: t0.addingTimeInterval(82.5)), "a password typed ahead and sent: still ahead of its prompt")
+        expect(s.aheadKeys, 1, "its count kept for the echo")
     }
     test("terminal: after clear, output above the prompt is read from its first line") {
         expect(TerminalRules.firstContentLineStart("\n\n  \nfile.txt\nnotes\n"), 5, "blank lines before the output skipped")
@@ -38,6 +74,11 @@ func pureTests() {
         expect(TerminalRules.firstContentLineStart("\u{1F600}\n\nb"), 0, "counted in UTF-16 units")
         expect(TerminalRules.firstContentLineStart("\n\u{1F600}\nb"), 1, "after a newline")
         check(TerminalRules.firstContentLineStart("\n  \n") == nil, "nothing above the prompt: nothing to read")
+        expect(TerminalRules.outputBeforePrompt("hitoby@mac ~ %", prompt: "toby@mac ~ %"), "hi", "output with no newline before the prompt")
+        expect(TerminalRules.outputBeforePrompt("toby@mac ~ % ", prompt: "toby@mac ~ %"), "", "the prompt alone is nothing new")
+        expect(TerminalRules.outputBeforePrompt("Password:", prompt: "toby@mac ~ %"), "Password:", "a program's question is read")
+        expect(TerminalRules.outputBeforePrompt("toby@mac src %", prompt: "toby@mac ~ %"), "", "the prompt in another folder is not output")
+        expect(TerminalRules.outputBeforePrompt("hi", prompt: ""), "", "no prompt known: nothing")
     }
     test("labels: a text labels a field from its left only when it is near and on the field's row") {
         let field = CGRect(x: 300, y: 100, width: 200, height: 22)
@@ -48,6 +89,12 @@ func pureTests() {
         let tall = CGRect(x: 300, y: 100, width: 200, height: 300)
         check(!TurnOverObject.isLeftLabel(CGRect(x: 200, y: 240, width: 90, height: 17), of: CGRect(x: 300, y: 100, width: 200, height: 30)), "below a short field")
         check(TurnOverObject.isLeftLabel(CGRect(x: 200, y: 240, width: 90, height: 17), of: tall), "beside a tall field's middle")
+        let far = CGRect(x: 20, y: 102, width: 60, height: 17)   // 220 points before the field
+        check(TurnOverObject.isFarLeftLabel(far, of: field, between: []), "a wide form's label, nothing between")
+        check(!TurnOverObject.isFarLeftLabel(far, of: field, between: [CGRect(x: 120, y: 100, width: 120, height: 22)]), "another field between: not its label")
+        check(TurnOverObject.isFarLeftLabel(far, of: field, between: [CGRect(x: 120, y: 160, width: 120, height: 22)]), "a control on another row doesn't stand between")
+        check(TurnOverObject.isFarLeftLabel(far, of: field, between: [CGRect(x: 0, y: 90, width: 600, height: 40)]), "a box around the row doesn't stand between")
+        check(!TurnOverObject.isFarLeftLabel(CGRect(x: -100, y: 102, width: 60, height: 17), of: field, between: []), "not past 300 points")
     }
     test("pronunciations: whole words, any case, longest first, comments skipped") {
         let list = PronunciationDictionary.parse("# mine\nTurnOver = turn over\nNew York = new york\nNew York City = big apple\nbad line\nLBRF = L B R F")

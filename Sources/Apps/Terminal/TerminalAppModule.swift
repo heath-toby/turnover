@@ -62,6 +62,7 @@ final class TerminalText: TurnOverObject {
         var prompt = ""                 // the shell's prompt line, as last seen with the shell waiting
         var lastOutput: (Int, String, Date)? // the output last read, the anchor it was read from, and when
         var held = false                // output arrived while a menu or sheet was in the way: read on the way back
+        var secret = TerminalSecret()   // a password being typed: no character spoken or kept
     }
     static var states: [Int: State] = [:]
     var state: State {
@@ -117,6 +118,18 @@ final class TerminalText: TurnOverObject {
         guard let c = cursor, let l = lineIndex(at: c), let r = lineRange(l) else { return nil }
         return (r.location, string(r.location, r.length).trimmingCharacters(in: .newlines))
     }
+    /// Where the screen above `start` begins: the start of what the window shows when Terminal says, else 200 lines up;
+    /// never more than 40,000 characters back.
+    private func screenTop(above start: Int) -> Int {
+        var top = 0
+        if let v = element.attr(kAXVisibleCharacterRangeAttribute), let r = cfRange(v), r.location >= 0, r.location <= start {
+            top = r.location
+        } else if let l = lineIndex(at: start), let r = lineRange(max(0, l - 200)) {
+            top = min(r.location, start)
+        }
+        return max(top, start - 40_000)
+    }
+
     /// The last line with anything on it (below it is the window's empty padding).
     private func lastContentLine() -> Int {
         guard let n = int(kAXNumberOfCharactersAttribute), n > 0, var l = lineIndex(at: n - 1) else { return 0 }
@@ -176,17 +189,32 @@ final class TerminalText: TurnOverObject {
 
     override func event_typedCharacter(_ ch: Character) {
         let s = state
-        if ch == "\r" || ch == "\n" { s.enterAt = Date(); s.typed = "" }
-        else if ch == "\u{8}" { if !s.typed.isEmpty { s.typed.removeLast() } }
-        else { s.typed.append(ch) }
-        // At a password prompt (sudo, ssh, a passphrase): never the character, "star" as NVDA says in a password field.
-        // Terminal echoes nothing there, so the cursor's line still ends with the prompt (a review, 13 Nov 2026: the
-        // password was spoken aloud).
-        if ch != "\r", ch != "\n", Self.atPasswordPrompt(cursorLine()?.1) {
-            Speech.speakMessage(String(localized: "star", comment: "A typed character hidden, as in a password field"))
+        if ch == "\r" || ch == "\n" {
+            // The Return script has usually noted it, before the key went (with the line it finished).
+            if Date().timeIntervalSince(s.enterAt) > 0.3 { noteReturn(cursorLine()?.1) }
+            s.enterAt = Date(); s.typed = ""
+            Speech.speakTypedCharacter(ch, inEditable: true)
             return
         }
+        // At a password prompt (sudo, ssh, a passphrase): never the character, "star" as NVDA says in a password field.
+        // Terminal echoes nothing there, so the cursor's line still ends with the prompt (a review, 13 Nov 2026: the
+        // password was spoken aloud). Nor kept in the typed-so-far, which is compared with the echo.
+        if Self.atPasswordPrompt(cursorLine()?.1) { s.secret.sawPrompt() }
+        if IsSecureEventInputEnabled() || s.secret.isSecret(now: Date()) {
+            s.secret.keyTypedAhead(backspace: ch == "\u{8}")
+            Speech.clearTypedWordBuffer()
+            Speech.speakMessage(String(localized: "star", comment: "A typed character hidden, as in a password field"), remember: false)
+            return
+        }
+        if ch == "\u{8}" { if !s.typed.isEmpty { s.typed.removeLast() } }
+        else { s.typed.append(ch) }
         Speech.speakTypedCharacter(ch, inEditable: true)
+    }
+
+    /// Return went: a password typed at a prompt ends; after `sudo …`, `ssh host`, `su` or `passwd` the password is
+    /// often typed ahead, before the prompt is drawn (a review, 13 Nov 2026: those keys were read aloud).
+    private func noteReturn(_ line: String?) {
+        state.secret.returnPressed(commandLine: line ?? "", at: Date())
     }
 
     /// A line that asks for a password, or secure input on (Terminal's Secure Keyboard Entry, a prompt's own).
@@ -246,9 +274,20 @@ final class TerminalText: TurnOverObject {
             // Cleared (clear, Command-K): the text is shorter than the anchor. Whatever arrived in the same batch
             // (clear; ls) is above the cursor's line, from the first line with anything on it; the prompt alone there
             // is nothing new (a review, 13 Nov 2026: that output was lost to the re-anchoring).
+            // Only the screen above the cursor is looked in, never from the text's start: what is left of an old
+            // scrollback (or more than 40,000 characters back) was read as new. Output on the cursor's own line with
+            // no newline after it ("clear; printf hi": "hi" then the prompt) is read too (a review, 13 Nov 2026).
             s.anchor = start; s.anchorText = text
-            guard let first = TerminalRules.firstContentLineStart(string(0, min(start, 40_000))) else { return }
-            s.anchor = first; s.anchorText = ""
+            let top = screenTop(above: start)
+            guard let first = TerminalRules.firstContentLineStart(string(top, start - top)) else {
+                let own = TerminalRules.outputBeforePrompt(text, prompt: s.prompt)
+                guard !own.isEmpty else { return }
+                Log.io("terminal: read \(own.count) characters (the cursor's line after clear)")
+                s.lastOutput = (start, own, Date())
+                Speech.speakNews(own)
+                return
+            }
+            s.anchor = top + first; s.anchorText = ""
             s.enterAt = .distantPast   // its first line is output, not the command line just heard
         }
         guard s.anchor >= 0, s.anchor <= total else {
@@ -260,11 +299,18 @@ final class TerminalText: TurnOverObject {
         var lines = region.components(separatedBy: "\n")
         while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty, lines.count > 1 { lines.removeLast() }
         guard let first = lines.first else { return }
-        let rest = Array(lines.dropFirst())
+        var rest = Array(lines.dropFirst())
+        // Keys typed ahead of a password prompt are echoed by the terminal at the start of the next line, before the
+        // prompt ("abc[sudo] password for toby:"): taken off, not read.
+        if !rest.isEmpty, s.secret.aheadKeys > 0 { rest[0] = TerminalRules.withoutTypedAhead(rest[0], keys: s.secret.aheadKeys) }
         var speech: [String] = []
 
 
-        if rest.isEmpty {
+        // A password being typed: what appears on the cursor's line is its echo (sudo-rs and pwfeedback draw a star
+        // per key; the line discipline echoes keys typed ahead of the prompt), never read.
+        if rest.isEmpty, s.secret.isSecret(now: Date()) {
+            // nothing: the secret's echo
+        } else if rest.isEmpty {
             // The same line: typing echoed by the shell (silent), a completion or a recalled command (the new part).
             let common = first.commonPrefix(with: s.anchorText)
             let added = String(first.dropFirst(common.count)).trimmingCharacters(in: .whitespaces)
@@ -282,6 +328,12 @@ final class TerminalText: TurnOverObject {
                 if !added.isEmpty { speech.append(added) }
             }
             var output = rest
+            // Output with no newline before the prompt ("printf hi": "hiuser@host ~ %"): only the output.
+            if let last = output.last, !isPrompt(last), !s.prompt.isEmpty, last.hasSuffix(s.prompt.trimmingCharacters(in: .whitespaces)) {
+                let own = TerminalRules.outputBeforePrompt(last, prompt: s.prompt)
+                output.removeLast()
+                if !own.isEmpty { output.append(own) }
+            }
             // The prompt coming back after the output: the same prompt is not news; a changed one is (after cd,
             // the folder), and only the part that changed is read: "Audible", not the whole user@host line.
             if let last = output.last, isPrompt(last) {
@@ -295,6 +347,8 @@ final class TerminalText: TurnOverObject {
         }
 
         if let (start, text) = cursorLine() { s.anchor = start; s.anchorText = text } else { s.anchor = total }
+        // The prompt drawn: what is typed now is the password. Other new lines: typing ahead is over.
+        if TerminalRules.isPasswordPrompt(s.anchorText) { s.secret.sawPrompt() } else if !rest.isEmpty { s.secret.outputArrived() }
         s.review = nil
         var out = TerminalRules.withoutRules(speech.joined(separator: "\n")).trimmingCharacters(in: .whitespacesAndNewlines)
         // A full-screen program redrawing its input box as you type (Claude Code: the line typed so far and the box's
@@ -326,6 +380,7 @@ final class TerminalText: TurnOverObject {
         script("terminal_enter", String(localized: "Sends the command line to the shell", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:enter", "kb:numpadEnter"], category: cat) { [weak self] g in
             guard let self else { g.send(); return }
             let s = self.state
+            self.noteReturn(self.cursorLine()?.1)
             s.enterAt = Date()
             s.typed = ""
             Speech.speakTypedCharacter("\n", inEditable: true)
@@ -338,6 +393,8 @@ final class TerminalText: TurnOverObject {
         script("terminal_reviewCurrent", String(localized: "Reads the line the review cursor is on; the cursor's line if it has not moved", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:turnover+l"], category: cat) { [weak self] _ in self?.review(0) }
         // Editing keys, as in any edit field: what was deleted is said, and where the cursor went.
         script("terminal_backspace", String(localized: "Deletes the character before the cursor and says it", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:backspace"], category: cat) { [weak self] g in
+            // A password: the key goes, nothing is said (before the cursor is the prompt's colon, or a star).
+            if let self, self.state.secret.isSecret(now: Date()) { self.state.secret.keyTypedAhead(backspace: true); g.send(); return }
             guard let self, let c = self.cursor, !self.atInputStart(c) else { Tones.edge(); g.send(); return }
             let ch = self.character(at: c - 1)
             g.send()
@@ -353,6 +410,7 @@ final class TerminalText: TurnOverObject {
             if ch.isEmpty || ch == "\n" || self.inputAfter(c).isEmpty { Tones.edge() } else { self.sayCharacter(ch) }
         }
         script("terminal_deleteWord", String(localized: "Deletes the word before the cursor and says it", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:option+backspace", "kb:control+w"], category: cat) { [weak self] g in
+            if let self, self.state.secret.isSecret(now: Date()) { g.send(); return }
             guard let self, let c = self.cursor, !self.atInputStart(c) else { Tones.edge(); g.send(); return }
             let before = self.inputBefore(c)
             let trimmed = before.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
@@ -392,17 +450,26 @@ final class TerminalText: TurnOverObject {
         // Always sent: at column 0 or a line's end the key still means something to nano, vim or a program's input
         // box, which the shell's prompt doesn't describe (a review, 13 Nov 2026: Left at column 0 and Right at the
         // end never reached them). A bump, as an edit field gives, only when the cursor didn't move.
+        // Looked at after 50 ms and again at 150 ms before the bump: over ssh, or in vim, the cursor moves later, and
+        // one look at 50 ms gave a false edge and silence (a review, 13 Nov 2026).
         for key in ["leftArrow", "rightArrow"] {
             script("terminal_\(key)", String(localized: "Moves the shell's cursor and reads the character there", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:\(key)"], category: cat) { [weak self] g in
                 let before = self?.cursor
                 g.send()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    guard let self, let c = self.cursor else { return }
-                    if c == before { Tones.edge(); return }
-                    guard let ch = self.character(at: c) else { return }
-                    Speech.speakText(ch.isEmpty || ch == "\n" ? "blank" : ch, symbolLevel: .all)
-                }
+                self?.readCharacterAfterMove(from: before, at: [0.05, 0.15])
             }
+        }
+    }
+
+    /// The character under the cursor once it has moved from `before`, looked at after each delay in turn (seconds
+    /// from the key); a bump when it never moved.
+    private func readCharacterAfterMove(from before: Int?, at delays: [Double], waited: Double = 0) {
+        guard let next = delays.first else { Tones.edge(); return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, next - waited)) { [weak self] in
+            guard let self, let c = self.cursor else { return }
+            if c == before { self.readCharacterAfterMove(from: before, at: Array(delays.dropFirst()), waited: next); return }
+            guard let ch = self.character(at: c) else { return }
+            Speech.speakText(ch.isEmpty || ch == "\n" ? "blank" : ch, symbolLevel: .all)
         }
     }
 
@@ -468,10 +535,53 @@ package enum TerminalRules {
     /// any case. Whole words, so ssh-keygen's "Enter passphrase (empty for no passphrase):", "Enter same passphrase
     /// again:" and ssh's "Enter PIN for 'key':" are prompts (a review, 13 Nov 2026: the passphrase typed there was
     /// read aloud, only lines ending "passphrase:" were known), while "Spinning up:" is not. Pure.
+    /// The stars or dots a prompt draws per key (sudo-rs, sudo's pwfeedback: "Password: ***") are taken off first:
+    /// after the first key the line no longer ended with ":", and the rest was read (a review, 13 Nov 2026).
     package nonisolated static func isPasswordPrompt(_ line: String?) -> Bool {
-        guard let l = line?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), l.hasSuffix(":") else { return false }
+        guard var l = line?.lowercased() else { return false }
+        while let last = l.last, last == "*" || last == "•" || last == "●" || last.isWhitespace { l.removeLast() }
+        guard l.hasSuffix(":") else { return false }
         let words = l.split(whereSeparator: { !$0.isLetter }).map(String.init)
         return words.contains { ["password", "passphrase", "pin"].contains($0) }
+    }
+
+    /// A command line that asks for a password next: sudo, doas, su, passwd, ssh (and scp, sftp) where a command
+    /// starts: the line's start, after the prompt, or after ;, &&, || or |. A path to one counts. Pure.
+    package nonisolated static func asksForPassword(commandLine: String) -> Bool {
+        let commands: Set<String> = ["sudo", "sudo-rs", "doas", "su", "passwd", "ssh", "scp", "sftp"]
+        // ";", "&&", "||" and "|" are words of their own even without spaces ("make;sudo cp").
+        let spaced = commandLine.replacingOccurrences(of: "[;&|]+", with: " $0 ", options: .regularExpression)
+        let tokens = spaced.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        for (i, token) in tokens.enumerated() {
+            var t = token
+            while t.first == "(" { t.removeFirst() }
+            let name = t.split(separator: "/").last.map(String.init) ?? t
+            guard commands.contains(name) else { continue }
+            if i == 0 { return true }
+            let before = tokens[i - 1]
+            if before.allSatisfy({ ";&|".contains($0) }) { return true }
+            if let last = before.last, "%$#>❯➜".contains(last) { return true }   // the prompt's own end
+        }
+        return false
+    }
+
+    /// A line without the echo of `keys` characters typed ahead of a prompt at its start. Pure.
+    package nonisolated static func withoutTypedAhead(_ line: String, keys: Int) -> String {
+        String(line.dropFirst(max(0, keys)))
+    }
+
+    /// What on the cursor's line is output rather than the shell's prompt: the text before the prompt when the line
+    /// holds it ("hi" in "hiuser@host ~ %"), nothing when the line starts with it, the whole line when it isn't there
+    /// (a program's question: "Password:"). Nothing when no prompt is known. Pure.
+    package nonisolated static func outputBeforePrompt(_ line: String, prompt: String) -> String {
+        let p = prompt.trimmingCharacters(in: .whitespaces), t = line.trimmingCharacters(in: .whitespaces)
+        guard !p.isEmpty, !t.isEmpty else { return "" }
+        if t.hasPrefix(p) { return "" }
+        guard let r = t.range(of: p, options: .backwards) else {
+            // Another prompt of the shell's (after cd, another folder): user@host and the same last mark.
+            return t.contains("@") && t.last == p.last ? "" : t
+        }
+        return String(t[..<r.lowerBound]).trimmingCharacters(in: .whitespaces)
     }
 
     /// Runs of three or more box-drawing characters (a program's rules and frames: "────") taken out, and lines left
@@ -502,5 +612,34 @@ package enum TerminalRules {
             let echo = (t == cur || cur.hasSuffix(t)) && t.lowercased().hasSuffix(typed.lowercased())
             return t.isEmpty || !echo
         }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// Whether keys typed in a terminal are a password: from a password prompt being seen until Return, and for two seconds
+/// after Return on a line that asks for one next (`sudo …`, `ssh host`) or after a password (a retry), until a prompt
+/// or other output arrives. Pure (a review, 13 Nov 2026).
+package nonisolated struct TerminalSecret {
+    package private(set) var latched = false
+    package private(set) var aheadFrom: Date?
+    /// How many keys were typed ahead of the prompt (Backspace takes one off): their echo is not read. Only a count.
+    package private(set) var aheadKeys = 0
+    package init() {}
+
+    package mutating func sawPrompt() { latched = true; aheadFrom = nil; aheadKeys = 0 }
+    package mutating func outputArrived() { aheadFrom = nil; aheadKeys = 0 }
+    package mutating func keyTypedAhead(backspace: Bool) {
+        guard !latched, aheadFrom != nil else { return }
+        aheadKeys = backspace ? max(0, aheadKeys - 1) : aheadKeys + 1
+    }
+    package mutating func returnPressed(commandLine: String, at now: Date) {
+        // A password typed ahead and sent: still ahead of its prompt, its count kept for the echo.
+        if !latched, isSecret(now: now) { aheadFrom = now; return }
+        let retry = latched
+        latched = false
+        aheadKeys = 0
+        aheadFrom = retry || TerminalRules.asksForPassword(commandLine: commandLine) ? now : nil
+    }
+    package func isSecret(now: Date) -> Bool {
+        latched || (aheadFrom.map { now.timeIntervalSince($0) < 2 } ?? false)
     }
 }
