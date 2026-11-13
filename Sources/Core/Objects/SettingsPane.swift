@@ -181,6 +181,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
             Self.setTrapState(for: rows[0])
             return
         }
+        Log.io("tab trap: to \(all[n].role) \(n + 1) of \(all.count)")
         Self.focus(all[n], byTrap: true)
         Self.setTrapState(for: all[n])
     }
@@ -425,17 +426,41 @@ public final class SettingsPanePlugin: GlobalPlugin {
             expected = nil
             let app = AXUIElementCreateApplication(target.pid)
             if let now = app.element(kAXFocusedUIElementAttribute), !now.isSame(target), within(now, target) || holdsPage(now, target) {
-                // Taken, inside: the app's own news of it is the focus (a page's first element).
+                // Taken, inside: the app's own news of it is the focus (a page's first element). Unless no news came
+                // (Surfshark's buttons take the focus on a text inside them and say nothing, 13 Nov 2026): then the
+                // control itself is read.
+                // A place still held elsewhere is let go: the next Tab goes on from here.
+                if let v = virtual, !v.isSame(target) { virtual = nil; lock.lock(); _holding = false; lock.unlock() }
+                // A page's own focus inside it is browse mode's to read. A control's (Surfshark's buttons put theirs on
+                // a nameless part inside, and nothing was said, 13 Nov 2026) is read as the control.
+                if let f = API.focusObject?.element, f.isSame(target) || target.role == "AXWebArea" && (within(f, target) || f.isSame(now) || holdsPage(f, target)) { return }
+                Log.io("settings: the app took the focus inside the \(target.role) without saying; read")
+                virtual = nil; lock.lock(); _holding = false; lock.unlock()
+                let obj = ObjectFactory.make(target)
+                API.setFocusObject(obj, ancestors: obj.ancestors)
+                focusMoved(to: obj)
+                ObjectNavigator.shared.focusMoved(to: target, pid: target.pid)
+                Tones.focusTick()
+                Speech.cancel(); Speech.speakObject(obj, reason: .focus)
                 return
             }
             if app.element(kAXFocusedUIElementAttribute).map({ $0.isSame(target) }) ?? false {
                 // The app's focus was there all along (TurnOver held a place elsewhere, a copy window's bar): focusing
                 // it again sends no news, so TurnOver comes back to it itself (11 Nov 2026: Shift Tab said nothing).
-                guard let held = virtual, !held.isSame(target), API.focusObject?.isSameElement(as: target) != true else { return }
+                // Or the app took the focus and sent no news of it (Surfshark: ten Tabs in silence, 13 Nov 2026).
+                // TurnOver already on it: a place still held elsewhere is let go, or the next Tab starts from there
+                // again (Surfshark: Tab went to the same second button each time, 13 Nov 2026).
+                if API.focusObject?.isSameElement(as: target) == true, let v = virtual, !v.isSame(target) {
+                    Log.io("settings: the focus is on the control moved to; the place held before let go")
+                    virtual = nil; lock.lock(); _holding = false; lock.unlock()
+                }
+                guard API.focusObject?.isSameElement(as: target) != true, !(virtual.map { $0.isSame(target) } ?? false) else { return }
+                if virtual == nil { Log.io("settings: the app took the focus without saying; read") }
                 virtual = nil; lock.lock(); _holding = false; lock.unlock()
                 let obj = ObjectFactory.make(target)
                 API.setFocusObject(obj, ancestors: obj.ancestors)
                 focusMoved(to: obj)
+                ObjectNavigator.shared.focusMoved(to: target, pid: target.pid)
                 Tones.focusTick()
                 Speech.cancel(); Speech.speakObject(obj, reason: .focus)
             } else {
