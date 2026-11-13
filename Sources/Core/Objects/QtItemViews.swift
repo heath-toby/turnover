@@ -40,11 +40,18 @@ enum QtItemViews {
         return !(kids[0].string(kAXTitleAttribute) ?? "").isEmpty && pressable(kids[0])
     }
 
+    /// A Qt table's column titles, for saying what it holds when its rows can't be read.
+    static func columnTitles(_ e: AXUIElement) -> [String] {
+        e.elements(kAXChildrenAttribute).filter { $0.role == "AXColumn" }.compactMap { $0.string(kAXTitleAttribute) }.filter { !$0.isEmpty }
+    }
+
     /// The role an AXGroup has in a Qt app's item view, if it is one.
     static func role(of e: AXUIElement) -> Role? {
         guard e.role == "AXGroup", isQt(e.pid) else { return nil }
         if !(e.string(kAXTitleAttribute) ?? "").isEmpty, pressable(e), let p = e.element(kAXParentAttribute), isView(p) { return .listItem }
         if isView(e) { return .list }
+        // A table that gives its columns and no rows (KeePassXC's entries, Qt 5): a table, though its rows can't be read.
+        if nameless(e), let first = e.elements(kAXChildrenAttribute).first, first.role == "AXColumn" { return .table }
         return nil
     }
 }

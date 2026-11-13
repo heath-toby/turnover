@@ -320,7 +320,11 @@ public enum Speech {
         var parts = objectPropertiesSpeech(obj, reason: reason)
         // A table or list that takes focus on macOS keeps its selection inside it: say the selected row too,
         // as NVDA's focus on a list item does on Windows ("Internet accounts, table, GMail, IMAP, 3 of 3").
-        if reason == .focus || reason == .query, [.table, .list, .treeView, .outline, .browser].contains(obj.role) {
+        if reason == .focus || reason == .query, obj.role == .table, obj.element.role == "AXGroup" {
+            // A Qt table whose rows can't be read (KeePassXC's entries, 13 Nov 2026): its columns say what it holds.
+            let cols = QtItemViews.columnTitles(obj.element)
+            if !cols.isEmpty { parts.append(String(localized: "columns \(cols.prefix(6).joined(separator: ", "))", comment: "A table whose rows can't be read: %@ is its column titles")) }
+        } else if reason == .focus || reason == .query, [.table, .list, .treeView, .outline, .browser].contains(obj.role) {
             if let sel = obj.element.elements(kAXSelectedRowsAttribute).first ?? obj.element.elements(kAXSelectedChildrenAttribute).first {
                 let row = ObjectFactory.make(sel)
                 parts.append(contentsOf: objectPropertiesSpeech(row, reason: .focus))
