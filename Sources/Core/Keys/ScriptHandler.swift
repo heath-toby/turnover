@@ -139,6 +139,13 @@ public enum ScriptHandler {
                     else { resolved = .some(own) }
                 } else { handled = alternative; usedAlternative.value = true }
             }
+            // Still another app's focus behind the one in front (the front app not answering yet as it starts): a key
+            // of no TurnOver chord goes to the front app as it is, not to the app behind's commands (Finder's Tab ran
+            // on its window behind Weather, 13 Nov 2026).
+            if AXHandler.shared.focusIsBehindFrontApp, !handled.modifiers.contains(.turnover) {
+                Log.io("key: TurnOver's focus is still an app's behind the front one; \(handled.logDescription()) goes to the front app")
+                resolved = .some(nil)
+            }
             let taken = InputManager.handleKeyDown(handled, script: resolved)
             var late = false
             state.lock.lock()
