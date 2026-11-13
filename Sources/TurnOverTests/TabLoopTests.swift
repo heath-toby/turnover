@@ -78,4 +78,16 @@ func tabLoopTests() {
         expect(SettingsPanePlugin.gridColumns(of: keys), 0, "Calculator's keys stay keys")
         expect(SettingsPanePlugin.gridColumns(of: Array(board.dropLast())), 0, "a row short is no grid")
     }
+    test("tab loop: landings skipped by fast Tabs look like a short loop, so a skip starts the count again") {
+        // Every third landing of a round of six, read only when no newer Tab came (watchTabLoop): a false loop of two.
+        let round = ["a", "b", "c", "d", "e", "f"]
+        let sampled = (0..<12).filter { $0 % 3 == 0 }.map { round[$0 % 6] }
+        expect(SettingsPanePlugin.shortLoop(sampled), 2, "why watchTabLoop forgets its landings when it skips one")
+    }
+    test("system prompts: an agent that keeps failing rests before it is asked again") {
+        expect(SystemPrompts.rest(afterFailures: 1), 0, "one slow answer is no hang")
+        expect(SystemPrompts.rest(afterFailures: 2), 0, "nor two")
+        expect(SystemPrompts.rest(afterFailures: 3), 5, "the third in a row rests it")
+        check(SystemPrompts.rest(afterFailures: 4) > 0, "and it keeps resting while it fails")
+    }
 }

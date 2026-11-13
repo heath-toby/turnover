@@ -42,6 +42,12 @@ public final class SystemPrompts {
     /// Window queries failed in a row, per agent: its prompts are kept through four, then taken as gone, so one that
     /// never answers again can't keep TurnOver stepped aside for good (a review, 11 Nov 2026).
     private var failures: [pid_t: Int] = [:]
+    /// Until when an agent that keeps failing is not asked again: each look waits on main for its answer, twice a second.
+    private var restUntil: [pid_t: Date] = [:]
+    /// How long an agent rests after `failures` failed looks in a row: none for the first two (one slow answer is no
+    /// hang), then 5 s. A hung agent cost a 0.5 s wait on main every 0.5 s, and TurnOver answered keys late (a review,
+    /// 13 Nov 2026).
+    package static func rest(afterFailures n: Int) -> TimeInterval { n >= 3 ? 5 : 0 }
     /// With VoiceOver running (CoExist), macOS's own prompts are VoiceOver's entirely (18 Oct 2026: VoiceOver
     /// "could take over in higher security dialogues, which keeps TurnOver more secure"): TurnOver neither reads them
     /// nor takes their keys. The app is told when the first opens (true) and the last closes (false), and steps aside.
@@ -82,14 +88,22 @@ public final class SystemPrompts {
             for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundle) {
                 let pid = app.processIdentifier
                 AXHandler.shared.observe(pid)
+                // Resting after failures: its prompts are kept as they were, not counted as another miss.
+                if let until = restUntil[pid], Date() < until {
+                    windows += shown.filter { $0.pid == pid }.map { ($0, pid) }
+                    continue
+                }
                 let ax = AXUIElementCreateApplication(pid)
-                AXUIElementSetMessagingTimeout(ax, 0.5)
+                // (0.25 s: an agent with a prompt answers in milliseconds; a longer wait only holds main up.)
+                AXUIElementSetMessagingTimeout(ax, 0.25)
                 var value: CFTypeRef?
                 if AXUIElementCopyAttributeValue(ax, kAXWindowsAttribute as CFString, &value) == .success {
-                    failures[pid] = nil
+                    failures[pid] = nil; restUntil[pid] = nil
                     windows += ((value as? [AXUIElement]) ?? []).map { ($0, pid) }
                 } else {
                     failures[pid, default: 0] += 1
+                    let rest = Self.rest(afterFailures: failures[pid, default: 0])
+                    if rest > 0 { restUntil[pid] = Date().addingTimeInterval(rest); Log.io("system prompts: pid \(pid) not answering; asked again in \(Int(rest)) s") }
                     // An agent too busy to answer (a timeout) still has its prompts: taken as gone, every waiting
                     // prompt was read out again, over what was being said, with the focus thrown back to the app
                     // (11 Nov 2026: four of them, each time a window opened). Up to four looks in a row.
