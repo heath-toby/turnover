@@ -1662,5 +1662,7 @@ func browseTextNavTests() {
         check(!SystemSettingsPaneFocus.keepRing(age: 1.2, observed: true, structureSince: false), "too old")
         check(!SystemSettingsPaneFocus.keepRing(age: 0.3, observed: true, structureSince: true), "the pane changed")
         check(!SystemSettingsPaneFocus.keepRing(age: 0.3, observed: false, structureSince: false), "news not watched")
+        check(SystemSettingsPaneFocus.keepRing(age: 0.3, observed: true, structureSince: false, keysSince: 1), "Tab after Tab")
+        check(!SystemSettingsPaneFocus.keepRing(age: 0.3, observed: true, structureSince: false, keysSince: 2), "another key (a switch's Space) between")
     }
 }
