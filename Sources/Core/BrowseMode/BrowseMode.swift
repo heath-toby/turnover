@@ -183,7 +183,7 @@ public final class BrowseModeDocument: ScriptableObject {
         position = at
         Log.io("browse mode: page \(Log.words(BrowseModeHandler.shortURL(now))) — resuming at \(position)\(saved == nil ? "" : " (saved \(saved!.offset))")")
         if announce, !buffer.lines.isEmpty { announcePage() }
-        else if !first, byKey, !buffer.lines.isEmpty { announcedURL = now }
+        else if !first, byKey, !buffer.lines.isEmpty { arrivedByKey() }
         GoogleDocs.checkSoon(self)
         if !first, buffer.lines.isEmpty, webArea.role != "AXWebArea" { followReplacedRoot(tries: 10) }
         return true
@@ -392,6 +392,18 @@ public final class BrowseModeDocument: ScriptableObject {
         return true
     }
 
+    /// A key's own read brought the page ("loading page", then an arrow, a letter or Tab): the key reads there, so the
+    /// page is taken as announced and the watch for its content ends, as a new page found by a key is
+    /// (refreshIfNavigated). The watch's next look announced it over the key's answer, its title and a say all
+    /// (a review, 13 Nov 2026).
+    func arrivedByKey() {
+        let now = url
+        guard !now.isEmpty else { return }
+        announcedURL = now
+        BrowseModeHandler.noteAnnounced(webArea, url: now)
+        watchingFor = ""
+    }
+
     /// The page has content again at the same address: the reading back where it was before it emptied. True if so.
     @discardableResult
     func restorePlaceBeforeEmpty() -> Bool {
@@ -515,7 +527,7 @@ public final class BrowseModeDocument: ScriptableObject {
             // The copy of the page now, as the arrows have it: Tab just after a link was followed searched the copy of
             // the page left (a review, 13 Nov 2026).
             refreshIfNavigated()
-            buildIfEmpty()
+            if buffer.lines.isEmpty, buildIfEmpty() { arrivedByKey() }
             rebuildIfCheap()
             // From a field of a Safari page in focus mode (tabIsTurnOversInField): on from the field. Another field
             // takes the focus; a check box, button or link can't in Safari, so the reading position goes there and
@@ -751,7 +763,7 @@ public final class BrowseModeDocument: ScriptableObject {
         // An empty address too: Safari not answering reports none (6 Oct 2026, playtestcloud: "page  —", 0 lines,
         // and every key said "no next heading").
         guard buffer.lines.isEmpty, url != "about:blank" else { return true }
-        if buildIfEmpty() { Log.io("browse mode: the page has arrived"); return true }
+        if buildIfEmpty() { Log.io("browse mode: the page has arrived"); arrivedByKey(); return true }
         // Safari can swap in a new web area on a reload (6 Oct 2026, fast.com: after Command R the copy was
         // of the old one, one element and no address, while the page was there and Tab reached it). The window's
         // web area now, if it is another one, is the page: move there, as Tab did.
