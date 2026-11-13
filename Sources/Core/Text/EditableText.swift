@@ -378,7 +378,13 @@ open class EditableText: TurnOverObject {
             if config.general.windowsKeys, isWordChar(n.textRange(n.start - 1, n.start)) {
                 var target = n.start
                 let limit = n.storyLength()
-                while target < limit, target - n.start < 40, !isWordChar(n.textRange(target, target + 1)), n.textRange(target, target + 1) != "\n" { target += 1 }
+                // Over one line break to the next line's first word, as NVDA goes; an empty line (a second break) is
+                // stopped at. At a line's last word it stopped before the break and said "blank" (13 Nov 2026).
+                var breaks = 0
+                while target < limit, target - n.start < 40, !isWordChar(n.textRange(target, target + 1)) {
+                    if n.textRange(target, target + 1) == "\n" { breaks += 1; if breaks > 1 { break } }
+                    target += 1
+                }
                 if target > n.start, target < limit {
                     let next = type(of: n).init(obj: n.obj, start: target, end: target)
                     next.updateCaret()
