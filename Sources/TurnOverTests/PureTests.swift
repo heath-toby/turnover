@@ -67,6 +67,17 @@ func pureTests() {
         check(s.isSecret(now: t0.addingTimeInterval(82.5)), "a password typed ahead and sent: still ahead of its prompt")
         expect(s.aheadKeys, 1, "its count kept for the echo")
     }
+    test("terminal: Control-C at a password prompt ends the secret") {
+        let t0 = Date()
+        var s = TerminalSecret()
+        s.returnPressed(commandLine: "toby@mac ~ % sudo ls", at: t0)
+        s.sawPrompt()
+        check(s.isSecret(now: t0.addingTimeInterval(5)), "at the prompt: secret")
+        s.outputArrived()   // "^C" and the shell's prompt: new lines, the cursor's line no longer a password prompt
+        check(!s.isSecret(now: t0.addingTimeInterval(5)), "the prompt gone: the next command is not secret")
+        s.returnPressed(commandLine: "toby@mac ~ % ls", at: t0.addingTimeInterval(8))
+        check(!s.isSecret(now: t0.addingTimeInterval(8.5)), "its Return is not taken for a retry")
+    }
     test("terminal: after clear, output above the prompt is read from its first line") {
         expect(TerminalRules.firstContentLineStart("\n\n  \nfile.txt\nnotes\n"), 5, "blank lines before the output skipped")
         expect(TerminalRules.firstContentLineStart("  a"), 0, "a line's own indent kept")

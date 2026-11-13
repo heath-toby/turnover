@@ -626,7 +626,11 @@ package nonisolated struct TerminalSecret {
     package init() {}
 
     package mutating func sawPrompt() { latched = true; aheadFrom = nil; aheadKeys = 0 }
-    package mutating func outputArrived() { aheadFrom = nil; aheadKeys = 0 }
+    /// New lines while the cursor's line is no longer a password prompt: the prompt is gone (a password itself echoes
+    /// no new line). Control-C, Escape or Control-D at the prompt draw "^C" and the shell's prompt, and the latch
+    /// stayed: the next command was spoken as stars, its echo silenced and its Return taken for a retry (a review,
+    /// 13 Nov 2026).
+    package mutating func outputArrived() { latched = false; aheadFrom = nil; aheadKeys = 0 }
     package mutating func keyTypedAhead(backspace: Bool) {
         guard !latched, aheadFrom != nil else { return }
         aheadKeys = backspace ? max(0, aheadKeys - 1) : aheadKeys + 1
