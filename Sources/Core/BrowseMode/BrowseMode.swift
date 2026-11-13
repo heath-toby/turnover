@@ -205,16 +205,19 @@ public final class BrowseModeDocument: ScriptableObject {
     /// Where a link to this page's anchor last took the reading, and when (followSamePageLink).
     var samePageLinkMove: (offset: Int, at: Date)?
 
-    /// Where an element with this id (an anchor's target) begins: its line, or a line just inside it.
+    /// Where an element with this id (an anchor's target) begins: its line, or a line just inside it. Each element
+    /// asked once (a wrapped paragraph's lines and a list's items share ancestors), and for a quarter of a second at
+    /// most: on main, a long page asked up to twelve thousand questions (a review, 13 Nov 2026).
     func anchorOffset(_ id: String) -> Int? {
         let wanted = id.removingPercentEncoding ?? id
-        var checked = 0
+        let until = Date().addingTimeInterval(0.25)
+        var seen = Set<AXUIElement>()
         for line in buffer.lines {
             guard let e = line.element else { continue }
+            if Date() > until { Log.io("browse mode: the anchor not found in the time"); return nil }
             var x: AXUIElement? = e
             for _ in 0..<3 {
-                guard let y = x, checked < 6000 else { break }
-                checked += 1
+                guard let y = x, seen.count < 6000, seen.insert(y).inserted else { break }   // (one seen: those above it too)
                 if y.string("AXDOMIdentifier") == wanted { return line.start }
                 x = y.element(kAXParentAttribute)
             }
