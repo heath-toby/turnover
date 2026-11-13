@@ -18,6 +18,18 @@ import TurnOverAX
 /// Keeps one document per web area and decides when a focus is inside one (NVDA: treeInterceptorHandler).
 public final class BrowseModeHandler {
     public static let shared = BrowseModeHandler()
+    /// Pages announced (title and reading), by web area and address: coming back to one (Mail's message after a
+    /// compose window closed, a sweep, 13 Nov 2026) says the focus there, as NVDA does, not the whole page again.
+    static var announced: [(area: AXUIElement, url: String)] = []
+    static func wasAnnounced(_ area: AXUIElement, url: String) -> Bool {
+        announced.removeAll { $0.area.role == "?" }
+        return announced.contains { $0.url == url && $0.area.isSame(area) }
+    }
+    static func noteAnnounced(_ area: AXUIElement, url: String) {
+        guard !wasAnnounced(area, url: url) else { return }
+        announced.append((area, url))
+        if announced.count > 30 { announced.removeFirst() }
+    }
     /// When Back or Forward was last pressed (Command [ or ]): only then does a page resume where it was left. A page
     /// opened afresh (typed, a link, a new tab, a bookmark) starts at the top, as NVDA's does (a tester, 13 Oct 2026:
     /// apple.com and AppleVis opened part way down, where he had last been).

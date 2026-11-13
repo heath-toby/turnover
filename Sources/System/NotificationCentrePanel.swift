@@ -75,6 +75,7 @@ public enum NotificationCentrePanel {
         open = isPanel
         if closed { afterClose(pid) }
         openPid = pid
+        if opened { watchClose(pid) }
         // Opened (Fn N, a click, TurnOver's own key): after the dialog's own words would start, TurnOver's summary by
         // app takes over and lands on the first app (NotificationCentreNavigator).
         if opened, !opening, Date().timeIntervalSince(enteredAt) > 1.5 { enteredAt = Date(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { if isOpen { NotificationCentreNavigator.enter() } } }
@@ -107,11 +108,36 @@ public enum NotificationCentrePanel {
         }
     }
 
+    /// Escape closing the panel opened with Fn N brought no foreground news of the app's window (a sweep from Mail,
+    /// 13 Nov 2026: Mail had the focus again, and TurnOver said nothing). While the panel is open, the system's
+    /// focused application is asked for three times a second; once it is another, the panel is closed.
+    private static var watching = 0
+    static func watchClose(_ centre: pid_t) {
+        watching += 1
+        let n = watching
+        func look() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                guard n == watching, open, openPid == centre else { return }
+                let sys = AXUIElementCreateSystemWide()
+                AXUIElementSetMessagingTimeout(sys, 0.25)
+                guard let app = sys.element(kAXFocusedApplicationAttribute) else { look(); return }
+                var pid: pid_t = 0
+                AXUIElementGetPid(app, &pid)
+                if pid == centre || pid == 0 || pid == getpid() { look(); return }
+                Log.io("notification centre: panel closed (another application has the focus)")
+                open = false
+                afterClose(centre)
+            }
+        }
+        look()
+    }
+
     /// The panel's window took the focus: open, and read by app (once for each opening).
     private static var enteredAt = Date.distantPast
     static func panelFocused(_ window: AXUIElement) {
         guard let pid = centrePid(), !opening else { return }
         if !open || openPid != pid { Log.io("notification centre: panel open (its window has the focus)") }
+        if !open { watchClose(pid) }
         open = true; openPid = pid
         guard Date().timeIntervalSince(enteredAt) > 1.5 else { return }
         enteredAt = Date()
@@ -195,6 +221,9 @@ public enum NotificationCentrePanel {
         // Only to a focus that is still there: one the panel took with it said "unknown" as Control Centre opened
         // (11 Nov 2026); the new focus speaks for itself.
         guard let f = API.focusObject, f.element.role != "?" else { Log.io("notification centre: closed from outside; the focus it had is gone"); return }
+        // A focus still in the panel itself is left to afterClose, which reads the app's ("grouping" was said first,
+        // 13 Nov 2026).
+        if let c = centrePid(), f.pid == c { return }
         Log.io("notification centre: closed from outside; the cursor goes back to the focus")
         ObjectNavigator.shared.toFocus()
     }

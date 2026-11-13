@@ -418,6 +418,7 @@ package final class MailAppModule: AppModule {
     static var suggestions: (list: AXUIElement, window: AXUIElement?)?
     /// The suggestion said last, so typing another letter that leaves it highlighted says nothing more.
     static var suggestionSaid: (text: String, at: Date)?
+    static var suggestionTakenAt = Date.distantPast
     private var suggestionLook = 0
     private var suggestionShapeLogged = Date.distantPast
     private static let listRoles: Set<String> = ["AXTable", "AXList", "AXOutline"]
@@ -559,6 +560,8 @@ package final class MailAppModule: AppModule {
         guard !text.isEmpty else { return }
         let said = withPlace ? "\(text), \(Phrases.position(sel.index + 1, of: sel.count))" : text
         if !again, let s = Self.suggestionSaid, s.text == said || (!withPlace && s.text.hasPrefix(text)) { return }
+        // The highlight's own news and the arrow's wait both found the move: said once (a sweep, 13 Nov 2026).
+        if let s = Self.suggestionSaid, s.text == said, Date().timeIntervalSince(s.at) < 0.4 { return }
         Self.suggestionSaid = (said, Date())
         Speech.cancel()
         Speech.redactedInLog("address suggestion") { Speech.speakMessage(said) }
@@ -568,6 +571,7 @@ package final class MailAppModule: AppModule {
         let chosen = Self.suggestions.flatMap { Self.selectedSuggestion($0.list) }.map { Self.suggestionText($0.row) } ?? ""
         let tokens = Self.tokenNames(field), value = field.string(kAXValueAttribute) ?? ""
         Self.suggestions = nil; Self.suggestionSaid = nil
+        Self.suggestionTakenAt = Date()
         g.send()
         let pressed = InputManager.lastKeyDownAt
         Poll.until(every: 0.05, limit: 0.8, waitNotice: 1, { Self.tokenNames(field) != tokens }) { changed in
@@ -834,6 +838,13 @@ package final class MailAppModule: AppModule {
             notePlace(event.obj.element)
             if !Self.inAddressField { Self.suggestions = nil; Self.suggestionSaid = nil }
         }
+        // An arrow in the suggestions: Mail completes the field with the highlighted address and selects the
+        // completion, and "selected" and its text came before the suggestion itself (a sweep, 13 Nov 2026).
+        // Taking one with Return or Tab said "…, selection removed" before the address added.
+        if event.kind == .caret, event.obj.pid == pid, Self.inAddressField,
+           Self.suggestions != nil || Date().timeIntervalSince(Self.suggestionTakenAt) < 1,
+           ["kb:upArrow", "kb:downArrow", "kb:enter", "kb:tab"].contains(InputManager.lastKeyIdentifier),
+           Date().timeIntervalSince(InputManager.lastKeyDownAt) < 0.8 { return }
         // Typing an address: Mail's suggestions are looked for once the typing pauses.
         if event.kind == .typedCharacter, event.obj.pid == pid, Self.inAddressField { lookForSuggestionsSoon() }
         // Another message chosen: the header field TurnOver was on belongs to the one before.
