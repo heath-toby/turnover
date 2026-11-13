@@ -84,6 +84,12 @@ func pureTests() {
         let tall = CGRect(x: 300, y: 100, width: 200, height: 300)
         check(!TurnOverObject.isLeftLabel(CGRect(x: 200, y: 240, width: 90, height: 17), of: CGRect(x: 300, y: 100, width: 200, height: 30)), "below a short field")
         check(TurnOverObject.isLeftLabel(CGRect(x: 200, y: 240, width: 90, height: 17), of: tall), "beside a tall field's middle")
+        let far = CGRect(x: 20, y: 102, width: 60, height: 17)   // 220 points before the field
+        check(TurnOverObject.isFarLeftLabel(far, of: field, between: []), "a wide form's label, nothing between")
+        check(!TurnOverObject.isFarLeftLabel(far, of: field, between: [CGRect(x: 120, y: 100, width: 120, height: 22)]), "another field between: not its label")
+        check(TurnOverObject.isFarLeftLabel(far, of: field, between: [CGRect(x: 120, y: 160, width: 120, height: 22)]), "a control on another row doesn't stand between")
+        check(TurnOverObject.isFarLeftLabel(far, of: field, between: [CGRect(x: 0, y: 90, width: 600, height: 40)]), "a box around the row doesn't stand between")
+        check(!TurnOverObject.isFarLeftLabel(CGRect(x: -100, y: 102, width: 60, height: 17), of: field, between: []), "not past 300 points")
     }
     test("pronunciations: whole words, any case, longest first, comments skipped") {
         let list = PronunciationDictionary.parse("# mine\nTurnOver = turn over\nNew York = new york\nNew York City = big apple\nbad line\nLBRF = L B R F")
