@@ -47,6 +47,7 @@ extension AXHandler {
         ("empty web area, no key pressed", ruleEmptyWebAreaUnbidden),
         ("field still has the keys", ruleFieldStillHasKeys),
         ("reported twice", ruleReportedTwice),
+        ("Qt item's child echoing it", ruleQtChildEcho),
         ("no role", ruleNoRole),
         ("nameless container", ruleNamelessContainer),
         ("menu gap", ruleMenuGap),
@@ -392,6 +393,17 @@ extension AXHandler {
             return .ignore
         }
         return .go(target)
+    }
+
+    /// A Qt view's item, then at once another view's: KeePassXC's folder tree took Down, and its entry list, showing
+    /// the new folder, reported its current entry as the focus too, cutting off the folder (13 Nov 2026). The keys
+    /// stay in the tree: a focus outside the item's view (or inside the item) within half a second is set aside.
+    func ruleQtChildEcho(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
+        guard target.role == "AXGroup", QtItemViews.isQt(pid), let (last, at) = lastGainFocus, Date().timeIntervalSince(at) < 0.5,
+              QtItemViews.role(of: last) == .listItem, !target.isSame(last), let view = last.element(kAXParentAttribute),
+              SettingsPanePlugin.within(target, last) || !SettingsPanePlugin.within(target, view) else { return .go(target) }
+        Log.io("focus to another Qt view's item just after an item; set aside")
+        return .ignore
     }
 
     /// An element that answers no role is nothing to present.

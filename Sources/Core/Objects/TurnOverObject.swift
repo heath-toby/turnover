@@ -778,7 +778,8 @@ public enum ObjectFactory {
         case .comboBox where element.attr(kAXSelectedTextRangeAttribute) != nil: return EditableComboBox(element: element)
         case .dialog, .sheet: return Dialog(element: element)
         case .slider: return Slider(element: element)
-        case .table, .list, .treeView, .outline, .browser: return SelectableList(element: element)
+        // (A Qt item view keeps its own arrows: its items say nothing of being chosen, and the app moves its focus.)
+        case .table, .list, .treeView, .outline, .browser: return axRole == "AXGroup" ? TurnOverObject(element: element) : SelectableList(element: element)
         default: return TurnOverObject(element: element)
         }
     }
