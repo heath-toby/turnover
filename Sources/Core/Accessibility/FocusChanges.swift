@@ -687,6 +687,27 @@ extension AXHandler {
         // Dialogs inside dialogs (a sheet opened from a sheet in System Settings): the one in front is said, not each
         // round it too ("dialog, System Services…, dialog, Significant Locations…, dialog, System Services…", 13 Nov 2026).
         let front = ancestors.first { [.dialog, .sheet].contains($0.role) }
+        // A tab's page newly entered: "<tab> property page", as NVDA says a tab control's page; and a settings form's
+        // pane and sections on Tab (PaneContext), where the focus really moves (a tester, 13 Nov 2026).
+        let byTab = ["kb:tab", "kb:shift+tab"].contains(InputManager.lastKeyIdentifier) && Date().timeIntervalSince(InputManager.lastKeyDownAt) < 1
+        for a in ancestors where a.axRole == "AXTabGroup" {
+            let tabs = a.element.elements(kAXTabsAttribute).isEmpty ? a.element.elements(kAXChildrenAttribute).filter { $0.role == "AXRadioButton" } : a.element.elements(kAXTabsAttribute)
+            // Entered: from outside the tab group, or from one of its tabs onto its page (AppKit's tabs sit in it).
+            let fromTab = old.map { o in tabs.contains { $0.isSame(o.element) } } ?? false
+            if !fromTab, known.contains(where: { $0.isSameElement(as: a) }) || oldAncestors.contains(where: { $0.isSameElement(as: a) }) { break }
+            if let sel = tabs.first(where: { ($0.attr(kAXValueAttribute) as? NSNumber)?.intValue == 1 }) {
+                let name = ObjectFactory.make(sel).name
+                // (Not on the tabs themselves: a tab says its own name.)
+                if !name.isEmpty, !tabs.contains(where: { $0.isSame(obj.element) }) {
+                    Speech.speakMessage(String(localized: "\(name) property page", comment: "Coming into a settings pane: %@ is its name (NVDA's property page)"))
+                }
+            }
+            break
+        }
+        if byTab {
+            let context = PaneContext.news(from: old?.element, to: obj.element)
+            if !context.isEmpty { Speech.speakMessage(context.joined(separator: ", ")) }
+        }
         for a in ancestors.reversed() where a.isPresentableFocusAncestor {
             if [.dialog, .sheet].contains(a.role), let front, !a.isSameElement(as: front) { continue }
             if known.contains(where: { $0.isSameElement(as: a) }) || old?.isSameElement(as: a) == true { continue }
