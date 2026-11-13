@@ -295,8 +295,11 @@ public final class MediaView {
         work.enqueue { [weak self] in
             guard let self, isCurrent(session), modelWindow.map({ CFEqual($0, window) }) == true, admitted() else { return }
             let input = ReadInput(pid: pid, sidebar: sidebar, pageID: pageID, window: window, windowQuery: windowQuery, operation: operation)
+            let started = Date()
             work.perform(duration: duration, { [collector] current in collector(input, current) }) { [weak self] result in
-                guard let self, isCurrent(session), acceptsWindow(window) else { return }
+                let ms = Int(Date().timeIntervalSince(started) * 1000)
+                if ms > 1500 || result == nil { Log.io("media: a read took \(ms) ms\(result == nil ? ", no result" : "")") }
+                guard let self, isCurrent(session), acceptsWindow(window) else { Log.io("media: that read's answer is stale; dropped"); return }
                 then(result)
             }
         }
@@ -1689,7 +1692,10 @@ public final class MediaView {
         let originalKeys = keys ?? keyCount()
         delay(0.35) { [weak self] in
             guard let self, isCurrent(session), acceptsWindow(window) else { return }
-            read(.build(keepSidebar: false, detectVideo: !goingBack), capturedWindow: window) { [weak self] result in
+            // The sidebar kept as it is when this page wasn't chosen there (See All, an album, Back): Music's sidebar
+            // takes three to four seconds to read, and every page opened waited for it (a read took 5.8 s, 13 Nov 2026).
+            let keepSidebar = requiredBodyChange == nil && !sidebar.isEmpty
+            read(.build(keepSidebar: keepSidebar, detectVideo: !goingBack), capturedWindow: window) { [weak self] result in
             guard let self, isCurrent(session), let result else { return }
             if result.video {
                 inVideo = true
