@@ -35,7 +35,10 @@ open class TurnOverObject: ScriptableObject {
     open var role: Role { _role }
     // An iPad app's item with a name and a press is a button to the user (Clock's recent timers said only "twenty-five
     // minutes", Stocks' symbols; 12 Nov 2026), as VoiceOver says it. Tab already counts them as stops.
-    private lazy var _role: Role = axRole == "AXGenericElement" && SettingsPanePlugin.isPressableItem(element) ? .button : Role.from(axRole: axRole, subrole: axSubrole)
+    // A Qt item view's groups are its list and items (QtItemViews).
+    private lazy var _role: Role = axRole == "AXGenericElement" && SettingsPanePlugin.isPressableItem(element) ? .button
+        : axRole == "AXGroup" ? (QtItemViews.role(of: element) ?? Role.from(axRole: axRole, subrole: axSubrole))
+        : Role.from(axRole: axRole, subrole: axSubrole)
 
     /// A role's spoken name when the control supplies a better one (NVDA: roleText), or a plugin's.
     open var roleText: String? { profileLabel?.1 }
@@ -761,7 +764,7 @@ public enum ObjectFactory {
     public static func make(_ element: AXUIElement) -> TurnOverObject {
         let axRole = element.role
         let subrole = element.string(kAXSubroleAttribute)
-        let role = Role.from(axRole: axRole, subrole: subrole)
+        let role = axRole == "AXGroup" ? (QtItemViews.role(of: element) ?? Role.from(axRole: axRole, subrole: subrole)) : Role.from(axRole: axRole, subrole: subrole)
         let module = AppModuleHandler.shared.appModule(for: element.pid)
         if let cls = module.objectClass(for: element, role: role, subrole: subrole) { return cls.init(element: element) }
         for plugin in GlobalPluginHandler.shared.plugins {
