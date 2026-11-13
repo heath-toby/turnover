@@ -87,7 +87,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
         return e.element(kAXParentAttribute)
     }
 
-    private func trapMove(_ g: KeyboardGesture, forward: Bool) {
+    func trapMove(_ g: KeyboardGesture, forward: Bool) {
         // From TurnOver's held place when the app's buttons do not take the focus, else from the focus.
         Self.dropDeadHold()
         guard let current = Self.virtual ?? API.focusObject?.element, let window = Self.scopeOf(current) else {
@@ -268,8 +268,12 @@ public final class SettingsPanePlugin: GlobalPlugin {
         lock.lock(); _inPane = inside; lock.unlock()
     }
 
+    /// The running plugin, for focus rules that hand a Tab on to the trap.
+    static weak var current: SettingsPanePlugin?
+
     required init() {
         super.init()
+        Self.current = self
         InputManager.passThroughWatchers.append(Self.watchTabLoop)
         // An app that ignores Tab or Shift+Tab on a control: Mail's compose window keeps the focus on the formatting
         // bar's "more…" button, so Shift+Tab went nowhere and said nothing (5 Oct 2026). If the focus has not moved

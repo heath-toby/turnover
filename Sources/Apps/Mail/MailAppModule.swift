@@ -8,8 +8,33 @@ import ApplicationServices
 package final class MailAppModule: AppModule {
     static let bundleID = "com.apple.mail"
 
+    /// Each message's header buttons: the row of buttons standing directly in its "message content" group.
+    static func headerStrips(in window: AXUIElement) -> [(AXUIElement, CGRect)] {
+        var out: [(AXUIElement, CGRect)] = []
+        var stack: [(AXUIElement, Int)] = [(window, 0)], visited = 0
+        while let (e, d) = stack.popLast(), visited < 300 {
+            visited += 1
+            let r = e.role
+            if r == "AXGroup", e.string(kAXDescriptionAttribute) == "message content" {
+                let buttons = e.elements(kAXChildrenAttribute).filter { ["AXButton", "AXMenuButton"].contains($0.role) }
+                    .compactMap { b in TurnOverObject.frame(b).map { (b, $0) } }
+                // The row: the buttons level with Reply.
+                guard let reply = buttons.first(where: { $0.0.string(kAXDescriptionAttribute) == "Reply" }) else { continue }
+                let row = buttons.filter { abs($0.1.midY - reply.1.midY) < 4 }
+                if row.count >= 3 { out.append((e, row.map(\.1).reduce(row[0].1) { $0.union($1) })) }
+                continue
+            }
+            if d > 8 || ["AXTable", "AXOutline", "AXToolbar", "AXWebArea", "AXList"].contains(r) { continue }
+            stack.append(contentsOf: e.elements(kAXChildrenAttribute).map { ($0, d + 1) })
+        }
+        return out
+    }
+
     required init(pid: pid_t, bundleIdentifier: String, appName: String) {
         super.init(pid: pid, bundleIdentifier: bundleIdentifier, appName: appName)
+        // The message's header buttons (bin, Reply, Reply All, Forward, Attachments): a toolbar, one Tab stop with the
+        // arrows along it (a tester, 13 Nov 2026). They sit loose in the "message content" group, one per message.
+        SettingsPanePlugin.namedToolbars[bundleIdentifier] = { Self.headerStrips(in: $0) }
         script("mail_composeNext", String(localized: "Writing a message: the next field, including the Priority, From and Signature pop-ups", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Mail") { [weak self] g in
             guard let self, let f = API.focusObject?.element else { g.send(); return }
             self.composeMove(forward: true, from: f, g)

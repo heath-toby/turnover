@@ -35,10 +35,25 @@ extension SettingsPanePlugin {
         typesText(e) || ["AXSlider", "AXIncrementor", "AXDateField", "AXColorWell"].contains(e.role)
     }
 
-    /// A toolbar: the window's own, or a group that calls itself one (Outlook's two groups titled "Toolbar", 13 Nov 2026).
+    /// Toolbars an app's module names that aren't marked as one, by the app's bundle: for a window, each container
+    /// and the strip its items fill (Mail's message header, bin to Attachments, a row of buttons the tester heard as a
+    /// toolbar, 13 Nov 2026). Asked at most once a second per window.
+    static var namedToolbars: [String: (AXUIElement) -> [(AXUIElement, CGRect)]] = [:]
+    private static var namedFound: (window: AXUIElement, at: Date, list: [(AXUIElement, CGRect)])?
+    static func named(in window: AXUIElement) -> [(AXUIElement, CGRect)] {
+        guard let b = NSRunningApplication(processIdentifier: window.pid)?.bundleIdentifier, let f = namedToolbars[b] else { return [] }
+        if let c = namedFound, c.window.isSame(window), Date().timeIntervalSince(c.at) < 1 { return c.list }
+        let list = f(window)
+        namedFound = (window, Date(), list)
+        return list
+    }
+
+    /// A toolbar: the window's own, or a group that calls itself one (Outlook's two groups titled "Toolbar", 13 Nov 2026),
+    /// or one an app's module names.
     static func isToolbar(_ e: AXUIElement) -> Bool {
         let r = e.role
         if r == "AXToolbar" { return true }
+        if let c = namedFound, Date().timeIntervalSince(c.at) < 5, c.list.contains(where: { $0.0.isSame(e) }) { return true }
         guard r == "AXGroup" else { return false }
         let name = ((e.string(kAXTitleAttribute) ?? "") + " " + (e.string(kAXDescriptionAttribute) ?? "")).lowercased()
         return name.trimmingCharacters(in: .whitespaces) == "toolbar" || name.hasSuffix(" toolbar") || name.hasSuffix("tool bar")
@@ -50,12 +65,14 @@ extension SettingsPanePlugin {
         for k in window.elements(kAXChildrenAttribute) where isToolbar(k) {
             if let f = TurnOverObject.frame(k), f.width > 0, f.height > 0 { out.append((k, f)) }
         }
+        out += named(in: window)
         return out.sorted { a, b in (a.0.role == "AXToolbar") && b.0.role != "AXToolbar" }
     }
     static func toolbar(of window: AXUIElement) -> (AXUIElement, CGRect)? { toolbars(of: window).first }
 
     /// The toolbar a control is an item of.
     static func toolbarFor(_ e: AXUIElement, in w: AXUIElement) -> (AXUIElement, CGRect)? {
+        _ = named(in: w)   // an app's named toolbars known first: inContent stops at them
         if isToolbar(e), let f = TurnOverObject.frame(e) { return (e, f) }
         guard let f = TurnOverObject.frame(e), !inContent(e) else { return nil }
         return toolbars(of: w).first { inStrip(f, of: $0.1) }
@@ -150,8 +167,11 @@ extension SettingsPanePlugin {
 
     /// Left, Right, Home or End along the toolbar.
     func toolbarMove(_ g: KeyboardGesture, by delta: Int?, toEnd last: Bool = false) {
-        guard let cur = API.focusObject?.element, let (_, items) = Self.toolbarItems(around: cur) else { g.send(); return }
+        guard let cur = API.focusObject?.element, let (_, items) = Self.toolbarItems(around: cur) else {
+            Log.io("toolbar: no items found around the focus; the key goes to the app"); g.send(); return
+        }
         let i = items.firstIndex { $0.isSame(cur) }
+        if i == nil { Log.io("toolbar: the focus isn't among the \(items.count) items") }
         let j: Int
         if let d = delta {
             guard let i else { g.send(); return }
@@ -208,7 +228,7 @@ extension SettingsPanePlugin {
     /// Where an app's own Tab was seen to go round past the toolbar (Mail's went from the message's Attachments
     /// button to the mailboxes, and its toolbar was never reached, 12 Nov 2026): the control it left from, and which
     /// way. From then on Tab there goes to the toolbar, as on Windows, where a toolbar is in the Tab order.
-    static var toolbarSkips: [(window: AXUIElement, from: AXUIElement, forward: Bool)] = []
+    static var toolbarSkips: [(window: AXUIElement, from: AXUIElement, forward: Bool, to: AXUIElement?)] = []
 
     static func skipsToolbar(from e: AXUIElement, forward: Bool) -> Bool {
         toolbarSkips.removeAll { $0.window.role == "?" || $0.from.role == "?" }
@@ -241,15 +261,22 @@ extension SettingsPanePlugin {
             guard a != b else { return }
             // The places passed over on the way, going round as Tab does.
             let n = all.count
-            var k = a, passed = false
-            for _ in 0..<n { k = (k + (forward ? 1 : -1) + n) % n; if k == b { break }; if k == t { passed = true; break } }
+            var k = a, passed = false, first: Int?
+            for _ in 0..<n { k = (k + (forward ? 1 : -1) + n) % n; if k == b { break }; if first == nil { first = k }; if k == t { passed = true; break } }
             guard passed else { return }
-            Log.io("toolbar: the app's \(forward ? "Tab" : "Shift Tab") went round past the toolbar; to the toolbar, and remembered")
+            // The first stop passed over, the toolbar or one before it: Shift Tab from Mail's mailboxes passed its
+            // search too, on its way back over the toolbar, and the search was skipped (13 Nov 2026).
+            // Only a stop of the toolbar's own (inside its frame): any other stays the toolbar's.
+            let target = first.flatMap { f -> AXUIElement? in
+                guard f != t, let tf = TurnOverObject.frame(tb), let ff = TurnOverObject.frame(all[f]), tf.contains(CGPoint(x: ff.midX, y: ff.midY)) else { return nil }
+                return all[f]
+            } ?? stop
+            Log.io("toolbar: the app's \(forward ? "Tab" : "Shift Tab") went round past the toolbar; to \(target.isSame(stop) ? "the toolbar" : target.role), and remembered")
             toolbarSkips.removeAll { $0.from.isSame(before) && $0.forward == forward }
-            toolbarSkips.append((window, before, forward))
+            toolbarSkips.append((window, before, forward, target.isSame(stop) ? nil : target))
             if toolbarSkips.count > 24 { toolbarSkips.removeFirst() }
             Speech.cancel()
-            focus(stop)
+            focus(target)
         }
     }
 
@@ -263,6 +290,10 @@ extension SettingsPanePlugin {
 
     /// Tab where the app's own would skip the toolbar: to the toolbar.
     func toolbarEnter(_ g: KeyboardGesture) {
+        // To the stop that was passed over first, where it wasn't the toolbar (Mail's search, on Shift Tab).
+        if let cur = API.focusObject?.element, let to = Self.toolbarSkips.last(where: { $0.from.isSame(cur) && $0.forward == !g.modifiers.contains(.shift) })?.to, to.role != "?" {
+            Log.io("toolbar: Tab here passes over \(to.role); to it"); Self.focus(to); return
+        }
         guard let cur = API.focusObject?.element, let w = Self.scopeOf(cur), let (anchor, _) = Self.toolbar(of: w),
               let (tb, items) = Self.toolbarItems(around: anchor), let stop = Self.toolbarStop(tb, items) else { g.send(); return }
         Log.io("toolbar: Tab here goes round past the toolbar; to it")

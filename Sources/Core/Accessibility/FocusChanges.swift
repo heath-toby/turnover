@@ -43,6 +43,7 @@ extension AXHandler {
         ("stand-in for a text field", ruleTextStandIn),
         ("duplicate", ruleDuplicate),
         ("hidden scroll bar", ruleHiddenScrollBar),
+        ("back onto the toolbar it was in", ruleBackOntoToolbar),
         ("blank frame", ruleBlankFrame),
         ("empty web area, no key pressed", ruleEmptyWebAreaUnbidden),
         ("field still has the keys", ruleFieldStillHasKeys),
@@ -275,6 +276,21 @@ extension AXHandler {
 
     /// Mail's Tab order stops on its message list's hidden scroll bar between the list and the message: a stop
     /// with nothing to say or do. Tab on past it, as the user meant.
+    /// Tab from a control of a toolbar that keeps its own stop (Mail's search, at the toolbar's end) onto the same
+    /// toolbar's first item: the toolbar came round twice in one round (toolbar, search, toolbar, 13 Nov 2026). The
+    /// toolbar was this round's stop already: on to the next stop past the search.
+    func ruleBackOntoToolbar(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
+        let key = InputManager.lastKeyIdentifier
+        guard key == "kb:tab" || key == "kb:shift+tab", Date().timeIntervalSince(InputManager.lastKeyDownAt) < 1,
+              let prev = API.focusObject?.element, !prev.isSame(target), SettingsPanePlugin.ownArrows(prev),
+              let w = SettingsPanePlugin.windowOf(target), let (tb, _) = SettingsPanePlugin.toolbarFor(target, in: w),
+              let (tb2, _) = SettingsPanePlugin.toolbarFor(prev, in: w), tb.isSame(tb2), !SettingsPanePlugin.ownArrows(target),
+              let plugin = SettingsPanePlugin.current, let g = KeyboardGesture(identifier: key) else { return .go(target) }
+        Log.io("toolbar: \(key) from a control of the toolbar came back onto it; on past it")
+        DispatchQueue.main.async { plugin.trapMove(g, forward: key == "kb:tab") }
+        return .done
+    }
+
     func ruleHiddenScrollBar(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
         // Likewise a split view or its divider, nameless (Freeform's Tab stopped on its split group, 12 Nov 2026).
         let layout = ["AXSplitGroup", "AXSplitter"].contains(target.role) && ObjectFactory.make(target).name.isEmpty
