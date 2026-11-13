@@ -640,7 +640,11 @@ public final class ChatView {
         // A list that drops rows as it scrolls (WhatsApp's Archived) keeps its numbering from before the load.
         let shift = pane == .conversations ? listShift : 0
         parts.append(Phrases.position(i + 1 + shift, of: items.count + shift))
-        Speech.speakItem(parts.joined(separator: ", "), processed: true)
+        // Messages and conversations (their last message, a name) are someone's words: in the log only their length,
+        // as new messages are (a review, 13 Nov 2026: browsing logged them whole). A section's name is the app's.
+        let said = parts.joined(separator: ", ")
+        if pane == .sections { Speech.speakItem(said, processed: true) }
+        else { Speech.redactedInLog(pane == .transcript ? "message" : "conversation") { Speech.speakItem(said, processed: true) } }
         // Object navigation starts from here, as from any focus (a tester, 12 Nov 2026: Tab showed one part while the
         // review cursor stayed where it was left).
         ObjectNavigator.shared.focusMoved(to: e, pid: pid)
