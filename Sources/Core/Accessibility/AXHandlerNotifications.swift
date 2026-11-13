@@ -382,6 +382,19 @@ extension AXHandler {
         // Loose from its window: only in the app in front (a control TurnOver holds or made keeps its place: the app
         // must name another focus, below).
         let loose = !dead && f.pid == activePid && !windowless.contains(role) && f.element.element(kAXWindowAttribute) == nil
+        // Another ordinary app's focus while this one is in front: an app launched without a word of its focus (Weather,
+        // an iPad app, came forward from Finder, and Tab ran Finder's commands on its window behind, a sweep, 13 Nov
+        // 2026). Not the Dock, Notification Centre, a system prompt or Spotlight: those are no ordinary apps, and the
+        // focus is theirs while another stays in front.
+        if !dead, f.pid != activePid, f.pid != getpid(), let other = NSRunningApplication(processIdentifier: f.pid), other.activationPolicy == .regular,
+           NSWorkspace.shared.frontmostApplication?.processIdentifier == activePid {
+            Log.io("key: TurnOver's focus is \(other.localizedName ?? "another app")'s, behind the app in front; the front app's focus read")
+            let app = AXUIElementCreateApplication(activePid)
+            AXUIElementSetMessagingTimeout(app, 0.25)
+            if let real = app.element(kAXFocusedUIElementAttribute), real.role != "?" { refocus(pid: activePid) }
+            else if let w = app.element(kAXFocusedWindowAttribute) ?? app.element(kAXMainWindowAttribute) { focusChanged(w, pid: activePid) }
+            return
+        }
         guard dead || loose else { return }
         // Only when the app names a live focus of its own elsewhere: else there is nothing better to read, and reading
         // the same again at every key would be noise.

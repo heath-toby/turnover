@@ -8,6 +8,7 @@
 // on the main thread, one script at a time; a script that is still waiting
 // for the caret gives way when another gesture arrives.
 import Foundation
+import AppKit
 import TurnOverAX
 
 public enum ScriptHandler {
@@ -106,6 +107,13 @@ public enum ScriptHandler {
         }()
         if behindLate { state.value = .timedOut }
         DispatchQueue.main.async { MainActor.assumeIsolated {
+            // TurnOver's focus still another ordinary app's, behind the one in front: read the front app's first, so the
+            // key isn't looked up among the app behind's commands (Weather launched from Finder: Tab ran Finder's, a
+            // sweep, 13 Nov 2026). Cheap unless it is so.
+            if let f = API.focusObject, f.pid != AXHandler.shared.activePid, AXHandler.shared.activePid > 0,
+               NSRunningApplication(processIdentifier: f.pid)?.activationPolicy == .regular {
+                AXHandler.shared.checkFocusAtKey()
+            }
             var handled = gesture
             // Each key is looked up once, and what was found handed on: availability checks talk to the application,
             // and the Windows style's leftToApp scans its menus, up to three times a key (a review, 13 Nov 2026).

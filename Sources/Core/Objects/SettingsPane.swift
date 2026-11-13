@@ -217,14 +217,19 @@ public final class SettingsPanePlugin: GlobalPlugin {
         guard let current = Self.virtual ?? API.focusObject?.element, let window = Self.scopeOf(current) else {
             // Nowhere to go from (the place and the focus both gone with the view they were in): the front window's
             // first control, or last for Shift Tab.
-            if let app = NSWorkspace.shared.frontmostApplication, let w = AXUIElementCreateApplication(app.processIdentifier).element(kAXFocusedWindowAttribute),
+            let front = NSWorkspace.shared.frontmostApplication.map { AXUIElementCreateApplication($0.processIdentifier) }
+            if let app = front, let w = app.element(kAXFocusedWindowAttribute) ?? app.element(kAXMainWindowAttribute) ?? app.elements(kAXWindowsAttribute).first,
                let target = forward ? Self.controls(in: w, toolbars: true, unfocusable: true).first : Self.controls(in: w, toolbars: true, unfocusable: true).last {
                 Log.io("tab trap: no place left to go from; to the window's \(forward ? "first" : "last") control")
                 Self.focus(target, byTrap: true)
                 Self.setTrapState(for: target)
                 return
             }
-            g.send(); return
+            // An app still coming up (Weather's first Tab, its window not yet answering, said nothing, 13 Nov 2026).
+            Log.io("tab trap: no window with controls yet; the key goes on")
+            g.send()
+            Speech.speakMessage(String(localized: "please wait", comment: "Spoken message"), remember: false)
+            return
         }
         var all: [AXUIElement]
         if let c = Self.trapList, c.window.isSame(window), Self.listStillGood(c.at, pid: window.pid) { all = c.controls }
