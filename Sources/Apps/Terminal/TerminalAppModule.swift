@@ -288,7 +288,10 @@ final class TerminalText: TurnOverObject {
 
         if let (start, text) = cursorLine() { s.anchor = start; s.anchorText = text } else { s.anchor = total }
         s.review = nil
-        let out = speech.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        var out = TerminalRules.withoutRules(speech.joined(separator: "\n")).trimmingCharacters(in: .whitespacesAndNewlines)
+        // A full-screen program redrawing its input box as you type (Claude Code: the line typed so far and the box's
+        // rules, read after every letter, a tester, 13 Nov 2026): short lines just after a typed key aren't output.
+        if InputManager.lastKeyWasTyped, Date().timeIntervalSince(InputManager.lastKeyDownAt) < 0.6, TerminalRules.isTypingEcho(out) { out = "" }
         guard !out.isEmpty else { return }
         // The same output again a moment later: iTerm2 moves its cursor after the text arrives, so the next change
         // starts from the old line and finds it again ("second test" twice, parts sweep 15 Oct 2026).
@@ -437,5 +440,31 @@ final class TerminalText: TurnOverObject {
         s.review = target
         let t = (lineText(target) ?? "").trimmingCharacters(in: .whitespaces)
         Speech.speakItem(t.isEmpty ? Phrases.blank : t, processed: true)   // on the display too, until the shell line moves (8 Oct 2026)
+    }
+}
+
+/// Terminal output as it is read (pure, tested).
+package enum TerminalRules {
+    /// Runs of three or more box-drawing characters (a program's rules and frames: "────") taken out, and lines left
+    /// with nothing else dropped. Pure.
+    package nonisolated static func withoutRules(_ text: String) -> String {
+        func isBox(_ c: Character) -> Bool { c.unicodeScalars.allSatisfy { (0x2500...0x259F).contains($0.value) } }
+        return text.split(separator: "\n", omittingEmptySubsequences: false).compactMap { line -> String? in
+            var kept = "", run = ""
+            for c in line {
+                if isBox(c) { run.append(c); continue }
+                if run.count < 3 { kept += run }
+                run = ""; kept.append(c)
+            }
+            if run.count < 3 { kept += run }
+            let t = kept.trimmingCharacters(in: .whitespaces)
+            return t.isEmpty && !line.trimmingCharacters(in: .whitespaces).isEmpty ? nil : t
+        }.joined(separator: "\n")
+    }
+
+    /// Output that is only a typing echo's redraw: every line short (sixteen characters or fewer). Pure.
+    package nonisolated static func isTypingEcho(_ text: String) -> Bool {
+        let lines = text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        return !lines.isEmpty && lines.count <= 3 && lines.allSatisfy { $0.count <= 16 }
     }
 }

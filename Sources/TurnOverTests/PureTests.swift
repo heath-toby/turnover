@@ -12,6 +12,14 @@ import TurnOverControl
 import AXFixtures
 
 func pureTests() {
+    test("terminal: a program's rules and frames aren't read, and a redraw while typing isn't output") {
+        expect(TerminalRules.withoutRules("ok ───────────"), "ok", "a rule after text taken out")
+        expect(TerminalRules.withoutRules("──────\nDone.\n╰────╯"), "Done.", "lines of rules dropped")
+        expect(TerminalRules.withoutRules("a ─ b"), "a ─ b", "a single box character kept")
+        check(TerminalRules.isTypingEcho("Se"), "a short redraw is an echo")
+        check(!TerminalRules.isTypingEcho("Compiling TurnOver, 412 files of 640"), "real output isn't")
+        check(!TerminalRules.isTypingEcho(""), "nothing isn't an echo")
+    }
     test("pronunciations: whole words, any case, longest first, comments skipped") {
         let list = PronunciationDictionary.parse("# mine\nTurnOver = turn over\nNew York = new york\nNew York City = big apple\nbad line\nLBRF = L B R F")
         expect(list.count, 4, "four entries; the comment and the line without = left out")
