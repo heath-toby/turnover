@@ -288,8 +288,19 @@ public final class SettingsPanePlugin: GlobalPlugin {
             let f = API.focusObject
             let focusApp = f.flatMap { NSRunningApplication(processIdentifier: $0.pid) }
             let nowhere = f == nil || (focusApp?.activationPolicy == .regular && f?.pid != front?.processIdentifier)
-            let before: AXUIElement, window: AXUIElement
-            if nowhere {
+            var before: AXUIElement, window: AXUIElement
+            // TurnOver's focus cut off from any window while the app says its window has the focus (iMazing's sidebar
+            // after it opens, 13 Nov 2026): as nothing focused, from the window.
+            let appEl = front.map { AXUIElementCreateApplication($0.processIdentifier) }
+            let detached: AXUIElement? = {
+                guard !nowhere, let f, f.axRole != "AXWindow", Self.scopeOf(f.element) == nil, let appEl, f.pid == front?.processIdentifier,
+                      let w = appEl.element(kAXFocusedWindowAttribute), let real = appEl.element(kAXFocusedUIElementAttribute), real.isSame(w) else { return nil }
+                return w
+            }()
+            if let w = detached {
+                Log.io("tab trap: TurnOver's focus has no window and the app's is its window; from the window")
+                before = w; window = w
+            } else if nowhere {
                 // Asked of the app itself, not judged from TurnOver's own focus, which may be stale (a focus rule set
                 // the new one aside): only an app with nothing focused, or its window itself, counts (a review, 11 Nov
                 // 2026: Tab in a terminal or an editor must stay theirs).
@@ -299,19 +310,27 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 if let real = appEl.element(kAXFocusedUIElementAttribute), !real.isSame(w) { return }
                 before = w; window = w
             } else {
-                guard let f, !Self.typesTab(f), let w = f.axRole == "AXWindow" ? f.element : Self.scopeOf(f.element) else { return }
+                guard let f, !Self.typesTab(f), let w = f.axRole == "AXWindow" ? f.element : Self.scopeOf(f.element) else {
+                    if let f, !Self.typesTab(f) { Log.io("tab trap: no window found for \(f.axRole); Tab left to the app") }
+                    return
+                }
                 before = f.element; window = w
             }
             let pid = before.pid, at = Date()
-            let chosenBefore = nowhere ? [] : Self.chosen(in: before)
+            let chosenBefore = nowhere || detached != nil ? [] : Self.chosen(in: before)
             // 0.4 s: Reminders' SwiftUI sidebar takes longer than a quarter of a second to pass Tab on (10 Oct 2026).
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                let unmoved = nowhere ? (API.focusObject.map { $0.pid != pid } ?? true) : API.focusObject?.isSameElement(as: before) == true
+                let unmoved = nowhere ? (API.focusObject.map { $0.pid != pid } ?? true)
+                    : detached != nil ? (f.map { API.focusObject?.isSameElement(as: $0.element) == true } ?? false)
+                    : API.focusObject?.isSameElement(as: before) == true
                 guard unmoved,
-                      (AXHandler.shared.lastMoveNewsAt[pid] ?? .distantPast) < at else { return }
+                      (AXHandler.shared.lastMoveNewsAt[pid] ?? .distantPast) < at else {
+                    if unmoved { Log.io("tab trap: the focus stayed, but the app had news of a move; left to it") }
+                    return
+                }
                 // The focus stayed, but Tab chose something inside it, with no news of it: Calendar's Tab selects the
                 // next event in a day's list, and said nothing (11 Nov 2026). The item now chosen is read.
-                if !nowhere, let now = Self.chosen(in: before).first,
+                if !nowhere, detached == nil, let now = Self.chosen(in: before).first,
                    !chosenBefore.contains(where: { CFEqual($0, now) }) {
                     Log.io("tab trap: Tab chose an item inside the \(before.role), with no news; read")
                     Speech.cancel(); Speech.speakObject(ObjectFactory.make(now), reason: .focus)
@@ -679,7 +698,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
         if let w = windowOf(e) { return w }
         // Only a window the control sits inside on screen: another window's Tab is no place to jump to (a review).
         guard let w = AXUIElementCreateApplication(e.pid).element(kAXFocusedWindowAttribute), let wf = TurnOverObject.frame(w),
-              let f = TurnOverObject.frame(e), f.width > 0, wf.insetBy(dx: -2, dy: -2).contains(f) else { return nil }
+              // Where it starts, not all of it: a list counts all its rows and runs past the window (iMazing's
+              // sidebar, 13 Nov 2026: Tab there was silent again).
+              let f = TurnOverObject.frame(e), f.width > 0, wf.insetBy(dx: -2, dy: -2).contains(CGPoint(x: f.minX + 1, y: f.minY + 1)) else { return nil }
         return w
     }
 
