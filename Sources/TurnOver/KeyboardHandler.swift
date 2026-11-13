@@ -64,6 +64,9 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
     private var lastCapsUp: UInt64 = 0
     private var realCapsOn = false
     private var quarantined = Set<Int64>()
+    /// Keys whose press went on to the app and whose release hasn't been seen: a later repeat TurnOver takes must not
+    /// swallow that release, or the app sees the key held (a review, 13 Nov 2026).
+    private var passedDown = Set<Int64>()
     /// Keys translated on the way down (the Windows style), and what each became: its release is given the same.
     private var remapped: [Int64: KeyTranslation] = [:]
     private var echoCode: Int64 = -1
@@ -207,7 +210,8 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         layer = mine
         // Nothing carried over from the tap before (a restart after the watchdog): a code still in `quarantined`
         // would swallow the next real key-up, and the app would see a key held down (a code review, 14 Oct 2026).
-        quarantined.removeAll(); remapped.removeAll(); capsDown = false; chordFired = false; keypadZeroDown = false
+        quarantined.removeAll(); passedDown.removeAll(); remapped.removeAll(); capsDown = false; chordFired = false; keypadZeroDown = false
+        arrowDownWhileOff = nil
         Self.capsHeld.value = false
         loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(kIOHIDSystemClass))
@@ -374,7 +378,9 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
 
     /// Key-downs whose release the tap was waiting for: forgotten when releases may have gone by unseen.
     private func forgetHeldKeys() {
-        quarantined.removeAll(); remapped.removeAll(); arrowHeld = nil
+        quarantined.removeAll(); passedDown.removeAll(); remapped.removeAll(); arrowHeld = nil
+        // A Left whose release went by unseen made a much later bare Right the Quick Nav chord (a review, 13 Nov 2026).
+        arrowDownWhileOff = nil
     }
 
     private func tapEvent(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -508,6 +514,7 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         if let r = keypad(type, event, code, settings) { return r }
         if let r = quickNavArrow(type, event, code, settings) { return r }
         if type == .keyUp {
+            passedDown.remove(code)
             if quarantined.contains(code) { quarantined.remove(code); return nil }
             // What its press became, not a translation worked out again from the release's own modifiers and app:
             // Control let go before Home made the press Command Up and the release Command Left (a review, 13 Nov 2026).
@@ -594,7 +601,11 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         let (decision, usedTranslation) = ScriptHandler.askMain(gesture, otherwise: translated)
         switch decision {
         case .taken, .deferred:
+            // A repeat of a key whose press went on to the app (Down held in a list, then taken once the focus moved):
+            // its release goes on too, as its press did, so the app doesn't see the key held (a review, 13 Nov 2026).
+            if gesture.isRepeat, passedDown.contains(code) { return nil }
             quarantined.insert(code)
+            passedDown.remove(code)
             remapped[code] = nil   // its release is swallowed, untranslated
             return nil
         case .passed:
@@ -602,6 +613,7 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             // list that put the focus in a field; Tab into a secure field, whose release the tap never sees) swallowed
             // the next release, and the app saw the key held (a review, 13 Nov 2026).
             quarantined.remove(code)
+            passedDown.insert(code)
             // Main chose the translation: the key goes on as the copy main saw, its code and flags, worked out before
             // main answered. Translated again here, after the wait, the app in front may have changed (a review,
             // 13 Nov 2026). Its release is given the same; an untranslated press leaves no translation for it.
