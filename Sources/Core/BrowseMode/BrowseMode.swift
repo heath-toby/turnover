@@ -237,22 +237,48 @@ public final class BrowseModeDocument: ScriptableObject {
         }
     }
     /// A module placed the reading itself as the page was entered (Mail's Shift Tab into a message, at its last
-    /// control): no automatic say all from the top.
+    /// control): no automatic say all from the top; the line there is said instead, once (placeOnArrival).
     public var noAutoRead = false
     /// The page was entered from below while still empty: when it arrives, the reading starts at its last control.
     public var startAtLastControl = false
     /// What Tab stops on in a page, for "its last control" (one set: Mail's Shift Tab too).
     public static let lastControlRoles: Set<String> = ["AXLink", "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXComboBox", "AXSlider", "AXMenuButton", "AXDisclosureTriangle"]
+    /// A web area about to be entered from below (Mail's Shift Tab into a message), asked before its document may
+    /// exist: the document made for it, or found, starts at its last control.
+    static var lastControlRequest: (area: AXUIElement, at: Date)?
+    public static func enterAtLastControl(_ area: AXUIElement) { lastControlRequest = (area, Date()) }
     /// The page last announced (its title and its reading), so a page is announced once as it arrives.
     var announcedURL = ""
+
+    /// The one place a page's arrival is placed by a module: at its last control if asked (startAtLastControl, or a
+    /// request made before the document existed), which turns the say all from the top into its line. Used by every
+    /// way a page is announced (the focus, its load, the watch for content): Mail's own placing ran after the
+    /// announcement and said the line twice, and only one of those ways honoured the wish (a review, 13 Nov 2026).
+    func placeOnArrival() {
+        if let r = Self.lastControlRequest, r.area.isSame(webArea) {
+            Self.lastControlRequest = nil
+            if Date().timeIntervalSince(r.at) < 30 { startAtLastControl = true }
+        }
+        guard startAtLastControl, !buffer.lines.isEmpty else { return }
+        startAtLastControl = false; noAutoRead = true
+        position = buffer.find(from: buffer.text.length, forward: false, roles: Self.lastControlRoles)?.offset ?? position
+    }
 
     /// NVDA: a page arriving says its title, then is read (automatic say all, on by default), or, with that off,
     /// its first line (or the line it resumes at).
     func announcePage() {
+        placeOnArrival()
         announcedURL = url
+        if noAutoRead {
+            // Placed by a module: its line, once, not the page from the top (Mail's Shift Tab, 13 Nov 2026).
+            noAutoRead = false
+            BrowseModeHandler.noteAnnounced(webArea, url: url)
+            Log.io("browse mode: the page was entered at a place set for it; its line is said")
+            speakUnit(.line)
+            return
+        }
         if BrowseModeHandler.wasAnnounced(webArea, url: url), Date().timeIntervalSince(pageGoneAt) > 30 {
             Log.io("browse mode: back on a page announced before; its title and line are said, not a say all")
-            noAutoRead = false
             let title = pageTitle()
             if !title.isEmpty { Speech.speakMessage(title) }
             if let info = makeTextInfo(.bookmark(Bookmark(start: position, end: position))) { info.expand(.line); speak(info, unit: .line) }
@@ -264,11 +290,15 @@ public final class BrowseModeDocument: ScriptableObject {
         if config.virtualBuffers.autoSayAllOnPageLoad {
             // Not a page the focus only passes through: Mail's message pane, on the way to the search field, had the
             // whole message read out (8 Oct 2026).
+            // Nor over a key pressed in the moment before, or another page by then: the say all started over the key's
+            // own answer (a review, 13 Nov 2026).
+            let keyAt = InputManager.lastKeyDownAt, arrivedAt = url
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                guard let self, API.focusTreeInterceptor === self else { return }
-                // (Once: a later page here is read as ever. The reading was placed: its line, a review, 13 Nov 2026.)
-                if self.noAutoRead { self.noAutoRead = false; self.speakUnit(.line); return }
-                SayAll.readText(from: self.rootObject)
+                guard let self, API.focusTreeInterceptor === self, InputManager.lastKeyDownAt == keyAt, url == arrivedAt else { return }
+                // A place asked for just after the announcement (the document made by the focus news it caused).
+                placeOnArrival()
+                if noAutoRead { noAutoRead = false; speakUnit(.line); return }
+                SayAll.readText(from: rootObject)
             }
         } else if let info = makeTextInfo(.bookmark(Bookmark(start: position, end: position))) {
             info.expand(.line); speak(info, unit: .line)
@@ -335,11 +365,7 @@ public final class BrowseModeDocument: ScriptableObject {
         guard !buffer.lines.isEmpty else { return false }
         let saved = historySaved()
         position = resumeOffset(saved)
-        if startAtLastControl {
-            // Entered from below before it had loaded (Mail's Shift Tab): its last control, not its top.
-            startAtLastControl = false; noAutoRead = true
-            position = buffer.find(from: buffer.text.length, forward: false, roles: Self.lastControlRoles)?.offset ?? position
-        }
+        placeOnArrival()   // entered from below before it had loaded (Mail's Shift Tab): its last control, not its top
         VoiceOverSounds.play("WebAreaLoaded.aiff")   // VoiceOver's "web area loaded", the sound its list has for a page
         Log.io("browse mode: page arrived — resuming at \(position)\(saved == nil ? "" : " (saved \(saved!.offset))")")
         if announce, url != announcedURL { announcePage() }
