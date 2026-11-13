@@ -207,6 +207,11 @@ public final class SettingsPanePlugin: GlobalPlugin {
         return nil
     }
 
+    /// Tab with nowhere to go: "please wait" for an app launched in the last ten seconds, or one with no window yet.
+    nonisolated public static func saysPleaseWait(launchedAgo: TimeInterval?, hasWindow: Bool) -> Bool {
+        !hasWindow || (launchedAgo.map { $0 < 10 } ?? false)
+    }
+
     func trapMove(_ g: KeyboardGesture, forward: Bool) {
         // An app's module that orders this Tab itself (Mail's message list to the header fields) keeps it.
         if let pid = API.focusPid, let s = AppModuleHandler.shared.appModule(for: pid).script(for: g) {
@@ -217,18 +222,23 @@ public final class SettingsPanePlugin: GlobalPlugin {
         guard let current = Self.virtual ?? API.focusObject?.element, let window = Self.scopeOf(current) else {
             // Nowhere to go from (the place and the focus both gone with the view they were in): the front window's
             // first control, or last for Shift Tab.
-            let front = NSWorkspace.shared.frontmostApplication.map { AXUIElementCreateApplication($0.processIdentifier) }
-            if let app = front, let w = app.element(kAXFocusedWindowAttribute) ?? app.element(kAXMainWindowAttribute) ?? app.elements(kAXWindowsAttribute).first,
-               let target = forward ? Self.controls(in: w, toolbars: true, unfocusable: true).first : Self.controls(in: w, toolbars: true, unfocusable: true).last {
+            let frontApp = NSWorkspace.shared.frontmostApplication
+            let front = frontApp.map { AXUIElementCreateApplication($0.processIdentifier) }
+            let w = front.flatMap { app in app.element(kAXFocusedWindowAttribute) ?? app.element(kAXMainWindowAttribute) ?? app.elements(kAXWindowsAttribute).first }
+            if let w, let target = forward ? Self.controls(in: w, toolbars: true, unfocusable: true).first : Self.controls(in: w, toolbars: true, unfocusable: true).last {
                 Log.io("tab trap: no place left to go from; to the window's \(forward ? "first" : "last") control")
                 Self.focus(target, byTrap: true)
                 Self.setTrapState(for: target)
                 return
             }
-            // An app still coming up (Weather's first Tab, its window not yet answering, said nothing, 13 Nov 2026).
-            Log.io("tab trap: no window with controls yet; the key goes on")
+            Log.io("tab trap: no window with controls; the key goes on")
             g.send()
-            Speech.speakMessage(String(localized: "please wait", comment: "Spoken message"), remember: false)
+            // An app still coming up (Weather's first Tab, its window not yet answering, said nothing, 13 Nov 2026).
+            // Only then: a window with no controls at all (an image viewer's) said "please wait" at every Tab (a
+            // review, 13 Nov 2026).
+            if Self.saysPleaseWait(launchedAgo: frontApp?.launchDate.map { Date().timeIntervalSince($0) }, hasWindow: w != nil) {
+                Speech.speakMessage(String(localized: "please wait", comment: "Spoken message"), remember: false)
+            }
             return
         }
         var all: [AXUIElement]
@@ -635,8 +645,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
             expected = nil
             let trap = byTrap || inLoopWindow(target) || inTrapZone
             Log.io("settings: an iPad app; TurnOver's cursor moves, the app's focus is left alone")
-            holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true, ownTab: !trap && paneOwnsTab(target))
-            lock.lock(); _heldByTrap = trap && target.role != "AXWebArea" && !isInWeb(target); lock.unlock()   // a page keeps its own Tab (BT Cloud Work, 13 Nov 2026)
+            holdWithTabOwner(target, trap: trap)
             return
         }
         _ = target.set(kAXFocusedAttribute, kCFBooleanTrue)
@@ -696,10 +705,19 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 // In a window whose Tab is the trap's (TabLoop, NewDialogs), the settings panes' Tab must not take
                 // over from the held place: Shift Tab went to it and did nothing (11 Nov 2026).
                 let trap = byTrap || inLoopWindow(target) || inTrapZone
-                holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true, ownTab: !trap && paneOwnsTab(target))
-                lock.lock(); _heldByTrap = trap && target.role != "AXWebArea" && !isInWeb(target); lock.unlock()   // a page keeps its own Tab (BT Cloud Work, 13 Nov 2026)
+                holdWithTabOwner(target, trap: trap)
             }
         }
+    }
+
+    /// The place held, and whose Tab goes on from it: the settings panes' in a pane (paneOwnsTab), else the trap's,
+    /// which starts from the held place. A hold made outside the trap in an ordinary window (toolbarLeave, an iPad
+    /// app's) had neither once the panes' Tab was kept to panes, and the next Tab went to the app, from its own focus
+    /// elsewhere (a review, 13 Nov 2026). A page keeps its own Tab (BT Cloud Work, 13 Nov 2026).
+    private static func holdWithTabOwner(_ target: AXUIElement, trap: Bool) {
+        let pane = !trap && paneOwnsTab(target)
+        holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true, ownTab: pane)
+        lock.lock(); _heldByTrap = !pane && target.role != "AXWebArea" && !isInWeb(target); lock.unlock()
     }
 
     /// Whether the settings panes' own Tab (settings_next) belongs where `target` is held: a window with a tab bar of

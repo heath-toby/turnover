@@ -91,16 +91,24 @@ extension AXHandler {
     /// (An application coming to the front is let through: it is frontmost before the activation news arrives.)
     func ruleBackgroundApplication(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
         if pid != activePid, let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular,
-           !isHelperOfActiveApp(app), !AXHandler.systemUIAgents.contains(app.bundleIdentifier ?? ""),
-           NSWorkspace.shared.frontmostApplication?.processIdentifier != pid,
-           // Unless it says it has the keys: 1Password's Quick Access is a panel that takes the keyboard while the
-           // app before stays active, and its search and results were silent (12 Nov 2026). The application element
-           // says it is frontmost then; a page reloading behind another app doesn't.
-           (AXUIElementCreateApplication(pid).attr(kAXFrontmostAttribute) as? Bool) != true {
+           NSWorkspace.shared.frontmostApplication?.processIdentifier != pid, !hasKeysBehindFront(app) {
             Log.io("focus from \(app.localizedName ?? "pid \(pid)") in the background; ignored")
             return .ignore
         }
         return .go(target)
+    }
+
+    /// An app not in front whose focus is still where the keys go: a helper of the app in front, the Dock, Spotlight
+    /// and the like, or an app that says it has the keys. 1Password's Quick Access is a panel that takes the keyboard
+    /// while the app before stays active, and its search and results were silent (12 Nov 2026); its application
+    /// element says it is frontmost then, a page reloading behind another app doesn't. One answer for the focus rule
+    /// and the check before each key (focusBehindFrontApp): the key check had none of these, and moved TurnOver off
+    /// Quick Access at every key (a review, 13 Nov 2026). A quarter of a second at most for the question.
+    func hasKeysBehindFront(_ app: NSRunningApplication) -> Bool {
+        if isHelperOfActiveApp(app) || AXHandler.systemUIAgents.contains(app.bundleIdentifier ?? "") { return true }
+        let element = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(element, 0.25)
+        return (element.attr(kAXFrontmostAttribute) as? Bool) == true
     }
 
     /// Just after a sheet opened: the app's focus on its window behind it is not where the keys go (NewDialogs).
@@ -235,23 +243,40 @@ extension AXHandler {
               let front = AXUIElementCreateApplication(pid).element(kAXFocusedWindowAttribute),
               front.string(kAXSubroleAttribute) == "AXStandardWindow", !front.isSame(window) else { return .go(target) }
         Log.io("focus in the background window \"\(Log.words(String(window.string(kAXTitleAttribute)?.prefix(40) ?? "")))\"; ignored")
-        if !backgroundRecheckPending {
+        if backgroundRecheckPending {
+            if backgroundSetAside.elements.count < 8 { backgroundSetAside.elements.append(target) }
+        } else {
             backgroundRecheckPending = true
+            backgroundSetAside = ([target], AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute))
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 guard let self else { return }
                 self.backgroundRecheckPending = false
-                // The application's focus now, whatever it is, if its window is the front one and TurnOver isn't on it:
-                // only the first focus of a burst set aside was tested again, and a later one in a window just opened
-                // was never read (a review, 13 Nov 2026). Still the first one: the window is the front one after all.
+                let setAside = self.backgroundSetAside
+                self.backgroundSetAside = ([], nil)
+                // The application's focus now, if its window is the front one and TurnOver isn't on it: only the first
+                // focus of a burst set aside was tested again, and a later one in a window just opened was never read
+                // (a review, 13 Nov 2026). Only if it is one set aside (the window is the front one after all) or has
+                // moved since: the app's focus left where it was while TurnOver holds a place of its own (the Tab
+                // trap, a toolbar, NewDialogs) is no news, and taking it dropped the place (a review, 13 Nov 2026).
                 guard pid == self.activePid else { return }
                 let app = AXUIElementCreateApplication(pid)
-                if let f = app.element(kAXFocusedUIElementAttribute), API.focusObject?.isSameElement(as: f) != true,
-                   let w = f.element(kAXWindowAttribute), let fw = app.element(kAXFocusedWindowAttribute), w.isSame(fw) {
-                    self.focusChanged(f, pid: pid)
+                guard let f = app.element(kAXFocusedUIElementAttribute), API.focusObject?.isSameElement(as: f) != true,
+                      let w = f.element(kAXWindowAttribute), let fw = app.element(kAXFocusedWindowAttribute), w.isSame(fw) else { return }
+                let held = SettingsPanePlugin.heldRow.flatMap { SettingsPanePlugin.windowOf($0) }.map { $0.isSame(fw) } ?? false
+                guard AXHandler.backgroundRecheckActs(isSetAside: setAside.elements.contains { $0.isSame(f) },
+                                                 focusMovedSince: setAside.appFocus.map { !$0.isSame(f) } ?? true,
+                                                 holdInFrontWindow: held) else {
+                    Log.io("background window recheck: the app's focus is where it was, or TurnOver holds a place; left")
+                    return
                 }
+                self.focusChanged(f, pid: pid)
             }
         }
         return .ignore
+    }
+    /// Whether the app's focus, read again after focus news in a background window was set aside, is taken.
+    nonisolated public static func backgroundRecheckActs(isSetAside: Bool, focusMovedSince: Bool, holdInFrontWindow: Bool) -> Bool {
+        !holdInFrontWindow && (isSetAside || focusMovedSince)
     }
 
     /// SwiftUI reports the focus on a text field twice (System Settings' search field and the fields in its panes, macOS

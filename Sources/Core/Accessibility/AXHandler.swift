@@ -190,6 +190,9 @@ public final class AXHandler {
     var seenNotifications: [String] = []
     var notificationCheck: DispatchWorkItem?
     var backgroundRecheckPending = false
+    /// The focus news set aside in background windows while a recheck is pending, and the app's own focus when the
+    /// first came (ruleBackgroundWindow).
+    var backgroundSetAside: (elements: [AXUIElement], appFocus: AXUIElement?) = ([], nil)
     var navigationCheckPending = false
     /// The page's own web area finished loading while a navigation check was pending: the check that coalesces the
     /// page's news knows it, whichever news started it (the reload otherwise went unsaid, a review, 13 Nov 2026).

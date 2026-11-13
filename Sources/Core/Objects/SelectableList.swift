@@ -278,14 +278,18 @@ open class SelectableList: TurnOverObject {
         let walked = virtualRow.flatMap { i -> AXUIElement? in let rows = rowsAndKey.0; return rows.indices.contains(i) ? rows[i] : nil }
         guard let row = walked ?? element.elements(selectionKey).first else { return nil }
         // Asked twice per Space (whether the command is available, then to press): the walk (up to forty calls) is
-        // kept for the row until the selection moves (a review, 13 Nov 2026).
-        if let c = checkBoxForRow, c.row.isSame(row), c.box.map({ $0.role != "?" }) ?? true { return c.box }
+        // kept for the row until the selection moves (a review, 13 Nov 2026). "None" only for the moment of one
+        // Space: a check box the row builds later was missed until the selection moved (a review, 13 Nov 2026).
+        if let c = checkBoxForRow, c.row.isSame(row) {
+            if let box = c.box, box.role != "?" { return box }
+            if c.box == nil, Date().timeIntervalSince(c.at) < 0.5 { return nil }
+        }
         var queue = row.elements(kAXChildrenAttribute); var n = 0, found: AXUIElement?
         while !queue.isEmpty, n < 20 { let e = queue.removeFirst(); n += 1; if e.role == "AXCheckBox" { found = e; break }; queue.append(contentsOf: e.elements(kAXChildrenAttribute)) }
-        checkBoxForRow = (row, found)
+        checkBoxForRow = (row, found, Date())
         return found
     }
-    private var checkBoxForRow: (row: AXUIElement, box: AXUIElement?)?
+    private var checkBoxForRow: (row: AXUIElement, box: AXUIElement?, at: Date)?
 
     private func toggleRowCheckBox(_ g: KeyboardGesture) {
         guard let box = selectedRowCheckBox() else { g.send(); return }
