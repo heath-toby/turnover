@@ -431,7 +431,12 @@ public final class MediaView {
         guard current(), input.isWindowCurrent(), current(), !Self.showsVideo(in: input.window) else { return nil }
         let window = input.window
         let (sidebarRoot, playerRoot, tabBarItems) = Self.regions(in: window)
-        let sidebar = keepSidebar ? input.sidebar : sidebarRoot.map(Self.outlineItems) ?? tabBarItems.map(Self.tabBarItem)
+        var sidebar = keepSidebar ? input.sidebar : sidebarRoot.map(Self.outlineItems) ?? tabBarItems.map(Self.tabBarItem)
+        // The kept sidebar's choice brought up to date (its selected row, two questions): it said Search "selected"
+        // after Songs was opened (13 Nov 2026).
+        if keepSidebar, let live = sidebarRoot?.elements(kAXSelectedRowsAttribute).first {
+            for i in sidebar.indices { sidebar[i].selected = sidebar[i].element.isSame(live) }
+        }
         let player = playerRoot.map(Self.playerItems) ?? []
         // Podcasts' sidebar is a block of tab-bar items with the account name beside it: leave the whole block out.
         let tabBarBlock = tabBarItems.first?.element(kAXParentAttribute)?.element(kAXParentAttribute)
@@ -444,8 +449,10 @@ public final class MediaView {
         let appName = NSRunningApplication(processIdentifier: input.pid)?.localizedName ?? ""
         let windowName = window.string(kAXTitleAttribute) ?? ""
         // (The sidebar not read yet, the page first: its chosen row alone, two questions, not all fifty.)
-        let chosen = sidebar.first(where: { $0.selected })?.label
-            ?? sidebarRoot?.elements(kAXSelectedRowsAttribute).first.map { ElementMatcher.text(of: $0) }.flatMap { $0.isEmpty ? nil : $0 }
+        // The sidebar's live choice first: the sidebar kept from the last read still had Search chosen after Songs was
+        // opened, and Songs was said as "Search, 2248 items" (13 Nov 2026).
+        let chosen = sidebarRoot?.elements(kAXSelectedRowsAttribute).first.map { ElementMatcher.text(of: $0) }.flatMap { $0.isEmpty ? nil : $0 }
+            ?? sidebar.first(where: { $0.selected })?.label
         var pageTitle = !windowName.isEmpty && windowName != appName ? windowName : (chosen ?? windowName)
         // An album, artist or playlist page (Music's "album details"): its own title, not the sidebar's choice it was
         // opened from ("Recently Added page" on an album, 11 Nov 2026).
