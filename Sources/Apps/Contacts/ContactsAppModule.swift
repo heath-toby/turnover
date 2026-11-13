@@ -6,8 +6,10 @@
 // Tab from the list went to the search field and the card's buttons, never to the details (driver).
 // What TurnOver changes:
 // - A person in the list is said without "level 2".
-// - Tab from the list goes into the card, read as a document: Down through the name, each detail, the buttons;
-//   Return presses a button. Shift-Tab goes back to the list.
+// - The card (13 Nov 2026, a tester's design): Tab goes through its parts as stops, the name, the action icons
+//   (message, call, video, mail; clicked, as they take no press), each button, then the details as one list (Up and
+//   Down through phone, email, address…, each its label and words; Space opens the detail's menu, Call, Copy…), the
+//   note, and the buttons under it. Shift-Tab goes back; before the name, to the list of people.
 import Foundation
 import ApplicationServices
 
@@ -16,23 +18,117 @@ final class ContactsAppModule: AppModule {
 
     required init(pid: pid_t, bundleIdentifier: String, appName: String) {
         super.init(pid: pid, bundleIdentifier: bundleIdentifier, appName: appName)
-        script("contacts_toCard", String(localized: "From the list to the person's card, read as a page", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Contacts") { [weak self] _ in
+        script("contacts_toCard", String(localized: "From the list to the person's card", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Contacts") { [weak self] _ in
             guard let self, let card = self.card() else { Log.io("contacts: no card to go to"); Tones.edge(); return }
             Log.io("contacts: to the card")
-            AXHandler.shared.focusChanged(card, pid: self.pid)
+            self.go(to: 0, in: card)
         }.isAvailable = { [weak self] in self?.inList() == true }
+        for forward in [true, false] {
+            script(forward ? "contacts_cardNext" : "contacts_cardPrevious", forward ? String(localized: "In a card: the next part (the name, the actions, the details list, the note, the buttons)", comment: "A command, as the key list and keyboard help say it") : String(localized: "In a card: the previous part", comment: "A command, as the key list and keyboard help say it"), gestures: [forward ? "kb:tab" : "kb:shift+tab"], category: "Contacts") { [weak self] g in
+                guard let self, let card = self.card() else { g.send(); return }
+                let stops = Self.stops(in: card)
+                // The detail left from, to come back to.
+                if let r = SettingsPanePlugin.heldRow, r.string(kAXIdentifierAttribute) == "ContactCardDetailsView" { Self.lastDetail = r }
+                guard let here = self.stopIndex(stops) else { self.go(to: 0, in: card); return }
+                let next = here + (forward ? 1 : -1)
+                if next < 0, let list = self.list() {
+                    _ = list.set(kAXFocusedAttribute, kCFBooleanTrue); AXHandler.shared.focusChanged(list, pid: self.pid); return
+                }
+                if next >= stops.count, let w = self.window(), let field = self.searchField(in: w) {
+                    _ = field.set(kAXFocusedAttribute, kCFBooleanTrue); return
+                }
+                self.go(to: next, in: card)
+            }.isAvailable = { [weak self] in self?.inCard() == true }
+        }
         // Shift Tab from the list: Contacts' own went to the window itself and stopped there (13 Nov 2026). To the
         // search field above the list, as the screen has it.
+        // Tab from the search field: the people, as the screen goes (Contacts' own went into the card's buttons).
+        script("contacts_searchToList", String(localized: "From the search field to the list of people", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Contacts") { [weak self] g in
+            guard let self, let list = self.list() else { g.send(); return }
+            _ = list.set(kAXFocusedAttribute, kCFBooleanTrue)
+            AXHandler.shared.focusChanged(list, pid: self.pid)
+        }.isAvailable = { [weak self] in
+            guard let self, let f = API.focusObject, f.pid == self.pid else { return false }
+            return f.element.string(kAXSubroleAttribute) == "AXSearchField" || f.axRole == "AXSearchField"
+        }
         script("contacts_toSearch", String(localized: "From the list back to the search field", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Contacts") { [weak self] g in
             guard let self, let w = self.window(),
                   let field = self.searchField(in: w) else { g.send(); return }
             _ = field.set(kAXFocusedAttribute, kCFBooleanTrue)
         }.isAvailable = { [weak self] in self?.inList() == true }
-        script("contacts_toList", String(localized: "From the card back to the list", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Contacts") { [weak self] _ in
-            guard let self, let list = self.list() else { return }
-            _ = list.set(kAXFocusedAttribute, kCFBooleanTrue)
-            AXHandler.shared.focusChanged(list, pid: self.pid)
-        }.isAvailable = { [weak self] in self?.inCard() == true }
+    }
+
+    // MARK: The card's stops
+
+    enum Stop { case one(AXUIElement), details([AXUIElement]) }
+
+    /// The card's parts in order: the name, each action icon and button, the details as one list, the note, the
+    /// buttons under it. Read fresh each time (SwiftUI makes the card anew as a person is chosen).
+    static func stops(in card: AXUIElement) -> [Stop] {
+        var out: [Stop] = []
+        var details: [AXUIElement] = []
+        func flushDetails() { if !details.isEmpty { out.append(.details(details)); details = [] } }
+        func walk(_ e: AXUIElement, _ d: Int) {
+            for c in e.elements(kAXChildrenAttribute) {
+                let r = c.role, id = c.string(kAXIdentifierAttribute) ?? ""
+                if r == "AXHeading" { flushDetails(); out.append(.one(c)); continue }
+                if id == "InlineActionsHStack" { flushDetails(); out.append(.one(c)); continue }
+                if r == "AXButton", id == "ContactCardDetailsView" { details.append(c); continue }
+                if ["AXButton", "AXMenuButton", "AXTextArea", "AXTextField", "AXCheckBox", "AXPopUpButton"].contains(r) { flushDetails(); out.append(.one(c)); continue }
+                if d < 4 { walk(c, d + 1) }
+            }
+        }
+        walk(card, 0)
+        flushDetails()
+        return out
+    }
+
+    /// Which stop TurnOver is on: the held row of the details, or the focus.
+    private func stopIndex(_ stops: [Stop]) -> Int? {
+        let here = SettingsPanePlugin.heldRow ?? API.focusObject?.element
+        guard let here else { return nil }
+        return stops.firstIndex { stop in
+            switch stop {
+            case .one(let e): return e.isSame(here) || { var p = here.element(kAXParentAttribute), n = 0; while let x = p, n < 4 { if x.isSame(e) { return true }; p = x.element(kAXParentAttribute); n += 1 }; return false }()
+            case .details(let rows): return rows.contains { $0.isSame(here) }
+            }
+        }
+    }
+
+    private static var lastDetail: AXUIElement?
+
+    private func go(to i: Int, in card: AXUIElement) {
+        let stops = Self.stops(in: card)
+        guard stops.indices.contains(i) else { Tones.edge(); return }
+        switch stops[i] {
+        case .one(let e):
+            Log.io("contacts: card stop \(i + 1) of \(stops.count), \(e.role)")
+            SettingsPanePlugin.focus(e)
+        case .details(let rows):
+            let at = Self.lastDetail.flatMap { l in rows.firstIndex { $0.isSame(l) } } ?? 0
+            Log.io("contacts: card stop \(i + 1) of \(stops.count), the details list, \(rows.count) rows")
+            // The list's container: the first detail's group, which doesn't scroll, so the list is counted ("list, 11
+            // items", "3 of 11"); the card's scroll area scrolls, and its rows were "item 1" of a list of unknown length.
+            SettingsPanePlugin.enterList(rows, container: rows[0].element(kAXParentAttribute) ?? card, at: at)
+        }
+    }
+
+    /// Space or Return on a held place in the card: a detail opens its menu (Call, FaceTime, Copy…), where pressing
+    /// would call at once; an action icon, which takes no press, is clicked.
+    static func press(_ e: AXUIElement) -> Bool {
+        if e.string(kAXIdentifierAttribute) == "ContactCardDetailsView", e.role == "AXButton" {
+            lastDetail = e
+            let r = AXUIElementPerformAction(e, kAXShowMenuAction as CFString)
+            Log.io("contacts: a detail's menu → \(r.rawValue)")
+            return r == .success
+        }
+        if e.string(kAXIdentifierAttribute) == "InlineActionsHStack", let f = TurnOverObject.frame(e) {
+            Log.io("contacts: an action icon clicked")
+            Tones.press()
+            Mouse.click(at: CGPoint(x: f.midX, y: f.midY), button: .left, count: 1)
+            return true
+        }
+        return false
     }
 
     private func searchField(in w: AXUIElement) -> AXUIElement? {
@@ -88,32 +184,36 @@ final class ContactsAppModule: AppModule {
         return false
     }
     private func inCard() -> Bool {
-        guard let doc = API.focusTreeInterceptor, doc.webArea.pid == pid, let c = card() else { return false }
-        return doc.webArea.isSame(c)
-    }
-
-    /// The card is read as a document whenever the focus is on it or inside it.
-    override func browseRoot(for element: AXUIElement, ancestors: [TurnOverObject]) -> AXUIElement? {
-        guard let c = card() else { return nil }
-        if element.isSame(c) || ancestors.contains(where: { $0.element.isSame(c) }) { return c }
-        return nil
-    }
-
-    /// The card taking the focus says its first line (the person's name), not "scroll area".
-    override func handleEvent(_ event: Event, next: () -> Void) {
-        next()
-        guard event.kind == .gainFocus, event.obj.pid == pid, event.obj.element.role == "AXScrollArea",
-              let c = card(), event.obj.element.isSame(c) else { return }
-        DispatchQueue.main.async {
-            guard let doc = API.focusTreeInterceptor, doc.webArea.isSame(c), !doc.passThrough else { return }
-            Speech.cancel()
-            doc.position = 0
-            doc.speakUnit(.line)
-        }
+        guard let c = card(), let here = SettingsPanePlugin.heldRow ?? API.focusObject?.element, here.pid == pid else { return false }
+        var e: AXUIElement? = here; var hops = 0
+        while let x = e, hops < 8 { if x.isSame(c) { return true }; e = x.element(kAXParentAttribute); hops += 1 }
+        return false
     }
 
     override func objectClass(for element: AXUIElement, role: Role, subrole: String?) -> TurnOverObject.Type? {
-        [.treeViewItem, .tableRow].contains(role) ? RowWithoutLevel.self : nil
+        if element.string(kAXIdentifierAttribute) == "InlineActionsHStack" { return CardActionIcon.self }
+        if element.string(kAXIdentifierAttribute) == "ContactCardDetailsView", element.role == "AXButton" { return CardDetail.self }
+        return [.treeViewItem, .tableRow].contains(role) ? RowWithoutLevel.self : nil
+    }
+}
+
+/// An action icon of the card (message, call, video, mail): a picture Contacts draws as a button. Said as one.
+final class CardActionIcon: TurnOverObject {
+    override var role: Role { .button }
+}
+
+/// A detail of the card: its label and its words ("mobile, 07…"), not the button's own "mobile, Call".
+final class CardDetail: TurnOverObject {
+    // As a list's row is read: its words and its place, not "list item" (the list said what it is on the way in).
+    override var role: Role { .staticText }
+    override var positionInfo: PositionInfo? { nil }
+    override var value: String? { nil }   // in the name already
+    override var name: String {
+        let desc = element.string(kAXDescriptionAttribute) ?? ""
+        guard let value = element.string(kAXValueAttribute), !value.isEmpty else { return desc }
+        // The description is the label, then the action ("mobile, Call"): the label alone.
+        let label = desc.components(separatedBy: ", ").first ?? desc
+        return label.isEmpty ? value : "\(label), \(value)"
     }
 }
 

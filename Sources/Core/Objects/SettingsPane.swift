@@ -272,6 +272,18 @@ public final class SettingsPanePlugin: GlobalPlugin {
         lock.lock(); _inPane = inside; lock.unlock()
     }
 
+    /// Presses an app's module makes itself, by bundle: true when it handled the held place.
+    static var pressOverrides: [String: (AXUIElement) -> Bool] = [:]
+    /// A list an app's module makes of rows the app doesn't put in one (Contacts' card details): into it, on row `i`.
+    static func enterList(_ rows: [AXUIElement], container: AXUIElement, at i: Int) {
+        guard rows.indices.contains(i) else { return }
+        rowLists.removeAll { $0.container.isSame(container) }
+        rowLists.insert((rows, rows[0], container), at: 0)
+        landInRowList(rows, at: i, entering: true)
+    }
+    /// The row of a list TurnOver holds, if any.
+    static var heldRow: AXUIElement? { holdingVirtual ? virtual : nil }
+
     /// The running plugin, for focus rules that hand a Tab on to the trap.
     static weak var current: SettingsPanePlugin?
 
@@ -645,6 +657,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
         guard let v = Self.virtual, API.focusObject?.isSameElement(as: v) == true,
               v.pid == NSWorkspace.shared.frontmostApplication?.processIdentifier else { g.send(); return }
         if RowControl.pressToggle(in: v) { return }
+        // An app's module that presses some held places its own way (Contacts' details open their menu, its action
+        // icons are clicked).
+        if let b = NSRunningApplication(processIdentifier: v.pid)?.bundleIdentifier, let press = Self.pressOverrides[b], press(v) { return }
         let window = Self.windowOf(v), titleBefore = window?.string(kAXTitleAttribute)
         let r = AXUIElementPerformAction(v, kAXPressAction as CFString)
         Log.io("settings: pressed the held \(v.role) → \(describeError(r))")
@@ -1133,6 +1148,10 @@ public final class SettingsPanePlugin: GlobalPlugin {
     }
 
     private func move(_ g: KeyboardGesture, forward: Bool) {
+        // An app's module that orders this Tab itself (Contacts' card) keeps it, as with the trap.
+        if let pid = API.focusPid, let s = AppModuleHandler.shared.appModule(for: pid).script(for: g) {
+            Log.io("settings: the app's module has \(s.name) for this key"); s.handler(g); return
+        }
         Self.dropDeadHold()
         guard let focus = API.focusObject, let window = Self.windowOf(focus.element) else { g.send(); return }
         let commands = Self.ribbonCommands(of: focus.element)
