@@ -105,10 +105,12 @@ nonisolated final class WindowsKeyLayer: @unchecked Sendable {   // its state be
     /// `lifecycle.lock`, by start and stop (main) and by the tap thread as it begins and ends. The run loop was set by
     /// the new thread and read by stop() unlocked; a stop before the thread ran found none, forgot the thread, and the
     /// thread then put up a tap no one could stop, and the next start a second (a review, 13 Nov 2026).
+    /// One tap thread at a time, as KeyboardHandler's: a start waits for the old thread's teardown. A stop and an
+    /// immediate start (a style change) put up a second thread while the first's run loop still ran, both taps live and
+    /// sharing the key state below, and the old teardown raced the new `layer` (a review, 13 Nov 2026).
     private struct Lifecycle {
-        var generation: UInt64 = 0
-        var requested: UInt64?
-        var runLoop: (generation: UInt64, loop: CFRunLoop)?
+        var session = KeyboardSessionState()
+        var runLoop: CFRunLoop?   // the running worker's, set and cleared by it
     }
     private let lifecycle = Locked(Lifecycle())
     /// What one tap thread set up, torn down by that thread and no other: a stop and a start at once (a style change,
@@ -127,73 +129,79 @@ nonisolated final class WindowsKeyLayer: @unchecked Sendable {   // its state be
     private var loneCommand = LoneModifier()
     private var loneOption = LoneModifier(), optionCode: Int64 = 0
 
-    var isOn: Bool { lifecycle.value.requested != nil }
+    var isOn: Bool { lifecycle.value.session.requested != nil }
 
     func start() {
         MainActor.assumeIsolated { Self.buildStyleChords() }   // start() is called on the main thread (refreshWindowsLayer); again on a style change while running
-        let generation: UInt64? = {
-            lifecycle.lock.lock(); defer { lifecycle.lock.unlock() }
-            guard lifecycle.unsafeValue.requested == nil else { return nil }
-            lifecycle.unsafeValue.generation &+= 1
-            lifecycle.unsafeValue.requested = lifecycle.unsafeValue.generation
-            return lifecycle.unsafeValue.generation
-        }()
-        guard let generation else { return }
+        lifecycle.lock.lock()
+        guard lifecycle.unsafeValue.session.requested == nil else { lifecycle.lock.unlock(); return }
+        _ = lifecycle.unsafeValue.session.requestStart()
+        // nil while an old thread is still tearing down: that thread starts this one as it finishes.
+        let worker = lifecycle.unsafeValue.session.beginWorker()
+        lifecycle.lock.unlock()
         WindowsRemap.watchFrontApp()
+        if let worker { startWorker(worker) }
+    }
+
+    private func startWorker(_ generation: UInt64) {
         let t = Thread { [self] in
-            // Stopped before this thread ran: nothing is set up. Otherwise its run loop is known before anything
-            // is, so a stop from now on reaches it (a block performed on it waits for CFRunLoopRun below).
+            // Stopped (or replaced) before this thread ran: nothing is set up. Otherwise its run loop is known before
+            // anything is, so a stop from now on reaches it (a block performed on it waits for CFRunLoopRun).
             lifecycle.lock.lock()
-            guard lifecycle.unsafeValue.requested == generation else { lifecycle.lock.unlock(); return }
-            lifecycle.unsafeValue.runLoop = (generation, CFRunLoopGetCurrent())
+            lifecycle.unsafeValue.runLoop = CFRunLoopGetCurrent()
+            let wanted = lifecycle.unsafeValue.session.isRequested(generation)
             lifecycle.lock.unlock()
-            let mine = Layer()
-            layer = mine
-            let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(kIOHIDSystemClass))
-            if service != 0 { IOServiceOpen(service, mach_task_self_, UInt32(kIOHIDParamConnectType), &mine.connect); IOObjectRelease(service) }
-            openHID(mine)
-            let mask = CGEventMask(1 << CGEventType.flagsChanged.rawValue | 1 << CGEventType.keyDown.rawValue | 1 << CGEventType.keyUp.rawValue)
-            guard let tp = CGEvent.tapCreate(tap: .cghidEventTap, place: .headInsertEventTap, options: .defaultTap, eventsOfInterest: mask, callback: { _, type, event, refcon in
-                guard let refcon else { return Unmanaged.passUnretained(event) }
-                return Unmanaged<WindowsKeyLayer>.fromOpaque(refcon).takeUnretainedValue().handle(type, event)
-            }, userInfo: Unmanaged.passUnretained(self).toOpaque()) else {
-                // What was opened is closed, and the layer let go, so the next start isn't refused (a review, 3 Nov 2026).
-                Log.error("NVDA keys where VoiceOver reads: no event tap")
-                if let m = mine.manager { IOHIDManagerClose(m, IOOptionBits(kIOHIDOptionsTypeNone)) }
-                if mine.connect != 0 { IOServiceClose(mine.connect) }
-                if layer === mine { layer = nil }
-                lifecycle.lock.lock()
-                if lifecycle.unsafeValue.requested == generation { lifecycle.unsafeValue.requested = nil }
-                if lifecycle.unsafeValue.runLoop?.generation == generation { lifecycle.unsafeValue.runLoop = nil }
-                lifecycle.lock.unlock()
-                return
-            }
-            mine.tap = tp
-            CFRunLoopAddSource(CFRunLoopGetCurrent(), CFMachPortCreateRunLoopSource(nil, tp, 0), .defaultMode)
-            Log.info("NVDA keys where VoiceOver reads: on")
-            CFRunLoopRun()
-            if let tp = mine.tap { CGEvent.tapEnable(tap: tp, enable: false) }
-            mine.tap = nil
-            if let m = mine.manager { IOHIDManagerClose(m, IOOptionBits(kIOHIDOptionsTypeNone)) }
-            mine.manager = nil
-            if mine.connect != 0 { IOServiceClose(mine.connect); mine.connect = 0 }
-            // The key state is the running layer's: a newer thread's is left alone.
-            if layer === mine { layer = nil; capsDown = false; browse = false; swallowedUps.removeAll(); remapped.removeAll() }
+            if wanted { run(generation) }
             lifecycle.lock.lock()
-            if lifecycle.unsafeValue.runLoop?.generation == generation { lifecycle.unsafeValue.runLoop = nil }
+            lifecycle.unsafeValue.runLoop = nil
+            lifecycle.unsafeValue.session.finished(generation)
+            let next = lifecycle.unsafeValue.session.beginWorker()
             lifecycle.lock.unlock()
-            Log.info("NVDA keys where VoiceOver reads: off")
+            if let next { startWorker(next) }
         }
         t.name = "turnover.windowskeys"
         t.qualityOfService = .userInteractive
         t.start()
     }
 
+    /// One tap thread's work, from set-up to tear-down. It is the only one running, so the key state is its own.
+    private func run(_ generation: UInt64) {
+        let mine = Layer()
+        layer = mine
+        capsDown = false; browse = false; passNext = false; swallowedUps.removeAll(); remapped.removeAll()
+        loneCommand.cancel(); loneOption.cancel(); optionCode = 0
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(kIOHIDSystemClass))
+        if service != 0 { IOServiceOpen(service, mach_task_self_, UInt32(kIOHIDParamConnectType), &mine.connect); IOObjectRelease(service) }
+        openHID(mine)
+        let mask = CGEventMask(1 << CGEventType.flagsChanged.rawValue | 1 << CGEventType.keyDown.rawValue | 1 << CGEventType.keyUp.rawValue)
+        if let tp = CGEvent.tapCreate(tap: .cghidEventTap, place: .headInsertEventTap, options: .defaultTap, eventsOfInterest: mask, callback: { _, type, event, refcon in
+            guard let refcon else { return Unmanaged.passUnretained(event) }
+            return Unmanaged<WindowsKeyLayer>.fromOpaque(refcon).takeUnretainedValue().handle(type, event)
+        }, userInfo: Unmanaged.passUnretained(self).toOpaque()) {
+            mine.tap = tp
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), CFMachPortCreateRunLoopSource(nil, tp, 0), .defaultMode)
+            Log.info("NVDA keys where VoiceOver reads: on")
+            CFRunLoopRun()
+        } else {
+            // What was opened is closed below, and the request let go, so the next start isn't refused (a review, 3 Nov 2026).
+            Log.error("NVDA keys where VoiceOver reads: no event tap")
+            lifecycle.lock.lock()
+            lifecycle.unsafeValue.session.report(generation, ready: false)
+            lifecycle.lock.unlock()
+        }
+        if let tp = mine.tap { CGEvent.tapEnable(tap: tp, enable: false); CFMachPortInvalidate(tp) }
+        mine.tap = nil
+        if let m = mine.manager { IOHIDManagerClose(m, IOOptionBits(kIOHIDOptionsTypeNone)) }
+        mine.manager = nil
+        if mine.connect != 0 { IOServiceClose(mine.connect); mine.connect = 0 }
+        layer = nil; capsDown = false; browse = false; passNext = false; swallowedUps.removeAll(); remapped.removeAll()
+        Log.info("NVDA keys where VoiceOver reads: off")
+    }
+
     func stop() {
         lifecycle.lock.lock()
-        lifecycle.unsafeValue.requested = nil
-        let rl = lifecycle.unsafeValue.runLoop?.loop
-        lifecycle.unsafeValue.runLoop = nil
+        lifecycle.unsafeValue.session.requestStop()
+        let rl = lifecycle.unsafeValue.runLoop
         lifecycle.lock.unlock()
         // No run loop yet: the thread, when it runs, finds the request gone and sets nothing up.
         guard let rl else { return }
@@ -333,6 +341,9 @@ nonisolated final class WindowsKeyLayer: @unchecked Sendable {   // its state be
     private func handle(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let t = tap { CGEvent.tapEnable(tap: t, enable: true) }
+            // Releases went by unseen while the tap was off: one kept here would swallow or translate the next real
+            // release of that key (a review, 13 Nov 2026).
+            swallowedUps.removeAll(); remapped.removeAll()
             return Unmanaged.passUnretained(event)
         }
         if event.getIntegerValueField(.eventSourceUserData) == KeyboardHandler.marker { return Unmanaged.passUnretained(event) }
@@ -373,7 +384,10 @@ nonisolated final class WindowsKeyLayer: @unchecked Sendable {   // its state be
             return Unmanaged.passUnretained(event)
         }
         guard type == .keyDown else { return Unmanaged.passUnretained(event) }
-        remapped[code] = nil   // set again below if this press is translated
+        // Set again below if this press is translated or taken. A release kept from an earlier press would otherwise
+        // swallow this one's: Option L's lock, whose L release went by unseen under secure input, swallowed the next
+        // L's release, and the app saw L held (a review, 13 Nov 2026).
+        remapped[code] = nil; swallowedUps.remove(code)
         if passNext { passNext = false; return Unmanaged.passUnretained(event) }
         let shift = flags.contains(.maskShift), control = flags.contains(.maskControl)
         let plain = !flags.contains(.maskCommand) && !flags.contains(.maskAlternate)
