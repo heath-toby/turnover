@@ -85,8 +85,15 @@ package enum SystemSettingsPaneFocus {
     }
 
     /// The sheet over the window, if one is open.
+    /// A sheet opened from a sheet sits inside it (Location Services, System Services, then Details beside
+    /// Significant Locations, 13 Nov 2026): Tab went round both, so the innermost is taken.
     static func sheet(of window: AXUIElement) -> AXUIElement? {
-        window.elements(kAXChildrenAttribute).last { $0.role == "AXSheet" }
+        guard var s = window.elements(kAXChildrenAttribute).last(where: { $0.role == "AXSheet" }) else { return nil }
+        for _ in 0..<5 {
+            guard let inner = s.elements(kAXChildrenAttribute).last(where: { $0.role == "AXSheet" }) else { break }
+            s = inner
+        }
+        return s
     }
 
     /// TurnOver on a control of the pane or a sheet: the keyboard focus asked for (a sheet's buttons may take it), the

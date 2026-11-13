@@ -659,7 +659,11 @@ extension AXHandler {
         } else {
             beforeNamelessStop = nil
         }
+        // Dialogs inside dialogs (a sheet opened from a sheet in System Settings): the one in front is said, not each
+        // round it too ("dialog, System Services…, dialog, Significant Locations…, dialog, System Services…", 13 Nov 2026).
+        let front = ancestors.first { [.dialog, .sheet].contains($0.role) }
         for a in ancestors.reversed() where a.isPresentableFocusAncestor {
+            if [.dialog, .sheet].contains(a.role), let front, !a.isSameElement(as: front) { continue }
             if known.contains(where: { $0.isSameElement(as: a) }) || old?.isSameElement(as: a) == true { continue }
             if let w = focusWindow, a.isSameElement(as: w) { continue }   // the window was presented as the foreground
             if let (el, at) = lastEntered, el.isSame(a.element), Date().timeIntervalSince(at) < 1.5 { continue }   // a sheet announced on creation
