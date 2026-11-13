@@ -344,6 +344,10 @@ extension SettingsPanePlugin {
 
     /// Tab where the app's own would skip the toolbar: to the toolbar.
     func toolbarEnter(_ g: KeyboardGesture) {
+        // The app's module has its own Tab here (Mail's message list): it decides, as on the toolbar (a review).
+        if let pid = API.focusPid, let s = AppModuleHandler.shared.appModule(for: pid).script(for: g) {
+            Log.io("toolbar: the app's module has \(s.name) for this key"); s.handler(g); return
+        }
         // To the stop that was passed over first, where it wasn't the toolbar (Mail's search, on Shift Tab).
         if let cur = API.focusObject?.element, let to = Self.toolbarSkips.last(where: { $0.from.isSame(cur) && $0.forward == !g.modifiers.contains(.shift) })?.to, to.role != "?" {
             Log.io("toolbar: Tab here passes over \(to.role); to it"); Self.focus(to); return

@@ -197,6 +197,9 @@ public final class BrowseModeDocument: ScriptableObject {
             } else if tries > 1 { followReplacedRoot(tries: tries - 1) }
         }
     }
+    /// A module placed the reading itself as the page was entered (Mail's Shift Tab into a message, at its last
+    /// control): no automatic say all from the top.
+    public var noAutoRead = false
     /// The page last announced (its title and its reading), so a page is announced once as it arrives.
     var announcedURL = ""
 
@@ -218,7 +221,7 @@ public final class BrowseModeDocument: ScriptableObject {
             // Not a page the focus only passes through: Mail's message pane, on the way to the search field, had the
             // whole message read out (8 Oct 2026).
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                guard let self, API.focusTreeInterceptor === self else { return }
+                guard let self, API.focusTreeInterceptor === self, !self.noAutoRead else { return }
                 SayAll.readText(from: self.rootObject)
             }
         } else if let info = makeTextInfo(.bookmark(Bookmark(start: position, end: position))) {
