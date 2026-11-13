@@ -573,6 +573,21 @@ func pureTests() {
         expect(answer.value?.1, true, "translated")
         expect(ran.value, "translated", "the translated key's script ran")
     }
+    // Each lookup's availability checks can ask the app (and leftToApp scans its menus): three lookups a key were two
+    // too many when the key and its translation had the same command (a review, 13 Nov 2026).
+    test("keys: the key and its translation are each looked up once") {
+        let checks = Locked(0), ran = Locked(false)
+        let s = GlobalCommands.shared.script("test_bothkeys", String(localized: "", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:control+option+shift+f19", "kb:control+option+shift+f20"]) { _ in ran.value = true }
+        s.isAvailable = { checks.value += 1; return true }
+        defer { s.isAvailable = { false } }
+        let answer = Locked<(ScriptHandler.KeyDecision, Bool)?>(nil)
+        Thread { let a = ScriptHandler.askMain(KeyboardGesture(identifier: "kb:control+option+shift+f19")!, otherwise: KeyboardGesture(identifier: "kb:control+option+shift+f20")!); answer.value = (a.decision, a.usedAlternative) }.start()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        expect(answer.value?.0, .taken, "the command runs")
+        expect(answer.value?.1, true, "the same command for both: the translated key")
+        check(ran.value, "the script ran")
+        expect(checks.value, 2, "one lookup for the key, one for its translation")
+    }
     // While Chrome held secure input after a sign-in, Command Tab and Command A opened the menu bar, six times of six
     // (31 Oct 2026): the key tap got Command going down and coming up, and no key between.
     test("keys: a modifier is pressed alone only with secure input off, as it goes down and as it comes up") {

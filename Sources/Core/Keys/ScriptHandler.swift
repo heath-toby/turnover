@@ -107,16 +107,22 @@ public enum ScriptHandler {
         if behindLate { state.value = .timedOut }
         DispatchQueue.main.async { MainActor.assumeIsolated {
             var handled = gesture
+            // Each key is looked up once, and what was found handed on: availability checks talk to the application,
+            // and the Windows style's leftToApp scans its menus, up to three times a key (a review, 13 Nov 2026).
+            // nil: handleKeyDown looks `handled` up itself.
+            var resolved: Script?? = nil
             if let alternative {
                 let own = findScript(for: gesture)
                 // No command for the Windows key: the Mac key it becomes. Or the same command for both (End and
                 // Command Right both a text field's caret move): the Mac key too, so the app gets the key that moves
                 // its caret. End went on to TextEdit as End, which only scrolls, and said nothing (a sweep, 13 Nov 2026).
-                if own == nil || own.map({ o in findScript(for: alternative).map { $0.name == o.name } ?? false }) == true {
-                    handled = alternative; usedAlternative.value = true
-                }
+                if let own {
+                    let other = findScript(for: alternative)
+                    if other?.name == own.name { handled = alternative; usedAlternative.value = true; resolved = .some(other) }
+                    else { resolved = .some(own) }
+                } else { handled = alternative; usedAlternative.value = true }
             }
-            let taken = InputManager.handleKeyDown(handled)
+            let taken = InputManager.handleKeyDown(handled, script: resolved)
             var late = false
             state.lock.lock()
             if case .timedOut = state.unsafeValue { late = true } else { state.unsafeValue = .answered(taken) }
