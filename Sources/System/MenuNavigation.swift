@@ -146,6 +146,9 @@ final class MenuNavigationPlugin: GlobalPlugin {
     /// Return, Space or Escape went to the application: watch for the menu to close, then read the focus.
     private func passedThrough(_ g: KeyboardGesture) {
         guard AXHandler.shared.isMenuOpen, ["enter", "numpadEnter", "space", "escape"].contains(g.keyName) else { return }
+        // The press heard at once: macOS flashes the item for most of a second before it acts, and the silence felt
+        // like lag (a tester, 13 Nov 2026, Dismiss in Notification Centre).
+        if g.keyName != "escape", AXHandler.shared.highlightedMenuItem() != nil { Tones.press() }
         let pid = AXHandler.shared.openMenus.last?.pid ?? Self.menuBarPid
         watchToken += 1
         let token = watchToken

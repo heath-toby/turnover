@@ -32,6 +32,9 @@ final class NotificationCentreNavigatorPlugin: GlobalPlugin {
         for (name, desc, key, run) in keys {
             script(name, desc, gestures: ["kb:\(key)"], category: cat) { _ in run() }.isAvailable = { NotificationCentreNavigator.active }
         }
+        script("nc_leaveWidget", String(localized: "In a Notification Centre widget: back out of it", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:escape"], category: cat) { _ in
+            NotificationCentreNavigator.leaveWidget()
+        }.isAvailable = { NotificationCentreNavigator.active && NotificationCentreNavigator.inWidget }
     }
 }
 
@@ -44,6 +47,44 @@ enum NotificationCentreNavigator {
     /// panel changes as notifications come and go) finds them again.
     private static var groupName: String?
     private static var itemWords: String?
+    /// Inside a widget (Return or Space on it): its lines, read with Up and Down, as on the desktop; Return or Space
+    /// opens its app at the line, Escape comes back out (a tester, 13 Nov 2026).
+    private static var widget: (name: String, lines: [DesktopNavigator.Line], index: Int)?
+    static var inWidget: Bool { widget != nil }
+
+    private static func enterWidget(_ item: Item, name: String) -> Bool {
+        let ls = DesktopNavigator.widgetLines(item.element)
+        guard !ls.isEmpty else { return false }
+        // The widget's own name (Calendar, Weather), not its group's ("Widgets").
+        let own = item.element.string(kAXDescriptionAttribute).flatMap { $0.isEmpty ? nil : $0 } ?? name
+        let name = own
+        widget = (name, ls, 0)
+        Tones.press()
+        Log.io("notification centre: into a widget, \(ls.count) lines")
+        Speech.cancel()
+        Speech.speakMessage(String(localized: "in \(name)", comment: "Gone into a widget: its name"))
+        sayWidgetLine(interrupt: false)
+        return true
+    }
+    private static func sayWidgetLine(interrupt: Bool = true) {
+        guard let w = widget, w.lines.indices.contains(w.index) else { return }
+        let l = w.lines[w.index]
+        ObjectNavigator.shared.place(l.element)
+        Tones.focusTick()
+        if interrupt { Speech.cancel() }
+        var words = l.words
+        if l.heading { words += ", " + String(localized: "heading", comment: "A role: a heading") }
+        // (A widget's words are the user's: events, messages. Their length only in the log.)
+        Speech.redactedInLog("widget") { Speech.speakItem(words + ", " + Phrases.position(w.index + 1, of: w.lines.count)) }
+    }
+    static func leaveWidget() {
+        guard widget != nil else { return }
+        widget = nil
+        let gs = groups()
+        guard !gs.isEmpty else { return }
+        let (g, i) = place(in: gs)
+        land(gs, g, i, announceGroup: false)
+    }
 
     /// While the panel is open and TurnOver's cursor is in it, and no menu is open over it: a notification's own menu
     /// (Dismiss, Notification Settings…) had its arrows and Return taken, and Return pressed the notification instead
@@ -148,6 +189,7 @@ enum NotificationCentreNavigator {
     static func moveGroup(_ delta: Int) {
         let gs = groups()
         guard !gs.isEmpty else { Tones.edge(); return }
+        widget = nil
         let (g, _) = place(in: gs)
         let n = g + delta
         guard gs.indices.contains(n) else { Tones.edge(); return }
@@ -158,6 +200,12 @@ enum NotificationCentreNavigator {
     static func firstNotification(_ g: Group) -> Int { g.items.firstIndex { $0.kind != .button } ?? 0 }
 
     static func moveItem(_ delta: Int) {
+        if var w = widget {
+            let n = w.index + delta
+            guard w.lines.indices.contains(n) else { Tones.edge(); return }
+            w.index = n; widget = w
+            sayWidgetLine(); return
+        }
         let gs = groups()
         guard !gs.isEmpty else { Tones.edge(); return }
         let (g, i) = place(in: gs)
@@ -170,13 +218,15 @@ enum NotificationCentreNavigator {
     }
 
     static func space() {
+        if let w = widget { if DesktopNavigator.pressLine(w.lines[w.index].element) { widget = nil } else { Tones.edge() }; return }
         let gs = groups()
         guard !gs.isEmpty else { return }
         let (g, i) = place(in: gs)
         let item = gs[g].items[min(i, gs[g].items.count - 1)]
         switch item.kind {
         case .stack: expand(item.element, app: gs[g].name)
-        case .button, .widget: press(item)
+        case .widget: if !enterWidget(item, name: gs[g].name) { press(item) }
+        case .button: press(item)
         case .notification:
             // In an opened app: Space closes it up again (its Show Less button), as it opened.
             if let less = gs[g].items.first(where: { $0.kind == .button && $0.words.lowercased().contains("show less") }) {
@@ -191,10 +241,13 @@ enum NotificationCentreNavigator {
     }
 
     static func open() {
+        if let w = widget { if DesktopNavigator.pressLine(w.lines[w.index].element) { widget = nil } else { Tones.edge() }; return }
         let gs = groups()
         guard !gs.isEmpty else { return }
         let (g, i) = place(in: gs)
-        press(gs[g].items[min(i, gs[g].items.count - 1)])
+        let item = gs[g].items[min(i, gs[g].items.count - 1)]
+        if item.kind == .widget, enterWidget(item, name: gs[g].name) { return }
+        press(item)
     }
 
     static func close() {
@@ -275,6 +328,7 @@ enum NotificationCentreNavigator {
 
     /// On an item: TurnOver's review cursor there (so its other keys and the context menu act on it), and it said.
     private static func land(_ gs: [Group], _ g: Int, _ i: Int, announceGroup: Bool, interrupt: Bool = true) {
+        widget = nil   // (an item landed on: out of any widget)
         let group = gs[g]
         let item = group.items[i]
         groupName = group.name; itemWords = item.words
@@ -302,6 +356,7 @@ enum NotificationCentreNavigator {
             if said.isEmpty { said = p; continue }
             said += (said.last.map { ".!?…".contains($0) } ?? false) ? " " + p : ". " + p
         }
-        Speech.speakItem(said)
+        // The words are someone's messages: in the log only their length (a tester, 13 Nov 2026).
+        Speech.redactedInLog("\(item.kind)") { Speech.speakItem(said) }
     }
 }

@@ -26,7 +26,7 @@ final class DesktopNavigatorPlugin: GlobalPlugin {
             ("desktop_previous", String(localized: "On the desktop: the previous item in reading order", comment: "A command, as the key list and keyboard help say it"), ["shift+tab"], { DesktopNavigator.step(-1) }),
             ("desktop_first", String(localized: "On the desktop: the first item", comment: "A command, as the key list and keyboard help say it"), ["home"], { DesktopNavigator.edge(last: false) }),
             ("desktop_last", String(localized: "On the desktop: the last item", comment: "A command, as the key list and keyboard help say it"), ["end"], { DesktopNavigator.edge(last: true) }),
-            ("desktop_open", String(localized: "On the desktop: opens the icon, or goes into the widget", comment: "A command, as the key list and keyboard help say it"), ["enter", "space"], { DesktopNavigator.open() }),
+            ("desktop_open", String(localized: "On the desktop: opens the icon, or goes into the widget; in a widget, opens its app at the line", comment: "A command, as the key list and keyboard help say it"), ["enter", "space"], { DesktopNavigator.open() }),
             ("desktop_out", String(localized: "On the desktop: out of the widget; at the desktop, back to the application", comment: "A command, as the key list and keyboard help say it"), ["escape"], { DesktopNavigator.out() }),
         ]
         for (name, desc, gestures, run) in keys {
@@ -168,7 +168,12 @@ enum DesktopNavigator {
     /// Return or Space: an icon opens (Finder's own Open); a widget is gone into.
     static func open() {
         guard let c = current else { return }
-        if lines != nil { return }   // (a widget's lines have nothing to press)
+        // In a widget: the line pressed, which opens the widget's app there (a tester, 13 Nov 2026: "click on an item in
+        // the widget to open its app").
+        if let ls = lines, ls.indices.contains(lineIndex) {
+            if Self.pressLine(ls[lineIndex].element) { lines = nil; leave() } else { Tones.edge() }
+            return
+        }
         let all = items()
         guard let item = all.first(where: { $0.element.isSame(c) }) else { return }
         if item.isWidget {
@@ -185,6 +190,28 @@ enum DesktopNavigator {
         let r = AXUIElementPerformAction(item.element, "AXOpen" as CFString)
         Log.io("desktop: opened \(Log.words(item.name)) → \(describeError(r))")
         if r == .success { Tones.press(); leave() }
+    }
+
+    /// A widget's line pressed: its own press, or its nearest pressable parent's, else a click on it (widgets draw
+    /// their items as text and pictures that open the app where they are clicked).
+    static func pressLine(_ e: AXUIElement) -> Bool {
+        var x: AXUIElement? = e, hops = 0
+        while let y = x, hops < 4 {
+            var names: CFArray?
+            AXUIElementCopyActionNames(y, &names)
+            if ((names as? [String]) ?? []).contains(kAXPressAction as String) {
+                let r = AXUIElementPerformAction(y, kAXPressAction as CFString)
+                Log.io("widget: pressed \(y.role) → \(describeError(r))")
+                if r == .success { Tones.press(); return true }
+                break
+            }
+            x = y.element(kAXParentAttribute); hops += 1
+        }
+        guard let f = TurnOverObject.frame(e), f.width > 0, f.height > 0 else { return false }
+        Log.io("widget: clicked a line (\(e.role))")
+        Tones.press()
+        Mouse.click(at: CGPoint(x: f.midX, y: f.midY), button: .left, count: 1)
+        return true
     }
 
     /// Escape: out of the widget; at the desktop itself, back to the application's focus.

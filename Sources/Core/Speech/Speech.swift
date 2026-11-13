@@ -77,7 +77,7 @@ public enum Speech {
     /// Speech off (or beeps, or on demand): what would have been said still goes in the log on a developer's own Mac
     /// (logSpeech), so a session can be checked afterwards with the speech silent (a tester, 11 Nov 2026).
     private static func logUnspoken(_ text: String) {
-        guard logsWords, !privateNext else { return }
+        guard logsWords, !privateNext, !redactNext else { return }
         let s = cleaned(text)
         if !s.isEmpty { Log.io("say [silent]: \(s.prefix(160))") }
     }
@@ -167,6 +167,7 @@ public enum Speech {
         echoOnly = false
         let voice = Languages.voice(for: language)
         if privateNext { Log.io("say: (private, \(s.count) characters)") }
+        else if redactNext { Log.io("say: (\(redactLabel), \(s.count) characters)") }
         else if Self.logsWords { Log.io("say\(voice != nil ? " [\(language ?? "")]" : ""): \(s.prefix(160))") }
         else { Log.io("say\(voice != nil ? " [\(language ?? "")]" : ""): [\(s.count) characters]") }
         if !privateNext { history.value.append((Date(), s)); if history.value.count > 3000 { history.value.removeFirst(500) } }
@@ -180,7 +181,7 @@ public enum Speech {
         // here, 13 Oct 2026).
         guard player != nil else { completion?(false); return }
         let said = PronunciationDictionary.apply(s)
-        if said != s, Self.logsWords, !privateNext { Log.io("say, as pronounced: \(said.prefix(160))") }
+        if said != s, Self.logsWords, !privateNext, !redactNext { Log.io("say, as pronounced: \(said.prefix(160))") }
         player.speak(said, interrupt: false, voice: kokoro ?? voice, rate: voice == nil ? nil : Languages.rate(for: language), pitch: pitch, onStart: onStart, completion: completion)
     }
     private static var pitchNext: Float?
@@ -192,6 +193,11 @@ public enum Speech {
     public static func speakPrivate(_ text: String) { asPrivate { speakText(text) } }
     /// Whatever is spoken inside is logged only as its length (every part, if the speech is split by language).
     public static func asPrivate(_ speak: () -> Void) { privateNext = true; speak(); privateNext = false }
+    /// Said and kept as usual (speech history, the natural voice), but in the log only its length: notifications,
+    /// whose words are someone's messages (a tester, 13 Nov 2026: "redact the notification contents").
+    private static var redactNext = false
+    private static var redactLabel = ""
+    public static func redactedInLog(_ label: String, _ speak: () -> Void) { redactNext = true; redactLabel = label; speak(); redactNext = false }
 
     /// Strip bidi isolates and marks the Finder puts in names ("⁨Desktop⁩ — iCloud").
     /// A name made of an icon font's private characters says nothing to the ear ("󰋜, button": Bambu Studio's web
