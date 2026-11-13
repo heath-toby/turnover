@@ -30,7 +30,7 @@ final class DesktopNavigatorPlugin: GlobalPlugin {
             ("desktop_out", String(localized: "On the desktop: out of the widget; at the desktop, back to the application", comment: "A command, as the key list and keyboard help say it"), ["escape"], { DesktopNavigator.out() }),
         ]
         for (name, desc, gestures, run) in keys {
-            script(name, desc, gestures: gestures.map { "kb:" + $0 }, category: cat) { _ in run() }.isAvailable = { DesktopNavigator.active }
+            script(name, desc, gestures: gestures.map { "kb:" + $0 }, category: cat) { _ in run() }.isAvailable = { DesktopNavigator.stillActive }
         }
     }
 }
@@ -41,6 +41,17 @@ enum DesktopNavigator {
     struct Line { let element: AXUIElement; let words: String; let heading: Bool }
 
     static var active = false
+    /// The app in front when the desktop was entered (Option D works from any app).
+    private static var enteredOver: pid_t?
+    /// Active, and the app in front then still in front: another app come forward ends it. Left on, Tab in System
+    /// Settings went round the desktop's widgets (13 Nov 2026).
+    static var stillActive: Bool {
+        guard active else { return false }
+        if let p = enteredOver, NSWorkspace.shared.frontmostApplication?.processIdentifier != p {
+            active = false; lines = nil; Log.io("desktop: another app in front; left"); return false
+        }
+        return true
+    }
     private static var current: AXUIElement?
     /// Inside a widget: its lines and where TurnOver is among them.
     private static var lines: [Line]?
@@ -85,6 +96,7 @@ enum DesktopNavigator {
         let all = items()
         guard !all.isEmpty else { Speech.speakMessage(String(localized: "Desktop, empty", comment: "Spoken message")); return }
         active = true; lines = nil
+        enteredOver = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let i = current.flatMap { c in all.firstIndex { $0.element.isSame(c) } } ?? 0
         Log.io("desktop: in, \(all.count) items")
         Speech.cancel()

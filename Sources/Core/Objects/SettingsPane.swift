@@ -636,6 +636,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
     static func holdVirtual(_ target: AXUIElement, speak: Bool = true, ownTab: Bool = true) {
         // A control the app has thrown away meanwhile is no place to hold: the keys would go nowhere from it.
         guard target.role != "?" else { Log.io("settings: the control moved to is gone; not held"); return }
+        let before = virtual ?? API.focusObject?.element
         virtual = target
         lock.lock(); _holding = true; _heldByTrap = false; lock.unlock()   // focus() says if the trap made this hold
         let obj = ObjectFactory.make(target)
@@ -648,6 +649,10 @@ public final class SettingsPanePlugin: GlobalPlugin {
             Speech.cancel()
             // Onto a toolbar held by TurnOver: said, as the focus's ancestors say it when the app's focus goes there.
             if ontoToolbar { Speech.speakMessage(Role.toolBar.displayString) }
+            // Into a pane, a section of it, a row with its words (PaneContext): "Keyboard property page", "Text Input
+            // grouping", "Input Sources, British – PC…", then the control.
+            let context = PaneContext.news(from: before, to: target)
+            if !context.isEmpty { Log.io("settings: context, \(context.count) parts"); Speech.speakMessage(context.joined(separator: ", ")) }
             Speech.speakObject(obj, reason: .focus)
         }
     }
