@@ -870,8 +870,9 @@ public final class BrowseModeDocument: ScriptableObject {
         // arrows (a review, 13 Nov 2026).
         if buffer.isDirty, Self.mayRebuild(lastBuildMs: buffer.lastBuildMs, age: age, cheapAfter: 1) { rebuildKeepingPlace(); return }
         // A control pressed a moment ago and still watched (up to 3 s): what it showed may not have been said by the
-        // browser yet. "Show more" pressed, then Down, read past the text it added (13 Nov 2026).
-        if !Self.watches.isEmpty, buffer.lastBuildMs < 250, age > 0.2 { rebuildKeepingPlace() }
+        // browser yet. "Show more" pressed, then Down, read past the text it added (13 Nov 2026). Once per press in this
+        // page (takeUnreadWatches), not on every key while any press anywhere is watched (a review, 13 Nov 2026).
+        if buffer.lastBuildMs < 250, age > 0.2, takeUnreadWatches() { rebuildKeepingPlace() }
     }
 
     /// Whether a key may read the whole page again now: a page cheap to read (under 250 ms) after `cheapAfter`

@@ -141,17 +141,31 @@ extension BrowseModeDocument {
     /// The presses being watched, oldest first. A new press of the same control ends its older watch; presses of
     /// different controls are watched side by side, each named if it is said after the reader moved on (a code
     /// review, 25 Oct 2026, and the maintainer's Tab, Space, Tab, Space along a row of switches). Main thread.
-    static var watches: [(element: AXUIElement, id: Int)] = []
+    /// Each with the document's root it was pressed in, and whether a key has read the page again for it yet: a key
+    /// reads again once for the watches of its own page, not on every key for any watch anywhere (every key reread for
+    /// up to 3 s after a press, even one in another document; a review, 13 Nov 2026).
+    struct Watch { let element: AXUIElement; let id: Int; let area: AXUIElement; var reread = false }
+    static var watches: [Watch] = []
     static var lastWatch = 0
-    static func beginWatch(_ e: AXUIElement) -> Int {
+    static func beginWatch(_ e: AXUIElement, in area: AXUIElement) -> Int {
         lastWatch += 1
         watches.removeAll { $0.element.isSame(e) }
-        watches.append((e, lastWatch))
+        watches.append(Watch(element: e, id: lastWatch, area: area))
         if watches.count > 6 { watches.removeFirst() }
         return lastWatch
     }
     static func watching(_ id: Int) -> Bool { watches.contains { $0.id == id } }
     static func endWatch(_ id: Int) { watches.removeAll { $0.id == id } }
+    /// Whether a press in this document is still watched.
+    var hasWatches: Bool { Self.watches.contains { $0.area.isSame(webArea) } }
+    /// This document's watches a key has not yet read the page again for, now taken as read for. True if there were any.
+    func takeUnreadWatches() -> Bool {
+        var any = false
+        for i in Self.watches.indices where !Self.watches[i].reread && Self.watches[i].area.isSame(webArea) {
+            Self.watches[i].reread = true; any = true
+        }
+        return any
+    }
 
     /// What a press can change about a control, as the control says it: its value (a check box's 0 or 1, a switch's),
     /// whether it is expanded (a menu button, a disclosure), whether it is selected (a tab, a list item).
@@ -176,7 +190,7 @@ extension BrowseModeDocument {
     /// changed, and the reading position is left where it is.
     func watchStateChange(_ element: AXUIElement, before: ControlState) {
         LiveRegions.watchAfterPress(in: webArea)   // a live region the press changed, if the browser says nothing of it
-        let watch = Self.beginWatch(element)
+        let watch = Self.beginWatch(element, in: webArea)
         let pressedAt = Date()
         let checkable = Self.isCheckable(element)
         let focusAtPress = API.focusObject?.element
@@ -228,7 +242,7 @@ extension BrowseModeDocument {
     private func finishWatch(_ id: Int, _ element: AXUIElement, changed: Bool, movedOn: Bool) {
         Self.endWatch(id)
         if movedOn { buffer.isDirty = true; return }
-        if changed || Self.watches.isEmpty { rebuildKeepingPlace(anchor: element) }
+        if changed || !hasWatches { rebuildKeepingPlace(anchor: element) }
     }
 
     /// NVDA's Elements List (NVDA+F7), VoiceOver's Item Chooser (VO-I): the page's headings, links, form fields,
@@ -445,7 +459,7 @@ extension BrowseModeDocument {
                 // the keyboard is confirmed on it, so the Space can't go to whatever had the focus before; otherwise
                 // the press as before. Never both: one activation, so nothing is pressed twice.
                 if ["AXPopUpButton", "AXMenuButton"].contains(role) {
-                    let activation = Self.beginWatch(x)   // an older watch of this control stops
+                    let activation = Self.beginWatch(x, in: webArea)   // an older watch of this control stops
                     let name = Log.words(x.string(kAXTitleAttribute) ?? x.string(kAXDescriptionAttribute) ?? "")
                     let asked = Date()
                     let focusBefore = API.focusObject?.element
