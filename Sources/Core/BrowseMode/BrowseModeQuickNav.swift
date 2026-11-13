@@ -218,6 +218,15 @@ extension BrowseModeDocument {
                     // A page whose script is stuck takes the request and does nothing until it wakes (the freeze
                     // test, 4 Oct 2026: Tab after Tab was silent). If the focus has not come within a second, say so.
                     PageWatch.keySent(to: y.pid)
+                    // The focus taken without news of it (Mail's message: a nameless group reported while the page
+                    // still said it had the focus, and the first Tab said nothing, a tester, 13 Nov 2026): the line read.
+                    let target = y, keyAt = InputManager.lastKeyDownAt
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                        guard let self, API.focusTreeInterceptor === self, InputManager.lastKeyDownAt == keyAt, position == at,
+                              !(API.focusObject.map { $0.isSameElement(as: target) } ?? false) else { return }
+                        Log.io("browse mode: no focus news from the link; its line read")
+                        speakUnit(.line)
+                    }
                     return true
                 }
                 x = y.element(kAXParentAttribute); hops += 1

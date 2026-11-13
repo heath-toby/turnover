@@ -66,6 +66,11 @@ extension SettingsPanePlugin {
         return list
     }
 
+    /// One of an app's named toolbars (namedToolbars), as last found.
+    static func isNamed(_ e: AXUIElement) -> Bool {
+        namedFound.map { c in c.list.contains { $0.0.isSame(e) } } ?? false
+    }
+
     /// A toolbar: the window's own, or a group that calls itself one (Outlook's two groups titled "Toolbar", 13 Nov 2026),
     /// or one an app's module names.
     static func isToolbar(_ e: AXUIElement, role known: String? = nil) -> Bool {
@@ -90,9 +95,12 @@ extension SettingsPanePlugin {
 
     /// The toolbar a control is an item of.
     static func toolbarFor(_ e: AXUIElement, in w: AXUIElement) -> (AXUIElement, CGRect)? {
-        _ = named(in: w)   // an app's named toolbars known first: inContent stops at them
+        let namedList = named(in: w)   // an app's named toolbars known first: inContent stops at them
         if isToolbar(e), let f = TurnOverObject.frame(e) { return (e, f) }
-        guard let f = TurnOverObject.frame(e), !inContent(e) else { return nil }
+        guard let f = TurnOverObject.frame(e) else { return nil }
+        // A named toolbar's own row first: scrolled up under the window's toolbar, it is still its own.
+        if let parent = e.element(kAXParentAttribute), let n = namedList.first(where: { $0.0.isSame(parent) }) { return inStrip(f, of: n.1) ? n : nil }
+        guard !inContent(e) else { return nil }
         return toolbars(of: w).first { inStrip(f, of: $0.1) }
     }
 
@@ -113,7 +121,14 @@ extension SettingsPanePlugin {
         if let c = FocusChain.of(e) {
             for i in 1..<min(13, c.elements.count) {
                 let r = c.roles[i]
-                if r == "AXWindow" || isToolbar(c.elements[i], role: r) { return false }
+                if r == "AXWindow" { return false }
+                if isToolbar(c.elements[i], role: r) {
+                    // An app's named toolbar holds its own row only, a direct child: Mail's is the whole message, and
+                    // its banner's buttons, scrolled up under the window's see-through toolbar, were counted toolbar
+                    // items (a tester, 13 Nov 2026). Anything deeper in it is the content it is.
+                    if !isNamed(c.elements[i]) || i == 1 { return false }
+                    continue
+                }
                 if ["AXScrollArea", "AXOutline", "AXTable", "AXList", "AXSplitGroup", "AXRow", "AXWebArea"].contains(r) { return true }
             }
             return false
@@ -121,7 +136,8 @@ extension SettingsPanePlugin {
         var p = e.element(kAXParentAttribute); var hops = 0
         while let x = p, hops < 12 {
             let r = x.role
-            if r == "AXWindow" || isToolbar(x) { return false }
+            if r == "AXWindow" { return false }
+            if isToolbar(x) { if !isNamed(x) || hops == 0 { return false }; p = x.element(kAXParentAttribute); hops += 1; continue }
             if ["AXScrollArea", "AXOutline", "AXTable", "AXList", "AXSplitGroup", "AXRow", "AXWebArea"].contains(r) { return true }
             p = x.element(kAXParentAttribute); hops += 1
         }

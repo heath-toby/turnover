@@ -78,6 +78,9 @@ package final class MailAppModule: AppModule {
         case .toolbar(let row): SettingsPanePlugin.focus(SettingsPanePlugin.toolbarStop(content, row) ?? row[0])
         case .body(let web):
             Log.io("mail: Tab into the message")
+            // (A quick Tab from the buttons: the moment their landing sets other focus news aside must not swallow
+            // this one; the message took the keys and nothing was said, a tester, 13 Nov 2026.)
+            SettingsPanePlugin.expected = nil; SettingsPanePlugin.ignoreOthersUntil = .distantPast
             _ = web.set(kAXFocusedAttribute, kCFBooleanTrue)
             AXHandler.shared.focusChanged(web, pid: pid)
         case .control(let c):
