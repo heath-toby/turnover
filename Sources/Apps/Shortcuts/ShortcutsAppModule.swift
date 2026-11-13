@@ -27,6 +27,10 @@ final class ShortcutsAppModule: AppModule {
         }
     }
 
+    /// Tab in reading goes on to the next shortcut or button: Shortcuts' own Tab does nothing in its grid, and Tab there
+    /// said nothing (13 Nov 2026).
+    override var browseTabMovesReadingPosition: Bool { true }
+
     override func browseRoot(for element: AXUIElement, ancestors: [TurnOverObject]) -> AXUIElement? {
         // The window's split group: the sidebar, the grid, the describe box.
         if element.role == "AXSplitGroup", element.element(kAXParentAttribute)?.role == "AXWindow" { return element }
