@@ -112,6 +112,16 @@ func browseModeReviewTests() {
         expect(BrowseModeDocument.samePageFragment(link: "https://example.com/a", page: "https://example.com/a"), nil)
     }
 
+    test("browse mode review: an anchor added, changed or gone is the same page; another address is not") {
+        check(BrowseModeDocument.isSamePage("https://example.com/a#b", "https://example.com/a"), "an anchor followed")
+        check(BrowseModeDocument.isSamePage("https://example.com/a", "https://example.com/a#b"), "Back from the anchor")
+        check(BrowseModeDocument.isSamePage("https://example.com/a#c", "https://example.com/a#b"), "another anchor")
+        check(!BrowseModeDocument.isSamePage("https://example.com/b", "https://example.com/a"), "another page")
+        check(!BrowseModeDocument.isSamePage("https://example.com/b#x", "https://example.com/a#x"), "another page with an anchor")
+        check(!BrowseModeDocument.isSamePage("https://example.com/a", "https://example.com/a"), "unchanged")
+        check(!BrowseModeDocument.isSamePage("https://example.com/a#b", ""), "the first look")
+    }
+
     test("browse mode review: focus mode for a list box or grid, not for a plain list or table that took the focus (NVDA)") {
         expect(BrowseModeDocument.focusModeContainer(.list, subrole: "AXContentList", roleDescription: "list"), false)
         expect(BrowseModeDocument.focusModeContainer(.list, subrole: "AXDescriptionList", roleDescription: nil), false)

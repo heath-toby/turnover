@@ -92,8 +92,10 @@ extension BrowseModeDocument {
 
     /// A link to a place on this page (a contents link, "Jump to content"): the reading goes to its target now and
     /// reads it. Pressed with its address already the page's (the second "Jump to content"), no new address comes, so
-    /// refreshIfNavigated never moved and nothing happened (a review, 13 Nov 2026). The address it leads to is taken as
-    /// this page's, so its arrival doesn't move and read again.
+    /// refreshIfNavigated never moved and nothing happened (a review, 13 Nov 2026). Its address is not taken as the
+    /// page's ahead of time: a link the page's script answers never changes the address, and the next look took the
+    /// unchanged one for a new page, back to the top and announced (a review, 13 Nov 2026). The move noted here keeps
+    /// the address's arrival, if it comes, from moving and reading again.
     func followSamePageLink(_ e: AXUIElement) {
         var x: AXUIElement? = e, hops = 0, link: String?
         while let y = x, hops < 4, link == nil {
@@ -102,8 +104,6 @@ extension BrowseModeDocument {
             x = y.element(kAXParentAttribute); hops += 1
         }
         guard let link, let frag = Self.samePageFragment(link: link, page: url), let at = anchorOffset(frag) else { return }
-        lastURL = link
-        if Self.urlBase(announcedURL) == Self.urlBase(link) { announcedURL = link }
         samePageLinkMove = (at, Date())
         position = at
         Log.io("browse mode: a link to this page's anchor; to it")
@@ -353,6 +353,10 @@ extension BrowseModeDocument {
         let into = max(0, oldPosition - lineStart - lead)
         if !buffer.lines.isEmpty, pageIsGone() { pageGoneAt = Date() }   // a reload, noticed for pageLoadCompleted
         buffer.build(until: deadline)
+        // Read in the middle of a reload, nothing yet: the place is kept for the page coming back (loadedAfterBlank).
+        if buffer.lines.isEmpty, !oldLine.isEmpty || oldPosition > 0 {
+            placeBeforeEmpty = (url, oldLine, into, oldPosition)
+        }
         if let a = anchor, let o = buffer.offset(of: a) { position = o; return }
         position = Self.placeAfterRebuild(oldLine: oldLine, into: into, oldPosition: oldPosition, in: buffer.text)
     }

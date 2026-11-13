@@ -127,17 +127,13 @@ package final class MailAppModule: AppModule {
             // this one; the message took the keys and nothing was said, a tester, 13 Nov 2026.)
             SettingsPanePlugin.expected = nil; SettingsPanePlugin.ignoreOthersUntil = .distantPast
             let hadDocument = BrowseModeHandler.shared.documents.contains { $0.webArea.isSame(web) }
+            // Shift Tab into a message never read before: its say all from the top gives way to its last control (a
+            // review, 13 Nov 2026). Only asked here, before the focus news makes its document: the document places it
+            // and says the line once, as it arrives or when it has loaded (placed here after the announcement, the
+            // line was said twice).
+            if !forward, !hadDocument { BrowseModeDocument.enterAtLastControl(web) }
             _ = web.set(kAXFocusedAttribute, kCFBooleanTrue)
             AXHandler.shared.focusChanged(web, pid: pid)
-            // Shift Tab into a message never read before: its document is made just now, and its say all from the top
-            // gives way to its last control (a review, 13 Nov 2026).
-            if !forward, !hadDocument, let d = API.focusTreeInterceptor, d.webArea.isSame(web) {
-                if d.buffer.lines.isEmpty { d.startAtLastControl = true; return }   // (not loaded yet: placed when it comes)
-                d.noAutoRead = true
-                d.position = d.buffer.find(from: d.buffer.text.length, forward: false, roles: Self.messageControlRoles)?.0 ?? 0
-                Speech.cancel()
-                d.speakUnit(.line)
-            }
         case .control(let c):
             Self.headerAt = nil; Self.messageFocusWasIn = nil
             SettingsPanePlugin.focus(c)

@@ -163,18 +163,25 @@ extension AXHandler {
             if name == "AXLiveRegionChanged", pid == activePid { EventHandler.queue(Event(.liveRegionChange, ObjectFactory.make(element))) }
             if let d = API.focusTreeInterceptor, d.webArea.pid == pid {
                 d.buffer.isDirty = true
+                // The page's own load only: every frame in it (an advertisement) sends AXLoadComplete too, and each was
+                // taken for the page finishing, read again under a say all (a review, 13 Nov 2026).
+                let pageLoaded = name == "AXLoadComplete" && element.isSame(d.webArea)
+                if pageLoaded { loadCompleteSeen = true }
                 // Back, Forward or a link: the page in this web area changed. Once it settles, resume where it was left.
                 if !navigationCheckPending {
                     navigationCheckPending = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + (name == "AXLoadComplete" ? 0.1 : 0.6)) { [weak self] in
-                        self?.navigationCheckPending = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + (pageLoaded ? 0.1 : 0.6)) { [weak self] in
+                        guard let self else { return }
+                        navigationCheckPending = false
+                        let loaded = loadCompleteSeen
+                        loadCompleteSeen = false
                         guard let d2 = API.focusTreeInterceptor, d2 === d, !ScriptHandler.isScriptRunning else { return }
-                        if d2.refreshIfNavigated(announce: !d2.passThrough) { Log.io("browse mode: page changed under the document (\(name))") }
+                        if d2.refreshIfNavigated(announce: !d2.passThrough, byKey: false) { Log.io("browse mode: page changed under the document (\(name))") }
                         else if d2.loadedAfterBlank(announce: !d2.passThrough) { Log.io("browse mode: page finished loading (\(name))") }
                         // Read while still loading, now finished: read again, the reading kept where it is, so say all
                         // and the arrows have the whole page (a review, 13 Nov 2026).
                         // A reload (the same address) is told by the document, which says the title (pageLoadCompleted).
-                        else if name == "AXLoadComplete" { d2.pageLoadCompleted() }
+                        else if loaded { d2.pageLoadCompleted() }
                     }
                 }
             }

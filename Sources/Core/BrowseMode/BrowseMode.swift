@@ -120,18 +120,29 @@ public final class BrowseModeDocument: ScriptableObject {
     var lastURL = ""
 
     /// After Back, Forward or a link: a new page in the same web area. Rebuild, and resume where this page was left.
+    /// `byKey`: asked by a key (an arrow, a letter, Tab), not by the focus or the page's news. A new page found so is
+    /// not announced later: its address taken as announced, the focus arriving on the web area much later announced it
+    /// and read it all out, long after the key had read its line (a review, 13 Nov 2026).
     @discardableResult
-    public func refreshIfNavigated(announce: Bool = false) -> Bool {
+    public func refreshIfNavigated(announce: Bool = false, byKey: Bool = true) -> Bool {
         let now = url
         guard now != lastURL else { return false }
         let first = lastURL.isEmpty
         // The same page, another anchor (a contents link, a footnote, "Jump to content"): to the target, read there,
-        // not the page again from the top with its title (a review, 13 Nov 2026; NVDA moves to the target).
-        func base(_ u: String) -> String { u.components(separatedBy: "#").first ?? u }
-        if !first, base(now) == base(lastURL), let frag = now.components(separatedBy: "#").dropFirst().first, !frag.isEmpty {
+        // not the page again from the top with its title (a review, 13 Nov 2026; NVDA moves to the target). Its anchor
+        // gone again (Back from page#a to page) is the same page too: it was taken for a new one, the reading put at
+        // the top and the page announced again (a review, 13 Nov 2026).
+        if !first, Self.isSamePage(now, lastURL) {
             lastURL = now
-            if base(announcedURL) == base(now) { announcedURL = now }   // not announced again as a page when the focus follows
+            if Self.urlBase(announcedURL) == Self.urlBase(now) { announcedURL = now }   // not announced again as a page when the focus follows
+            // The page's own script moving its anchor under a say all of it: not read again there (its offsets would
+            // mean other text); the next key reads it (a review, 13 Nov 2026).
+            if !byKey, SayAll.isReading(self) { buffer.isDirty = true; return false }
             rebuildKeepingPlace()
+            guard let frag = Self.samePageFragment(link: now, page: now) else {
+                Log.io("browse mode: the same page without its anchor; the reading stays")
+                return false
+            }
             if let at = anchorOffset(frag) {
                 // Gone to and read already as the link was pressed (followSamePageLink), its address spelt otherwise.
                 if let m = samePageLinkMove, m.offset == at, Date().timeIntervalSince(m.at) < 5 { position = at; return false }
@@ -140,11 +151,19 @@ public final class BrowseModeDocument: ScriptableObject {
                 speakUnit(.line)
             } else if followWebKitSelection(force: true) {
                 Log.io("browse mode: to the page's anchor, by WebKit's selection")
+                speakUnit(.line)   // (moved silently before: a review, 13 Nov 2026)
             }
             return false
         }
         lastURL = now
+        // Back or Forward counts for this arrival only: true for 10 s, it made a link followed after Back resume
+        // part way down too (a review, 13 Nov 2026). The page still arriving resumes by it (historyURL).
+        let byHistory = BrowseModeHandler.cameBackByHistory
+        if byHistory { BrowseModeHandler.historyKeyAt = .distantPast }
+        historyURL = byHistory ? now : ""
         if !first {
+            // A say all of the page left reads a copy about to be replaced (its offsets meant other text).
+            if SayAll.isReading(self) { SayAll.stop() }
             buffer.newPage()   // "page read in part" once per page, not per web area (Safari reuses one)
             buffer.build()
             // A new page starts in browse mode, as NVDA's new document does. Focus mode carried over from the page
@@ -152,30 +171,53 @@ public final class BrowseModeDocument: ScriptableObject {
             // (a tester, 12 Oct 2026). A page that puts the focus in a field switches again by itself.
             if passThrough { Log.io("browse mode: a new page; focus mode from the last one ended") }
             passThrough = false; disableAutoPassThrough = false
+            // The rest of what belonged to the page left: its letters turned off, a selection, the control the focus
+            // was last on (a review, 13 Nov 2026).
+            singleLetterNavigation = true; selectionAnchor = nil; lastFocusElement = nil
+            // Safari reuses one web area per tab: a page reached again by a link is a new arrival, read again; only
+            // Back and Forward come back to one announced (a review, 13 Nov 2026).
+            if !byHistory { BrowseModeHandler.forgetAnnounced(webArea) }
         }
-        let saved = BrowseModeHandler.cameBackByHistory ? BrowseModeHandler.shared.savedPosition(for: now) : nil
+        let saved = byHistory ? BrowseModeHandler.shared.savedPosition(for: now) : nil
         let at = resumeOffset(saved)
         position = at
         Log.io("browse mode: page \(Log.words(BrowseModeHandler.shortURL(now))) — resuming at \(position)\(saved == nil ? "" : " (saved \(saved!.offset))")")
         if announce, !buffer.lines.isEmpty { announcePage() }
+        else if !first, byKey, !buffer.lines.isEmpty { announcedURL = now }
         GoogleDocs.checkSoon(self)
         if !first, buffer.lines.isEmpty, webArea.role != "AXWebArea" { followReplacedRoot(tries: 10) }
         return true
     }
 
+    /// Whether `now` is the page at `last` with another anchor, or with its anchor added or gone: the same address
+    /// before the "#". Pure.
+    package static func isSamePage(_ now: String, _ last: String) -> Bool {
+        now != last && !now.isEmpty && !last.isEmpty && urlBase(now) == urlBase(last) && (now.contains("#") || last.contains("#"))
+    }
+
+    /// The address this page arrived at by Back or Forward, for the place it resumes at once it has loaded.
+    var historyURL = ""
+    /// The saved place to resume this page at: only a page come back to by Back or Forward has one.
+    func historySaved() -> BrowseModeHandler.Saved? {
+        historyURL == url && !url.isEmpty ? BrowseModeHandler.shared.savedPosition(for: url) : nil
+    }
+
     /// Where a link to this page's anchor last took the reading, and when (followSamePageLink).
     var samePageLinkMove: (offset: Int, at: Date)?
 
-    /// Where an element with this id (an anchor's target) begins: its line, or a line just inside it.
+    /// Where an element with this id (an anchor's target) begins: its line, or a line just inside it. Each element
+    /// asked once (a wrapped paragraph's lines and a list's items share ancestors), and for a quarter of a second at
+    /// most: on main, a long page asked up to twelve thousand questions (a review, 13 Nov 2026).
     func anchorOffset(_ id: String) -> Int? {
         let wanted = id.removingPercentEncoding ?? id
-        var checked = 0
+        let until = Date().addingTimeInterval(0.25)
+        var seen = Set<AXUIElement>()
         for line in buffer.lines {
             guard let e = line.element else { continue }
+            if Date() > until { Log.io("browse mode: the anchor not found in the time"); return nil }
             var x: AXUIElement? = e
             for _ in 0..<3 {
-                guard let y = x, checked < 6000 else { break }
-                checked += 1
+                guard let y = x, seen.count < 6000, seen.insert(y).inserted else { break }   // (one seen: those above it too)
                 if y.string("AXDOMIdentifier") == wanted { return line.start }
                 x = y.element(kAXParentAttribute)
             }
@@ -198,22 +240,48 @@ public final class BrowseModeDocument: ScriptableObject {
         }
     }
     /// A module placed the reading itself as the page was entered (Mail's Shift Tab into a message, at its last
-    /// control): no automatic say all from the top.
+    /// control): no automatic say all from the top; the line there is said instead, once (placeOnArrival).
     public var noAutoRead = false
     /// The page was entered from below while still empty: when it arrives, the reading starts at its last control.
     public var startAtLastControl = false
     /// What Tab stops on in a page, for "its last control" (one set: Mail's Shift Tab too).
     public static let lastControlRoles: Set<String> = ["AXLink", "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXComboBox", "AXSlider", "AXMenuButton", "AXDisclosureTriangle"]
+    /// A web area about to be entered from below (Mail's Shift Tab into a message), asked before its document may
+    /// exist: the document made for it, or found, starts at its last control.
+    static var lastControlRequest: (area: AXUIElement, at: Date)?
+    public static func enterAtLastControl(_ area: AXUIElement) { lastControlRequest = (area, Date()) }
     /// The page last announced (its title and its reading), so a page is announced once as it arrives.
     var announcedURL = ""
+
+    /// The one place a page's arrival is placed by a module: at its last control if asked (startAtLastControl, or a
+    /// request made before the document existed), which turns the say all from the top into its line. Used by every
+    /// way a page is announced (the focus, its load, the watch for content): Mail's own placing ran after the
+    /// announcement and said the line twice, and only one of those ways honoured the wish (a review, 13 Nov 2026).
+    func placeOnArrival() {
+        if let r = Self.lastControlRequest, r.area.isSame(webArea) {
+            Self.lastControlRequest = nil
+            if Date().timeIntervalSince(r.at) < 30 { startAtLastControl = true }
+        }
+        guard startAtLastControl, !buffer.lines.isEmpty else { return }
+        startAtLastControl = false; noAutoRead = true
+        position = buffer.find(from: buffer.text.length, forward: false, roles: Self.lastControlRoles)?.offset ?? position
+    }
 
     /// NVDA: a page arriving says its title, then is read (automatic say all, on by default), or, with that off,
     /// its first line (or the line it resumes at).
     func announcePage() {
+        placeOnArrival()
         announcedURL = url
+        if noAutoRead {
+            // Placed by a module: its line, once, not the page from the top (Mail's Shift Tab, 13 Nov 2026).
+            noAutoRead = false
+            BrowseModeHandler.noteAnnounced(webArea, url: url)
+            Log.io("browse mode: the page was entered at a place set for it; its line is said")
+            speakUnit(.line)
+            return
+        }
         if BrowseModeHandler.wasAnnounced(webArea, url: url), Date().timeIntervalSince(pageGoneAt) > 30 {
             Log.io("browse mode: back on a page announced before; its title and line are said, not a say all")
-            noAutoRead = false
             let title = pageTitle()
             if !title.isEmpty { Speech.speakMessage(title) }
             if let info = makeTextInfo(.bookmark(Bookmark(start: position, end: position))) { info.expand(.line); speak(info, unit: .line) }
@@ -225,11 +293,15 @@ public final class BrowseModeDocument: ScriptableObject {
         if config.virtualBuffers.autoSayAllOnPageLoad {
             // Not a page the focus only passes through: Mail's message pane, on the way to the search field, had the
             // whole message read out (8 Oct 2026).
+            // Nor over a key pressed in the moment before, or another page by then: the say all started over the key's
+            // own answer (a review, 13 Nov 2026).
+            let keyAt = InputManager.lastKeyDownAt, arrivedAt = url
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                guard let self, API.focusTreeInterceptor === self else { return }
-                // (Once: a later page here is read as ever. The reading was placed: its line, a review, 13 Nov 2026.)
-                if self.noAutoRead { self.noAutoRead = false; self.speakUnit(.line); return }
-                SayAll.readText(from: self.rootObject)
+                guard let self, API.focusTreeInterceptor === self, InputManager.lastKeyDownAt == keyAt, url == arrivedAt else { return }
+                // A place asked for just after the announcement (the document made by the focus news it caused).
+                placeOnArrival()
+                if noAutoRead { noAutoRead = false; speakUnit(.line); return }
+                SayAll.readText(from: rootObject)
             }
         } else if let info = makeTextInfo(.bookmark(Bookmark(start: position, end: position))) {
             info.expand(.line); speak(info, unit: .line)
@@ -250,8 +322,24 @@ public final class BrowseModeDocument: ScriptableObject {
     /// said, as a page arriving says it. A reload was silent, and the reading kept its old offset in the new copy
     /// (a review, 13 Nov 2026).
     public func pageLoadCompleted() {
-        rebuildKeepingPlace()   // notes a copy of a gone page (pageGoneAt)
-        guard Date().timeIntervalSince(pageGoneAt) < 30 else { Log.io("browse mode: page finished loading; read again"); return }
+        // A reload is told by the copy's elements gone, asked before anything is read again.
+        if !buffer.lines.isEmpty, pageIsGone() { pageGoneAt = Date() }
+        guard Date().timeIntervalSince(pageGoneAt) < 30 else {
+            // Only changed: not read again under a say all of this page (its offsets would mean other text), nor more
+            // often than a key may (a slow page held the main thread, a review, 13 Nov 2026). The next key reads it.
+            if SayAll.isReading(self) || !mayRebuildNow() { buffer.isDirty = true; Log.io("browse mode: page finished loading; read again at the next key"); return }
+            rebuildKeepingPlace()
+            Log.io("browse mode: page finished loading; read again")
+            return
+        }
+        // A reload: the copy a say all reads is of the page gone.
+        if SayAll.isReading(self) { SayAll.stop() }
+        rebuildKeepingPlace()
+        sayReloaded()
+    }
+
+    /// A reload noticed (pageGoneAt): said by its title, as a page arriving says it.
+    func sayReloaded() {
         pageGoneAt = .distantPast
         Log.io("browse mode: the page was reloaded; read again at \(position)")
         guard !passThrough else { return }
@@ -278,16 +366,28 @@ public final class BrowseModeDocument: ScriptableObject {
         guard buffer.lines.isEmpty else { return false }
         buffer.build()
         guard !buffer.lines.isEmpty else { return false }
-        let saved = BrowseModeHandler.cameBackByHistory ? BrowseModeHandler.shared.savedPosition(for: url) : nil
-        position = resumeOffset(saved)
-        if startAtLastControl {
-            // Entered from below before it had loaded (Mail's Shift Tab): its last control, not its top.
-            startAtLastControl = false; noAutoRead = true
-            position = buffer.find(from: buffer.text.length, forward: false, roles: Self.lastControlRoles)?.offset ?? position
-        }
+        let saved = historySaved()
+        let kept = restorePlaceBeforeEmpty()
+        if !kept { position = resumeOffset(saved) }
+        placeOnArrival()   // entered from below before it had loaded (Mail's Shift Tab): its last control, not its top
         VoiceOverSounds.play("WebAreaLoaded.aiff")   // VoiceOver's "web area loaded", the sound its list has for a page
-        Log.io("browse mode: page arrived — resuming at \(position)\(saved == nil ? "" : " (saved \(saved!.offset))")")
+        Log.io("browse mode: page arrived — resuming at \(position)\(kept ? " (where it was before it emptied)" : saved == nil ? "" : " (saved \(saved!.offset))")")
         if announce, url != announcedURL { announcePage() }
+        else if kept, announce, Date().timeIntervalSince(pageGoneAt) < 30 { sayReloaded() }   // a reload read mid-way: said, not silent
+        return true
+    }
+
+    /// The place the reading had when a read of the page came back empty (read in the middle of a reload), at the
+    /// address it was on: kept for the page coming back, rather than the top. The empty read put the reading at 0 and
+    /// the page came back at its top, silently (a review, 13 Nov 2026).
+    var placeBeforeEmpty: (url: String, line: String, into: Int, offset: Int)?
+    /// The page has content again at the same address: the reading back where it was before it emptied. True if so.
+    @discardableResult
+    func restorePlaceBeforeEmpty() -> Bool {
+        guard let k = placeBeforeEmpty, !buffer.lines.isEmpty else { return false }
+        placeBeforeEmpty = nil
+        guard k.url == url else { return false }
+        position = Self.placeAfterRebuild(oldLine: k.line, into: k.into, oldPosition: k.offset, in: buffer.text)
         return true
     }
 
@@ -401,6 +501,11 @@ public final class BrowseModeDocument: ScriptableObject {
         script("tabFromCaret", String(localized: "Next link or control; moves to the next link or control after the reading position (Shift: before it)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab", "kb:shift+tab"], category: nav) { [weak self] g in
             guard let self else { return }
             BrowseModeDocument.lastTabFromCaretAt = Date()
+            // The copy of the page now, as the arrows have it: Tab just after a link was followed searched the copy of
+            // the page left (a review, 13 Nov 2026).
+            refreshIfNavigated()
+            if buffer.lines.isEmpty { buffer.build() }
+            rebuildIfCheap()
             // From a field of a Safari page in focus mode (tabIsTurnOversInField): on from the field. Another field
             // takes the focus; a check box, button or link can't in Safari, so the reading position goes there and
             // browse mode comes back (Space and Return press it there).
@@ -636,7 +741,7 @@ public final class BrowseModeDocument: ScriptableObject {
         // and every key said "no next heading").
         guard buffer.lines.isEmpty, url != "about:blank" else { return true }
         buffer.build()
-        guard buffer.lines.isEmpty else { Log.io("browse mode: the page has arrived"); return true }
+        guard buffer.lines.isEmpty else { restorePlaceBeforeEmpty(); Log.io("browse mode: the page has arrived"); return true }
         // Safari can swap in a new web area on a reload (6 Oct 2026, fast.com: after Command R the copy was
         // of the old one, one element and no address, while the page was there and Tab reached it). The window's
         // web area now, if it is another one, is the page: move there, as Tab did.
@@ -676,10 +781,11 @@ public final class BrowseModeDocument: ScriptableObject {
                 }
                 if !buffer.lines.isEmpty {
                     watchingFor = ""
+                    let kept = restorePlaceBeforeEmpty()
                     // Once: AXLoadComplete may have announced it already (the title was said twice, 12 Oct 2026).
                     guard url != announcedURL else { Log.io("browse mode: the page arrived after \(n + 1) s (already announced)"); return }
                     Log.io("browse mode: the page arrived after \(n + 1) s")
-                    if API.focusTreeInterceptor === self, !passThrough { position = resumeOffset(BrowseModeHandler.cameBackByHistory ? BrowseModeHandler.shared.savedPosition(for: url) : nil); announcePage() }
+                    if API.focusTreeInterceptor === self, !passThrough { if !kept { position = resumeOffset(historySaved()) }; announcePage() }
                     return
                 }
                 if n < 29 { look(n + 1) } else { watchingFor = ""; Log.io("browse mode: still nothing on the page after 30 s") }
