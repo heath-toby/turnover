@@ -230,7 +230,7 @@ public final class MediaView {
                 apply(result?.built)
                 loadingMore = false
                 runQueued()
-                guard sidebar.isEmpty else { return }
+                guard result?.built?.sidebar.isEmpty == true, sidebar.isEmpty else { return }
                 read(.build(keepSidebar: false, detectVideo: false), capturedWindow: window) { [weak self] full in
                     guard let self, let b = full?.built, !b.sidebar.isEmpty else { return }
                     apply(b)   // (the same page: merged, the reading where it is; the sidebar and the page's title now in)
@@ -251,7 +251,8 @@ public final class MediaView {
         read(.build(keepSidebar: true, detectVideo: false)) { [weak self] result in
             guard let self else { return }
             apply(result?.built); then()
-            guard !keepSidebar else { return }
+            // (A second read only when the first came without a sidebar: none read yet.)
+            guard !keepSidebar, result?.built?.sidebar.isEmpty == true else { return }
             read(.build(keepSidebar: false, detectVideo: false)) { [weak self] full in
                 guard let self, let b = full?.built, !b.sidebar.isEmpty else { return }
                 apply(b)
