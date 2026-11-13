@@ -173,9 +173,13 @@ extension AXHandler {
                     DispatchQueue.main.asyncAfter(deadline: .now() + (pageLoaded ? 0.1 : 0.6)) { [weak self] in
                         guard let self else { return }
                         navigationCheckPending = false
+                        // Another page in front now: its load is not this one's.
+                        guard let d2 = API.focusTreeInterceptor, d2 === d else { loadCompleteSeen = false; return }
+                        // Kept while a script runs, for the next check: reset before this guard, a load that came while a
+                        // script ran was dropped, and the page was never read again (a review, 13 Nov 2026).
+                        guard !ScriptHandler.isScriptRunning else { return }
                         let loaded = loadCompleteSeen
                         loadCompleteSeen = false
-                        guard let d2 = API.focusTreeInterceptor, d2 === d, !ScriptHandler.isScriptRunning else { return }
                         if d2.refreshIfNavigated(announce: !d2.passThrough, byKey: false) { Log.io("browse mode: page changed under the document (\(name))") }
                         else if d2.loadedAfterBlank(announce: !d2.passThrough) { Log.io("browse mode: page finished loading (\(name))") }
                         // Read while still loading, now finished: read again, the reading kept where it is, so say all
