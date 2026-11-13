@@ -21,6 +21,83 @@ package final class MailAppModule: AppModule {
     /// A message's header group, and the group holding it with the message's buttons. Two layouts: groups described
     /// "message headers" in "message content" (a conversation, 12 Nov 2026), or, for a single message, groups named by
     /// the message ("…, Headers") with identifiers message_header in message_view (macOS 27.2, 13 Nov 2026).
+    /// One stop on Tab through a message.
+    enum MessageStop { case control(AXUIElement), fields(AXUIElement), toolbar([AXUIElement]), body(AXUIElement) }
+
+    /// The message's group (`message_view`, or the older "message content") holding `e`.
+    static func contentGroup(of e: AXUIElement) -> AXUIElement? {
+        var x: AXUIElement? = e, hops = 0
+        while let y = x, hops < 14 { if isContentGroup(y) { return y }; x = y.element(kAXParentAttribute); hops += 1 }
+        return nil
+    }
+
+    /// The message's stops, top to bottom (then left to right): its controls, the header's fields as one stop, the
+    /// row of buttons level with Reply as one, and the message's text.
+    static func messageStops(_ content: AXUIElement) -> [MessageStop] {
+        var placed: [(MessageStop, CGRect)] = []
+        let kids = content.elements(kAXChildrenAttribute)
+        if let area = headerArea(in: content), let f = TurnOverObject.frame(area) { placed.append((.fields(area), f)) }
+        let buttons = kids.filter { ["AXButton", "AXMenuButton"].contains($0.role) }.compactMap { b in TurnOverObject.frame(b).map { (b, $0) } }
+        var row: [(AXUIElement, CGRect)] = []
+        if let reply = buttons.first(where: { $0.0.string(kAXDescriptionAttribute) == "Reply" }) {
+            row = buttons.filter { abs($0.1.midY - reply.1.midY) < 4 }.sorted { $0.1.minX < $1.1.minX }
+            if row.count >= 2 { placed.append((.toolbar(row.map(\.0)), row.map(\.1).reduce(row[0].1) { $0.union($1) })) } else { row = [] }
+        }
+        let controlRoles: Set<String> = ["AXButton", "AXMenuButton", "AXLink", "AXCheckBox", "AXPopUpButton", "AXRadioButton"]
+        var queue = kids, seen = 0
+        while !queue.isEmpty, seen < 300 {
+            let e = queue.removeFirst(); seen += 1
+            let r = e.role
+            if ["AXScrollArea", "AXScrollBar", "AXWebArea", "AXTextArea"].contains(r) { continue }   // the text, and the header's fields
+            if controlRoles.contains(r) {
+                guard !row.contains(where: { $0.0.isSame(e) }), (e.attr(kAXEnabledAttribute) as? Bool) != false,
+                      let f = TurnOverObject.frame(e), f.width > 1, f.height > 1 else { continue }
+                placed.append((.control(e), f)); continue
+            }
+            queue += e.elements(kAXChildrenAttribute)
+        }
+        if let web = messageBody(in: content), let f = TurnOverObject.frame(web) { placed.append((.body(web), f)) }
+        return placed.sorted { a, b in abs(a.1.minY - b.1.minY) > 4 ? a.1.minY < b.1.minY : a.1.minX < b.1.minX }.map(\.0)
+    }
+
+    static func stopIndex(of f: AXUIElement, in stops: [MessageStop]) -> Int? {
+        stops.firstIndex { s in
+            switch s {
+            case .control(let c): return c.isSame(f)
+            case .fields(let a): return a.isSame(f)
+            case .toolbar(let row): return row.contains { $0.isSame(f) }
+            case .body(let w): return w.isSame(f)
+            }
+        }
+    }
+
+    /// To a stop: Shift Tab into the fields lands on the last, into the toolbar on its item last used.
+    func go(_ stop: MessageStop, forward: Bool, in content: AXUIElement) {
+        switch stop {
+        case .fields(let area): goHeader(area, forward ? 0 : max(0, Self.headerFields(area).count - 1))
+        case .toolbar(let row): SettingsPanePlugin.focus(SettingsPanePlugin.toolbarStop(content, row) ?? row[0])
+        case .body(let web):
+            Log.io("mail: Tab into the message")
+            _ = web.set(kAXFocusedAttribute, kCFBooleanTrue)
+            AXHandler.shared.focusChanged(web, pid: pid)
+        case .control(let c):
+            Self.headerAt = nil
+            SettingsPanePlugin.focus(c)
+            // A banner's words (a mailing list's: "This message is from a mailing list."), once, coming into it.
+            var x = c.element(kAXParentAttribute), hops = 0
+            while let y = x, hops < 3, !Self.isContentGroup(y) {
+                if y.role == "AXUnknown", let d = y.string(kAXDescriptionAttribute), !d.isEmpty, !(Self.lastBanner.map { $0.isSame(y) } ?? false) {
+                    Self.lastBanner = y
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { Speech.speakMessage(d) }
+                    return
+                }
+                x = y.element(kAXParentAttribute); hops += 1
+            }
+            Self.lastBanner = nil
+        }
+    }
+    static var lastBanner: AXUIElement?
+
     /// The message's text: the web area in its content group, not in its header.
     static func messageBody(in content: AXUIElement) -> AXUIElement? {
         var queue = content.elements(kAXChildrenAttribute).filter { !isHeadersGroup($0) && !["AXButton", "AXMenuButton", "AXStaticText"].contains($0.role) }
@@ -280,60 +357,51 @@ package final class MailAppModule: AppModule {
             guard let self, let f = API.focusObject?.element else { g.send(); return }
             self.focusList("messages", from: f)
         }.isAvailable = { Self.place == "mailboxes" }
-        // The header fields on Tab: from the message list into the shown message's first field; along the fields;
-        // past the last, the header's toolbar; Shift Tab back from its toolbar to the last field.
-        // From the message's buttons, Tab goes into the message itself. Left to the window's order, a message with a
-        // link in its header or a mailing list's banner put its text before the buttons, and Tab from them went back
-        // to the message list (a tester, 13 Nov 2026: the reading pane seen by object navigation, never by Tab).
-        script("mail_buttonsToMessage", String(localized: "Reading a message: from its buttons into the message", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Mail") { [weak self] g in
-            guard let self, let f = API.focusObject?.element, Self.isHeaderButton(f), let content = f.element(kAXParentAttribute),
-                  let web = Self.messageBody(in: content) else { g.send(); return }
-            Log.io("mail: Tab from the message's buttons into the message")
-            _ = web.set(kAXFocusedAttribute, kCFBooleanTrue)
-            AXHandler.shared.focusChanged(web, pid: self.pid)
-        }.isAvailable = {
-            guard let f = API.focusObject?.element, Self.isHeaderButton(f) else { return false }
-            return true
-        }
-        script("mail_headerNext", String(localized: "Reading a message: the next header field (From, Subject, To, Cc), then its buttons", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Mail") { [weak self] g in
+        // Tab through a message, top to bottom, every control in it (a tester, 13 Nov 2026: "we can't filter the stuff
+        // that some might call important and others not"): a summary button, a mailing list's banner (Unsubscribe,
+        // close), the header's fields one by one, its Details, the message's buttons as one toolbar stop, then the
+        // message itself. Shift Tab back the same way; from the first stop, the message list.
+        script("mail_messageNext", String(localized: "Reading a message: the next of its parts (banners, header fields, buttons, the message)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Mail") { [weak self] g in
             guard let self, let f = API.focusObject?.element else { g.send(); return }
-            if Self.isHeaderArea(f) {
-                let i = Self.headerAt.flatMap { $0.area.isSame(f) ? $0.index : nil } ?? 0
-                if i + 1 < Self.headerFields(f).count { self.goHeader(f, i + 1); return }
-                // Past the last field: the buttons, one stop (the toolbar's last used, else its first).
-                Self.headerAt = nil
-                if let c = f.element(kAXParentAttribute)?.element(kAXParentAttribute),
-                   let b = c.elements(kAXChildrenAttribute).first(where: { Self.isHeaderButton($0) }) {
-                    let row = c.elements(kAXChildrenAttribute).filter { Self.isHeaderButton($0) }
-                    let stop = SettingsPanePlugin.toolbarStop(c, row) ?? b
-                    SettingsPanePlugin.focus(stop); return
-                }
-                g.send(); return
+            if Self.place == "messages", !Self.isHeaderArea(f), Self.contentGroup(of: f) == nil {
+                guard let content = Self.headerAreaFromList(f)?.element(kAXParentAttribute)?.element(kAXParentAttribute),
+                      let first = Self.messageStops(content).first else { g.send(); return }
+                self.go(first, forward: true, in: content); return
             }
-            guard let area = Self.place == "messages" ? Self.headerAreaFromList(f) : Self.headerArea(near: f) else { g.send(); return }
-            self.goHeader(area, 0)
+            guard let content = Self.contentGroup(of: f) else { g.send(); return }
+            let stops = Self.messageStops(content)
+            guard let i = Self.stopIndex(of: f, in: stops) else { g.send(); return }
+            if case .fields(let area) = stops[i] {
+                let k = Self.headerAt.flatMap { $0.area.isSame(area) ? $0.index : nil } ?? 0
+                if k + 1 < Self.headerFields(area).count { self.goHeader(area, k + 1); return }
+                Self.headerAt = nil
+            }
+            guard i + 1 < stops.count else { g.send(); return }
+            self.go(stops[i + 1], forward: true, in: content)
         }.isAvailable = {
             guard let f = API.focusObject?.element else { return false }
-            return Self.isHeaderArea(f) || (Self.place == "messages" && Self.headerAreaFromList(f) != nil)
+            if Self.place == "messages", !Self.isHeaderArea(f), Self.contentGroup(of: f) == nil { return Self.headerAreaFromList(f) != nil }
+            guard !SettingsPanePlugin.isInWeb(f), f.role != "AXWebArea", let content = Self.contentGroup(of: f) else { return false }
+            return Self.stopIndex(of: f, in: Self.messageStops(content)) != nil
         }
-        script("mail_headerPrevious", String(localized: "Reading a message: the previous header field", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Mail") { [weak self] g in
-            guard let self, let f = API.focusObject?.element else { g.send(); return }
-            if Self.isHeaderArea(f) {
-                let i = Self.headerAt.flatMap { $0.area.isSame(f) ? $0.index : nil } ?? 0
-                if i > 0 { self.goHeader(f, i - 1); return }
+        script("mail_messagePrevious", String(localized: "Reading a message: the previous of its parts; from the first, the message list", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Mail") { [weak self] g in
+            guard let self, let f = API.focusObject?.element, let content = Self.contentGroup(of: f) ?? Self.headerArea(near: f).flatMap({ Self.contentGroup(of: $0) }) else { g.send(); return }
+            let stops = Self.messageStops(content)
+            let i = (f.role == "AXWebArea" || SettingsPanePlugin.isInWeb(f)) ? stops.lastIndex(where: { if case .body = $0 { return true }; return false }) : Self.stopIndex(of: f, in: stops)
+            guard let i else { g.send(); return }
+            if case .fields(let area) = stops[i] {
+                let k = Self.headerAt.flatMap { $0.area.isSame(area) ? $0.index : nil } ?? 0
+                if k > 0 { self.goHeader(area, k - 1); return }
                 Self.headerAt = nil
-                self.focusList("messages", from: f); return
             }
-            // From the message itself, before its first link or button: up to its header's buttons.
-            if !Self.isHeaderButton(f), let area = Self.headerArea(near: f), let c = area.element(kAXParentAttribute)?.element(kAXParentAttribute) {
-                let row = c.elements(kAXChildrenAttribute).filter { Self.isHeaderButton($0) }
-                if let stop = SettingsPanePlugin.toolbarStop(c, row) ?? row.first { Log.io("mail: Shift Tab from the message to its header's buttons"); SettingsPanePlugin.focus(stop); return }
-            }
-            guard let area = Self.headerArea(near: f) else { g.send(); return }
-            self.goHeader(area, max(0, Self.headerFields(area).count - 1))
+            guard i > 0 else { self.focusList("messages", from: f); return }
+            Log.io("mail: Shift Tab to the message's part \(i) of \(stops.count)")
+            self.go(stops[i - 1], forward: false, in: content)
         }.isAvailable = {
             guard let f = API.focusObject?.element else { return false }
-            return Self.isHeaderArea(f) || Self.isHeaderButton(f) || Self.atMessageStart()
+            if Self.atMessageStart() { return true }
+            guard !SettingsPanePlugin.isInWeb(f), f.role != "AXWebArea", let content = Self.contentGroup(of: f) else { return false }
+            return Self.stopIndex(of: f, in: Self.messageStops(content)) != nil
         }
         // Escape leaves the message being read, as in Outlook on Windows (7 Oct 2026): a message in its own
         // window closes, and the keys go back to the message list; in the main window, the list takes the keys.
