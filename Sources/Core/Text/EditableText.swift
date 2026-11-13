@@ -305,6 +305,8 @@ open class EditableText: TurnOverObject {
         if noRoom {
             Log.io("edge: nothing \(backwards ? "before" : "after") the caret (\(info.start) of \(length)); sent unwaited")
             gesture.send()
+            // Control Home at the top, Control End at the bottom (Command Up, Down): the line, no edge, as NVDA.
+            if gesture.modifiers == [.command] { caretMoved(speak: .line, gesture: gesture, info: info); return }
             Tones.edge(keySent: true, sound: boundarySound)
             caretMoved(speak: readsLineAtEdge ? .line : nil, gesture: gesture, info: info)
             return
@@ -368,6 +370,14 @@ open class EditableText: TurnOverObject {
                 case .gaveWay: return
                 case .stayed: break
                 }
+            }
+            // Home, End, Control Home, Control End (Command and the arrows) where the caret already is: read there, no
+            // edge, as NVDA (a sweep, 13 Nov 2026: Home at a line's start and Control Home at the top said nothing).
+            let jump = (gesture.modifiers == [.command] && ["leftArrow", "rightArrow", "upArrow", "downArrow"].contains(gesture.keyName))
+                || (gesture.modifiers.isEmpty && ["home", "end"].contains(gesture.keyName))
+            if jump {
+                caretMoved(speak: ["upArrow", "downArrow"].contains(gesture.keyName) ? .line : .character, gesture: gesture, info: newInfo)
+                return
             }
             Log.io("edge: caret did not move (old line \(oldLine.start)-\(oldLine.end), caret \(newInfo?.start ?? -1))")
             Tones.edge(keySent: true, sound: boundarySound)

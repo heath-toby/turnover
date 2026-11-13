@@ -94,7 +94,15 @@ public enum ScriptHandler {
         let started = DispatchTime.now()
         DispatchQueue.main.async { MainActor.assumeIsolated {
             var handled = gesture
-            if let alternative, findScript(for: gesture) == nil { handled = alternative; usedAlternative.value = true }
+            if let alternative {
+                let own = findScript(for: gesture)
+                // No command for the Windows key: the Mac key it becomes. Or the same command for both (End and
+                // Command Right both a text field's caret move): the Mac key too, so the app gets the key that moves
+                // its caret. End went on to TextEdit as End, which only scrolls, and said nothing (a sweep, 13 Nov 2026).
+                if own == nil || own.map({ o in findScript(for: alternative).map { $0.name == o.name } ?? false }) == true {
+                    handled = alternative; usedAlternative.value = true
+                }
+            }
             let taken = InputManager.handleKeyDown(handled)
             var late = false
             state.lock.lock()
