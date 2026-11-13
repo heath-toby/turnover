@@ -164,7 +164,6 @@ public enum Speech {
         // Speech that came with its text as written (a message, text from the screen) keeps it for "copy last
         // spoken"; anything else (an object: "alert, dialog") is copied as spoken.
         if rawPending { rawPending = false } else { lastRaw = "" }
-        echoOnly = false
         let voice = Languages.voice(for: language)
         if privateNext { Log.io("say: (private, \(s.count) characters)") }
         else if redactNext { Log.io("say: (\(redactLabel), \(s.count) characters)") }
@@ -600,6 +599,7 @@ public enum Speech {
         onlyBlank = false
         let spellingError = String(localized: "spelling error", comment: "Said before a misspelled word")
         var text = info.text
+        let rawText = text
         var prefix: [String] = []
         if unit != .character {
             let fields = info.controlFieldSpeech()
@@ -653,7 +653,8 @@ public enum Speech {
         }
         // A misspelled word inside the line, not only at its start: "spelling error" before it, as NVDA says it.
         if reason != .sayAll, unit == .line || unit == .paragraph || unit == .sentence, config.documentFormatting.spellingErrors != .off {
-            let ranges = info.misspelledRanges()
+            // (By the raw text's offsets: moved onto the text as spoken where a web page's control fields put words in.)
+            let ranges = Self.moveRanges(info.misspelledRanges(), from: rawText, to: text)
             if !ranges.isEmpty {
                 // By offset, last to first ("cat" after "concatenate" was marked in the wrong place: code review, 16 Oct 2026).
                 let ns = text as NSString
@@ -708,28 +709,53 @@ public enum Speech {
         return ([ui(prefix.joined(separator: " "))] + [processed(trimmed, locale: letterLocale)]).filter { !$0.isEmpty }.joined(separator: " ")
     }
 
+    /// Ranges in `raw` moved onto `text`, the same text with words put in (a web page's "link" before a link) or its
+    /// ends trimmed: each range's word is found as the same occurrence of that word in `text`, so the third "cat"
+    /// stays the third and "cat" inside "concatenate" counts in both. A range that can't be found is dropped.
+    public static func moveRanges(_ ranges: [NSRange], from raw: String, to text: String) -> [NSRange] {
+        if raw == text { return ranges }
+        let r = raw as NSString, t = text as NSString
+        func find(_ w: String, in s: NSString, from: Int) -> NSRange? {
+            guard from < s.length else { return nil }
+            let f = s.range(of: w, options: .literal, range: NSRange(location: from, length: s.length - from))
+            return f.location == NSNotFound ? nil : f
+        }
+        return ranges.compactMap { range in
+            guard range.length > 0, NSMaxRange(range) <= r.length else { return nil }
+            let w = r.substring(with: range)
+            var k = 0, from = 0
+            while let f = find(w, in: r, from: from), f.location < range.location { k += 1; from = f.location + 1 }
+            var found: NSRange?
+            from = 0
+            for _ in 0...k { guard let f = find(w, in: t, from: from) else { return nil }; found = f; from = f.location + 1 }
+            return found
+        }
+    }
+
     // MARK: - Typing
 
     /// NVDA: speakTypedCharacters. Characters are echoed per the setting; a word is echoed when a non-word character ends it.
-    /// True while what is queued is only the echo of typing: a typed key then does not cut it short
-    /// (fast typing lost the "period" after "fast."). Any other speech clears it.
-    public private(set) static var echoOnly = false
+    /// (An `echoOnly` flag that was meant to stop a typed key cutting off the echo of earlier typing was set here and
+    /// read nowhere: every key cancels speech, NVDA's "interrupt speech for typed characters", which InputManager
+    /// chose on 3 Oct 2026. It was removed rather than half-used: a review, 13 Nov 2026.)
     /// The echo of typing is spoken as private: the log keeps only its length and the history a feedback report
     /// carries leaves it out, so what was typed never reaches a report (a contributor reading the code, 20 Oct 2026).
     private static func echo(_ text: String) { asPrivate { echoSpeech(text) } }
+    /// Whether a word's end is echoed as a word in this kind of field (the typed-words setting).
+    public static func echoesTypedWords(editable: Bool) -> Bool {
+        let mode = config.keyboard.speakTypedWords
+        return mode == .always || (mode == .editControls && editable)
+    }
     private static func echoSpeech(_ text: String) {
-        let wasEcho = echoOnly || !(player?.isBusy ?? false)
         // A typed letter or short word in another script (Arabic in Safari, Brave, TextEdit) in that script's voice:
         // too short for the language guess, so silent under an English voice (a tester, ; wishlist 7).
         let letters = text.unicodeScalars.filter { CharacterSet.letters.contains($0) }
         if let first = letters.first, letters.allSatisfy({ $0.value > 0x024F }),
            let lang = Languages.forCharacter(String(Character(first)), marked: nil) {
             enqueue(text, language: lang)
-            echoOnly = wasEcho
             return
         }
         enqueue(text)
-        echoOnly = wasEcho
     }
 
     /// `wordBefore`: the word before the caret as the field now holds it. After Backspace the letters typed no longer
@@ -756,8 +782,7 @@ public enum Speech {
             backspacedSinceWord = false
             Log.io("typed word (\(word.count) characters)")
             lastTypedWordSpoken = nil
-            let mode = config.keyboard.speakTypedWords
-            if mode == .always || (mode == .editControls && editable) {
+            if echoesTypedWords(editable: editable) {
                 lastTypedWordSpoken = word
                 // The word and the character that ended it in one breath ("fast period"): the next key cuts speech
                 // short, and two separate echoes lost the second.
@@ -793,10 +818,12 @@ public enum Speech {
     /// sounded misspelt (21 Oct 2026). Taken means the text holds the ending character at or after `notBefore` (where
     /// the word began, a UTF-16 offset into `text`, as the caret's are): the first one there, whatever was typed on
     /// after it (a space after a full stop, the next word). A straight double quote also matches the curly ones the
-    /// field puts in its place.
+    /// field puts in its place, and a space the non-breaking space a web editor puts at the end of its text (Mail's
+    /// body and Chromium's boxes; the word waited the full 100 ms and fell back to the letters typed: a review,
+    /// 13 Nov 2026, as MailMessageBody's autocorrect check already allowed).
     public static func fieldWord(endedBy ch: Character, before text: String, notBefore: Int? = nil) -> (taken: Bool, word: String?, next: Int?) {
         func inWord(_ c: Character) -> Bool { c.isLetter || c.isNumber || c == "'" || c == "’" }
-        func ends(_ c: Character) -> Bool { c == ch || (ch.isNewline && c.isNewline) || (ch == "\"" && "“”„".contains(c)) }
+        func ends(_ c: Character) -> Bool { c == ch || (ch.isNewline && c.isNewline) || (ch == "\"" && "“”„".contains(c)) || (ch == " " && c == "\u{a0}") }
         let t = Array(text)
         var found: Int?
         if let start = notBefore {

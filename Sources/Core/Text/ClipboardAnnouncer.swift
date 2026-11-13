@@ -24,7 +24,14 @@ public enum ClipboardAnnouncer {
         let before = NSPasteboard.general.changeCount
         DispatchQueue.main.asyncAfter(deadline: .now() + (kind == "pasted" ? 0.15 : 0.3)) {
             if kind != "pasted", NSPasteboard.general.changeCount == before { return }   // nothing was copied
-            guard kind == "pasted" else { Speech.speakMessage(spoken(kind), remember: false); return }
+            // Copy and cut say what went to the clipboard, as paste does ("copied, the words"): a review, 13 Nov 2026.
+            // Private, as a paste is: a copied password or code never reaches the history.
+            guard kind == "pasted" else {
+                if kind == "copied path" { Speech.speakMessage(spoken(kind), remember: false); return }
+                let text = NSPasteboard.general.string(forType: .string)
+                Speech.asPrivate { Speech.speakMessage(copiedSpeech(kind, text: text), remember: false) }
+                return
+            }
             Speech.asPrivate { Speech.speakMessage(pastedSpeech(), remember: false) }   // a pasted token or password never reaches the history (code review, 16 Oct 2026)
         }
     }
@@ -39,6 +46,14 @@ public enum ClipboardAnnouncer {
         case "copied path": return String(localized: "copied path", comment: "Command Option C pressed in Finder")
         default: return String(localized: "pasted", comment: "Command V pressed")
         }
+    }
+
+    /// "copied, " or "cut, " and the text, its first 100 characters and "…" when longer; the bare word without text
+    /// (a copied file has a name; an image has none).
+    public static func copiedSpeech(_ kind: String, text: String?) -> String {
+        guard let t = text?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return spoken(kind) }
+        let shown = t.count > 100 ? String(t.prefix(100)) + "…" : t
+        return kind == "cut" ? String(localized: "cut, \(shown)", comment: "Cut text: the text") : String(localized: "copied, \(shown)", comment: "Copied text: the text")
     }
 
     static func pastedSpeech() -> String {

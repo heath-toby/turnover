@@ -443,7 +443,15 @@ open class AXTextInfo: TextInfo {
     }
 
     open override func characterStoryLength() -> Int? {
-        textElement.int(kAXNumberOfCharactersAttribute)
+        Self.characterCount(numberOfCharacters: textElement.int(kAXNumberOfCharactersAttribute), value: { textElement.string(kAXValueAttribute) })
+    }
+    /// The count the app gives, else its value's length. A field with no AXNumberOfCharacters (some Electron and
+    /// custom fields) had no characters at all, so every Left and Right said "blank" (a review, 13 Nov 2026). The
+    /// value is what storyLength already reads for such a field, and character reads beyond 4,096 characters are
+    /// refused by rawTextRange's value limit, so a large value is still never sliced character by character.
+    nonisolated public static func characterCount(numberOfCharacters: Int?, value: () -> String?) -> Int? {
+        if let n = numberOfCharacters { return n }
+        return value().map { ($0 as NSString).length }
     }
 
     open override func textRange(_ s: Int, _ e: Int) -> String {

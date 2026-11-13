@@ -84,7 +84,7 @@ extension AXHandler {
                 self.focusChanged(f, pid: pid)
             }
         case kAXSelectedTextChangedNotification:
-            EventHandler.queue(Event(.caret, object(for: element)))
+            EventHandler.queue(Event(.caret, selectedTextTarget(element, info)))
         case kAXValueChangedNotification:
             // Safari sends a thousand of these a second for dying elements while a page loads; only the focus's matter,
             // and elements a plugin watches (a status line, a progress bar) in the application in front.
@@ -271,6 +271,37 @@ extension AXHandler {
     func object(for element: AXUIElement) -> TurnOverObject {
         if let f = API.focusObject, f.isSameElement(as: element) { return f }
         return ObjectFactory.make(element)
+    }
+
+    /// Chromium (Discord, Slack, Signal, Chrome) posts AXSelectedTextChanged on the page's root web area, with the
+    /// field that changed in the notice's AXTextChangeElement, not on the field: Command+A in a message box and a
+    /// mouse selection there were never read, as the event went to the web area (a review, 13 Nov 2026). The notice
+    /// goes to the focus when the focus is an editable field and is the changed element or lies inside that web area,
+    /// and only while the keys go to the page (focus mode, or no browse mode): browse mode follows WebKit's selection
+    /// itself. Anything else goes where it was posted, as before.
+    func selectedTextTarget(_ element: AXUIElement, _ info: [String: Any]?) -> TurnOverObject {
+        guard let f = API.focusObject as? EditableText, !f.isSameElement(as: element), element.role == "AXWebArea" else { return object(for: element) }
+        let changed: AXUIElement? = info?["AXTextChangeElement"].flatMap { v in
+            CFGetTypeID(v as CFTypeRef) == AXUIElementGetTypeID() ? (v as! AXUIElement) : nil
+        }
+        let route = Self.routesSelectionToFocus(changedIsFocus: changed.map { f.isSameElement(as: $0) } ?? false,
+                                                keysGoToPage: API.focusTreeInterceptor?.passThrough ?? true,
+                                                focusInsideWebArea: { Self.focus(f.element, isInside: element) })
+        return route ? f : object(for: element)
+    }
+    /// Whether a selection notice on a web area is the focused field's (selectedTextTarget).
+    nonisolated public static func routesSelectionToFocus(changedIsFocus: Bool, keysGoToPage: Bool, focusInsideWebArea: () -> Bool) -> Bool {
+        guard keysGoToPage else { return false }
+        return changedIsFocus || focusInsideWebArea()
+    }
+    /// The last answer, kept: the notice comes with every caret move, and the walk up is up to 40 calls.
+    private static var insideAnswer: (focus: AXUIElement, area: AXUIElement, inside: Bool)?
+    static func focus(_ focus: AXUIElement, isInside area: AXUIElement) -> Bool {
+        if let a = insideAnswer, CFEqual(a.focus, focus), CFEqual(a.area, area) { return a.inside }
+        var p = focus.element(kAXParentAttribute), hops = 0, inside = false
+        while let x = p, hops < 40 { if CFEqual(x, area) { inside = true; break }; p = x.element(kAXParentAttribute); hops += 1 }
+        insideAnswer = (focus, area, inside)
+        return inside
     }
 
     /// A menu was closed by an action the application does not report (Word's menu-bar items chosen by press).

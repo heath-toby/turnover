@@ -90,12 +90,20 @@ public enum InputManager {
         set { lock.lock(); _lastKeyIdentifier = newValue; lock.unlock() }
     }
     private static var _lastKeyIdentifier = ""
+    /// When the last typed key (a letter, a space, punctuation, Backspace with nothing of TurnOver's on it) went on to
+    /// the application, and whether the last key down was one. A web or Electron field applies a key some
+    /// milliseconds after it passes, so a caret key just after fast typing waits for it (EditableText.settleAfterTyping),
+    /// and a selection that follows typing is an address bar's completion only if typing was the last thing done
+    /// (a review, 13 Nov 2026). Both are set and read on the main thread, where handleKeyDown runs.
+    public internal(set) static var lastTypedKeyAt = Date.distantPast
+    public internal(set) static var lastKeyWasTyped = false
 
     public static func handleKeyDown(_ gesture: KeyboardGesture) -> Bool {
         Hints.cancel()
         ObjectNavigator.shared.cancelWindowSearch()
         FormattingFeedback.shared.cancel()
         lastKeyDownAt = Date()
+        lastKeyWasTyped = false
         // The keyboard commands editor is waiting for a key: this one is it (Escape cancels). Nothing else runs.
         if let capture = captureNext, !gesture.isRepeat {
             captureNext = nil
@@ -115,8 +123,7 @@ public enum InputManager {
             Log.io("input \(gesture.logDescription()) passed through")
             return false
         }
-        // Every key stops speech (NVDA) — except a typed key while only the echo of earlier typing is speaking:
-        // typing fast must not cut off the word or the "period" just typed.
+        // Every key stops speech (NVDA), a typed key too (see the cancel below).
         let typing = gesture.typedCharacter != nil
         // Any other key (Escape, Command+L, an arrow) ends the word being typed (NVDA clears its typed-word
         // buffer): "Higgs", Escape, then "en." was echoed as "Higgsen".
@@ -207,6 +214,7 @@ public enum InputManager {
         // A clipboard key going to the application: say what it did (TurnOver's own copy speaks for itself).
         ClipboardAnnouncer.keyDown(gesture)
         FormattingFeedback.shared.keyWillPassThrough(gesture)
+        if gesture.typedCharacter != nil { lastTypedKeyAt = Date(); lastKeyWasTyped = true }
         DispatchQueue.main.async {
             ScriptHandler.clearLastScript()
             onPassThrough?(gesture)
