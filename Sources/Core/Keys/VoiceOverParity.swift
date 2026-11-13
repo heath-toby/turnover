@@ -531,7 +531,11 @@ extension BrowseModeDocument {
         var at = found.flatMap { buffer.offset(of: $0) }
         // A run of styled text inside a paragraph: the buffer knows the paragraph.
         var hops = 0
+        let first = found
         while at == nil, let f = found, hops < 4 { found = f.element(kAXParentAttribute); at = found.flatMap { buffer.offset(of: $0) }; hops += 1 }
+        // Not in the copy at all: past the part read of a long page, read on toward it; else read again, at most every
+        // 1.5 s on a page slow to read, never a full read for every key (a review, 13 Nov 2026).
+        if at == nil, let first, let o = offsetReadingOnOrAgain(first) { found = first; at = o }
         guard let el = found, let offset = at else { Tones.edge(); Speech.speakMessage(Phrases.noNext(spoken, forward: forward)); return }
         position = offset
         lastQuickNavTarget = el

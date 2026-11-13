@@ -156,7 +156,8 @@ extension AXHandler {
                         else if d2.loadedAfterBlank(announce: !d2.passThrough) { Log.io("browse mode: page finished loading (\(name))") }
                         // Read while still loading, now finished: read again, the reading kept where it is, so say all
                         // and the arrows have the whole page (a review, 13 Nov 2026).
-                        else if name == "AXLoadComplete" { d2.rebuildKeepingPlace(); Log.io("browse mode: page finished loading; read again") }
+                        // A reload (the same address) is told by the document, which says the title (pageLoadCompleted).
+                        else if name == "AXLoadComplete" { d2.pageLoadCompleted() }
                     }
                 }
             }

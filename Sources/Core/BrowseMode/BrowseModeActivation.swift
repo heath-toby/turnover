@@ -64,25 +64,59 @@ extension BrowseModeDocument {
                     gesture.send()
                     if ["AXButton", "AXLink", "AXMenuButton"].contains(y.role) { Tones.press() }
                     watchStateChange(y, before: before)
+                    if y.role == "AXLink" { followSamePageLink(y) }
                     return
                 }
                 x = y.element(kAXParentAttribute); hops += 1
             }
         }
-        if press(nearestTo: e) { if let e { enterPlayer(e) }; return }
+        if press(nearestTo: e) { if let e { enterPlayer(e); followSamePageLink(e) }; return }
         // The page rebuilt that part of itself after the buffer was read (AppleVis's Main Menu: its items are made
         // anew when it opens, so "Log out" in the buffer pointed at an element that no longer exists, 3 Oct 2026).
         // Find the live link or button with the line's text and press that.
         let text = lineText(at: position).trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty, let live = Self.liveActionable(named: text, in: webArea) {
             Log.io("browse mode: \"\(Log.words(text))\" was stale in the buffer; pressing the page's own \(live.role)")
-            if press(nearestTo: live) { buffer.build(); clampPosition(); return }
+            if press(nearestTo: live) {
+                // Read again keeping the place, and not twice in 1.5 s on a page slow to read (a review, 13 Nov 2026).
+                if mayRebuildNow() { rebuildKeepingPlace(anchor: live) } else { buffer.isDirty = true }
+                return
+            }
         }
         // What was there, for the log: the buffer's element and its ancestors (alive or gone).
         var chain: [String] = []; var x = e; var d = 0
         while let y = x, d < 6 { chain.append("\(y.role) \"\((y.string(kAXTitleAttribute) ?? y.string(kAXValueAttribute) ?? "").prefix(30))\""); x = y.element(kAXParentAttribute); d += 1 }
         Log.io("browse mode: nothing to activate at \"\(Log.words(String(text.prefix(40))))\"; buffer element: \(chain.isEmpty ? "none" : Log.words(chain.joined(separator: " < "))); live page: \(text.isEmpty ? "not searched" : "no link or button with that text")")
         Speech.speakMessage(String(localized: "nothing to activate", comment: "Spoken message"))
+    }
+
+    /// A link to a place on this page (a contents link, "Jump to content"): the reading goes to its target now and
+    /// reads it. Pressed with its address already the page's (the second "Jump to content"), no new address comes, so
+    /// refreshIfNavigated never moved and nothing happened (a review, 13 Nov 2026). The address it leads to is taken as
+    /// this page's, so its arrival doesn't move and read again.
+    func followSamePageLink(_ e: AXUIElement) {
+        var x: AXUIElement? = e, hops = 0, link: String?
+        while let y = x, hops < 4, link == nil {
+            // A link's address only: the page's own (its web area's) is not where a button leads.
+            if y.role == "AXLink", let u = y.attr(kAXURLAttribute) { link = (u as? URL)?.absoluteString ?? (u as? String) }
+            x = y.element(kAXParentAttribute); hops += 1
+        }
+        guard let link, let frag = Self.samePageFragment(link: link, page: url), let at = anchorOffset(frag) else { return }
+        lastURL = link
+        if Self.urlBase(announcedURL) == Self.urlBase(link) { announcedURL = link }
+        samePageLinkMove = (at, Date())
+        position = at
+        Log.io("browse mode: a link to this page's anchor; to it")
+        speakUnit(.line)
+    }
+
+    package static func urlBase(_ u: String) -> String { u.components(separatedBy: "#").first ?? u }
+    /// The fragment of a link to a place on the page at `page` (the same address but for its fragment), or nil. Pure.
+    package static func samePageFragment(link: String, page: String) -> String? {
+        guard let hash = link.firstIndex(of: "#") else { return nil }
+        let frag = String(link[link.index(after: hash)...])
+        guard !frag.isEmpty, !page.isEmpty, String(link[..<hash]) == urlBase(page) else { return nil }
+        return frag
     }
 
     /// Whether a control's value is a check state, by TurnOver's own role (the subrole counts: a web switch is an
@@ -309,22 +343,44 @@ extension BrowseModeDocument {
     /// Read the page again (NVDA's buffer follows the page as it changes) and stay at the same place: on `anchor` if
     /// given, otherwise on the same line's text nearest where it was. The read is done by `deadline` at the latest.
     func rebuildKeepingPlace(anchor: AXUIElement? = nil, until deadline: Date = .distantFuture) {
-        let oldLine = lineText(at: position).trimmingCharacters(in: .whitespacesAndNewlines)
+        let raw = lineText(at: position)
+        let oldLine = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let oldPosition = position
+        // How far into the line's text the reading was: a word or character move before the read is kept, not put
+        // back to the line's start (a review, 13 Nov 2026).
+        let lineStart = buffer.lineIndex(at: position).map { buffer.lines[$0].start } ?? position
+        let lead = (String(raw.prefix(while: { $0.isWhitespace || $0.isNewline })) as NSString).length
+        let into = max(0, oldPosition - lineStart - lead)
+        if !buffer.lines.isEmpty, pageIsGone() { pageGoneAt = Date() }   // a reload, noticed for pageLoadCompleted
         buffer.build(until: deadline)
-        let n = buffer.text.length
         if let a = anchor, let o = buffer.offset(of: a) { position = o; return }
+        position = Self.placeAfterRebuild(oldLine: oldLine, into: into, oldPosition: oldPosition, in: buffer.text)
+    }
+
+    /// Where the reading goes in a copy read again: the old line's text nearest where it was, as far into it as the
+    /// reading was; with the line gone, the old offset within the copy. Pure, for the tests.
+    package static func placeAfterRebuild(oldLine: String, into: Int, oldPosition: Int, in text: NSString) -> Int {
+        let n = text.length
         if !oldLine.isEmpty {
             var best: Int?; var from = 0
             while from < n {
-                let r = buffer.text.range(of: oldLine, options: .literal, range: NSRange(location: from, length: n - from))
+                let r = text.range(of: oldLine, options: .literal, range: NSRange(location: from, length: n - from))
                 if r.location == NSNotFound { break }
                 if best == nil || abs(r.location - oldPosition) < abs(best! - oldPosition) { best = r.location }
                 from = r.location + max(r.length, 1)
             }
-            if let best { position = best; return }
+            if let best { return min(best + min(into, (oldLine as NSString).length), max(0, n - 1)) }
         }
-        position = min(oldPosition, max(0, n - 1))
+        return min(oldPosition, max(0, n - 1))
+    }
+
+    /// The copy is of a page that is gone (a reload): the elements it was read from, sampled at its start, middle and
+    /// end, all answer nothing. Three questions; a page that only changed keeps most of its elements.
+    func pageIsGone() -> Bool {
+        let ls = buffer.lines
+        guard !ls.isEmpty else { return false }
+        let picks = [ls[0], ls[ls.count / 2], ls[ls.count - 1]].compactMap(\.element)
+        return !picks.isEmpty && picks.allSatisfy { $0.role == "?" }
     }
 
     /// The element or its nearest actionable ancestor is pressed (a text field is entered instead). False if none.

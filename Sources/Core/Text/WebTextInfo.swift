@@ -429,6 +429,9 @@ public final class WebTextInfo: TextInfo {
             default: return nil
             }
         case "AXMenuItem": return Role.menuItem.displayString
+        // A frame inside the page (an iframe; the browse mode copy announces only those, never the page itself), as
+        // NVDA says it entering and, with "out of", leaving (a review, 13 Nov 2026).
+        case "AXWebArea": return String(localized: "frame", comment: "A web page's frame")
         case "AXMenuBar": return forEntering ? Role.menuBar.displayString : nil
         case "AXToolbar": return forEntering ? Role.toolBar.displayString : nil
         default: return nil

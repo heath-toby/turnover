@@ -140,7 +140,8 @@ extension GlobalCommands {
         }
         add("screenLayout", String(localized: "Screen layout on or off in browse mode: things side by side on one line (NVDA+V)", comment: "A command, as the key list and keyboard help say it"), ["kb:turnover+v"]) { _ in
             config.virtualBuffers.screenLayout.toggle(); config.save()
-            if let d = API.focusTreeInterceptor { d.buffer.isDirty = true; d.buffer.build() }
+            // The place kept: a bare read left the reading at its old offset, in other text (a review, 13 Nov 2026).
+            if let d = API.focusTreeInterceptor { d.buffer.isDirty = true; d.rebuildKeepingPlace() }
             Speech.speakMessage(config.virtualBuffers.screenLayout ? String(localized: "Use screen layout on", comment: "Spoken message") : String(localized: "Use screen layout off", comment: "Spoken message"))
         }
         add("progressBarOutput", String(localized: "Progress bars: beeps that rise in pitch, the percentage spoken, both, or nothing (NVDA+U)", comment: "A command, as the key list and keyboard help say it"), ["kb:turnover+u"]) { _ in
@@ -281,7 +282,7 @@ extension GlobalCommands {
         // MARK: Browse mode
         add("refreshDocument", String(localized: "Rebuilds the page's browse mode view (NVDA+F5)", comment: "A command, as the key list and keyboard help say it"), ["kb:turnover+f5"]) { _ in
             guard let d = API.focusTreeInterceptor else { Speech.speakMessage(String(localized: "not in a document", comment: "Spoken message")); return }
-            d.buffer.isDirty = true; d.buffer.build()
+            d.buffer.isDirty = true; d.rebuildKeepingPlace()   // the place kept: a bare read left the old offset in other text (a review, 13 Nov 2026)
             Speech.speakMessage(String(localized: "refreshed", comment: "Spoken message"))
         }
         add("toggleSingleLetterNavigation", String(localized: "Single-letter navigation on or off; turns single-letter navigation on or off for this page, so the page's own letter keys work (NVDA+Shift+Space)", comment: "A command, as the key list and keyboard help say it"), ["kb:turnover+shift+space"]) { _ in
@@ -356,8 +357,8 @@ extension GlobalCommands {
 
 // MARK: - Tables
 
-enum NVDATables {
-    enum Move { case column(Int), row(Int), firstColumn, lastColumn, firstRow, lastRow }
+package enum NVDATables {
+    package enum Move { case column(Int), row(Int), firstColumn, lastColumn, firstRow, lastRow }
 
     /// Word's own cell moves (the module finds the cell from the live caret), else a table's cells through Accessibility.
     static func moduleScript(_ name: String) -> Script? {
@@ -376,6 +377,9 @@ enum NVDATables {
         let word: String? = { switch m { case .column(let d): return d < 0 ? "table_previousColumn" : "table_nextColumn"; case .row(let d): return d < 0 ? "table_previousRow" : "table_nextRow"; default: return nil } }()
         if let n = word, let s = moduleScript(n), let g = KeyboardGesture(identifier: "kb:control+command+rightArrow") { s.handler(g); return }
         guard let (cell, table) = VoiceOverKeysPlugin.tableCell() else { Speech.speakMessage(String(localized: "not in a table", comment: "Spoken message")); return }
+        // A web table: by the cells' own rows and columns, so a merged cell is crossed whole and the column stays
+        // the column (a review, 13 Nov 2026: by child index, a row with a colspan cell shifted every column after it).
+        if let rs = span(cell, "AXRowIndexRange"), let cs = span(cell, "AXColumnIndexRange") { moveLogically(m, cell, table, row: rs, column: cs); return }
         let rows = table.elements(kAXRowsAttribute)
         guard let parent = cell.element(kAXParentAttribute), let r = rows.firstIndex(where: { $0.isSame(parent) }),
               let c = cells(rows[r]).firstIndex(where: { $0.isSame(cell) }) else { Speech.speakMessage(String(localized: "not in a table", comment: "Spoken message")); return }
@@ -407,12 +411,81 @@ enum NVDATables {
         Speech.speakMessage(parts.joined(separator: ", "))
     }
 
-    /// In a page in browse mode, the reading position goes to the cell (false: not in one).
+    /// A cell's row or column and how many it spans (WebKit's and Chromium's AXRowIndexRange, AXColumnIndexRange).
+    static func span(_ e: AXUIElement, _ attr: String) -> (location: Int, length: Int)? {
+        var r = CFRange()
+        guard axValue(e.attr(attr), .cfRange, &r), r.location >= 0 else { return nil }
+        return (r.location, max(1, r.length))
+    }
+
+    /// Where a move goes from a cell at `row`, `column` (each with its span) in a table of `rows` by `columns`, by
+    /// logical row and column: past a merged cell's far side going on, the row or column before its near side going
+    /// back. Nil at the table's edge, or where the move stays in the same cell. Pure, for the tests.
+    package static func logicalTarget(_ m: Move, row: (location: Int, length: Int), column: (location: Int, length: Int), rows: Int, columns: Int) -> (row: Int, column: Int)? {
+        var (r, c) = (row.location, column.location)
+        switch m {
+        case .column(let d): c = d > 0 ? column.location + column.length - 1 + d : column.location + d
+        case .row(let d): r = d > 0 ? row.location + row.length - 1 + d : row.location + d
+        case .firstColumn: c = 0
+        case .lastColumn: c = columns - 1
+        case .firstRow: r = 0
+        case .lastRow: r = rows - 1
+        }
+        guard r >= 0, c >= 0, r < rows, c < columns else { return nil }
+        let inside = (row.location..<(row.location + row.length)).contains(r) && (column.location..<(column.location + column.length)).contains(c)
+        return inside ? nil : (r, c)
+    }
+
+    /// The cell covering a logical row and column: WebKit's and Chromium's AXCellForColumnAndRow, else the rows looked
+    /// through for the cell whose spans hold it (a merged cell sits in the row it starts in).
+    static func cell(in table: AXUIElement, row: Int, column: Int) -> AXUIElement? {
+        var v: CFTypeRef?
+        if AXUIElementCopyParameterizedAttributeValue(table, "AXCellForColumnAndRow" as CFString, [column, row] as CFArray, &v) == .success,
+           let c = axElement(v) { return c }
+        let rows = table.elements(kAXRowsAttribute)
+        guard !rows.isEmpty else { return nil }
+        for i in stride(from: min(row, rows.count - 1), through: max(0, row - 30), by: -1) {
+            for c in cells(rows[i]) {
+                guard let rs = span(c, "AXRowIndexRange"), let cs = span(c, "AXColumnIndexRange") else { continue }
+                if (rs.location..<(rs.location + rs.length)).contains(row), (cs.location..<(cs.location + cs.length)).contains(column) { return c }
+            }
+        }
+        return nil
+    }
+
+    static func moveLogically(_ m: Move, _ cell: AXUIElement, _ table: AXUIElement, row: (location: Int, length: Int), column: (location: Int, length: Int)) {
+        var rowCount: CFIndex = 0, columnCount: CFIndex = 0
+        AXUIElementGetAttributeValueCount(table, kAXRowsAttribute as CFString, &rowCount)
+        AXUIElementGetAttributeValueCount(table, kAXColumnsAttribute as CFString, &columnCount)
+        // No columns given (some grids): as many as the cell's own row reaches.
+        if columnCount == 0 { columnCount = VoiceOverKeysPlugin.rowCells(cell).compactMap { span($0, "AXColumnIndexRange") }.map { $0.location + $0.length }.max() ?? 0 }
+        guard let to = logicalTarget(m, row: row, column: column, rows: rowCount, columns: columnCount),
+              let target = Self.cell(in: table, row: to.row, column: to.column), !target.isSame(cell) else {
+            Speech.speakMessage(String(localized: "edge of table", comment: "Spoken message")); return
+        }
+        // Said by where the cell found starts (a merged cell's first row and column).
+        let tr = span(target, "AXRowIndexRange")?.location ?? to.row, tc = span(target, "AXColumnIndexRange")?.location ?? to.column
+        guard inBuffer(target) else { ObjectNavigator.shared.moveTo(target); return }
+        var parts: [String] = []
+        let t = VoiceOverKeysPlugin.text(target)
+        if tc != column.location, let h = VoiceOverKeysPlugin.columnHeader(target, table), !h.isEmpty, tr != 0 { parts.append(h) }
+        if tr != row.location, let h = VoiceOverKeysPlugin.rowHeader(target, table), !h.isEmpty, tc != 0, h != t { parts.append(h) }
+        parts.append(t.isEmpty ? Phrases.blank : t)
+        if config.documentFormatting.tableCellCoordinates {
+            if tr != row.location { parts.append(Phrases.row(tr + 1)) }
+            if tc != column.location { parts.append(Phrases.column(tc + 1)) }
+        }
+        Speech.speakMessage(parts.joined(separator: ", "))
+    }
+
+    /// In a page in browse mode, the reading position goes to the cell (false: not in one). The document takes the
+    /// cell as the last thing read, so the next arrow's row, column and "out of" news are measured from it, not from
+    /// where the arrows last read (a review, 13 Nov 2026).
     static func inBuffer(_ cell: AXUIElement) -> Bool {
         guard let d = API.focusTreeInterceptor, !d.passThrough else { return false }
         var e: AXUIElement? = cell; var depth = 0
         while let x = e, depth < 5 {
-            if let at = d.buffer.offset(of: x) { d.position = at; return true }
+            if let at = d.buffer.offset(of: x) { d.position = at; d.noteRead(at: at); return true }
             e = x.elements(kAXChildrenAttribute).first; depth += 1
         }
         return false

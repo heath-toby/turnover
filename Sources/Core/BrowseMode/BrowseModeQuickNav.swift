@@ -18,9 +18,14 @@ import TurnOverAX
 extension BrowseModeDocument {
     // MARK: Quick navigation (NVDA: _quickNavScript)
 
-    static let quickNavRoles: [String: Set<String>] = [
+    package static let quickNavRoles: [String: Set<String>] = [
         "Heading": ["AXHeading"], "Heading1": ["AXHeading"], "Heading2": ["AXHeading"], "Heading3": ["AXHeading"], "Heading4": ["AXHeading"], "Heading5": ["AXHeading"], "Heading6": ["AXHeading"],
-        "Link": ["AXLink"], "Button": ["AXButton", "AXMenuButton", "AXPopUpButton"], "Edit": ["AXTextField", "AXTextArea"], "FormField": ["AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXComboBox", "AXSlider"],
+        // F takes buttons too, as NVDA's form field and Safari's own search do; Chromium and Electron, searched in the
+        // buffer, skipped them. V and U are links the page says it has visited or not, and M frames (an iframe's page
+        // in the copy): these said "not available here" there (a review, 13 Nov 2026).
+        "Link": ["AXLink"], "Button": ["AXButton", "AXMenuButton", "AXPopUpButton"], "Edit": ["AXTextField", "AXTextArea"],
+        "FormField": ["AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXComboBox", "AXSlider", "AXButton", "AXMenuButton"],
+        "VisitedLink": ["AXLink"], "UnvisitedLink": ["AXLink"], "Frame": ["AXWebArea"],
         "List": ["AXList"], "Table": ["AXTable"], "CheckBox": ["AXCheckBox"], "RadioButton": ["AXRadioButton"], "ComboBox": ["AXPopUpButton", "AXComboBox"], "Graphic": ["AXImage"],
         "Landmark": ["AXLandmark"], "BlockQuote": ["AXBlockQuote"],
         "Heading7": ["AXHeading"], "Heading8": ["AXHeading"], "Heading9": ["AXHeading"],
@@ -30,11 +35,17 @@ extension BrowseModeDocument {
         "Control": ["AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXComboBox", "AXSlider", "AXMenuButton", "AXDisclosureTriangle"],
     ]
 
+    /// V and U in the buffer: visited links (true), unvisited ones (false); any other kind, nil.
+    package static func visitedFilter(_ name: String) -> Bool? {
+        switch name { case "VisitedLink": return true; case "UnvisitedLink": return false; default: return nil }
+    }
+
     func quickNav(_ q: QuickNavType, forward: Bool) {
         refreshIfNavigated()
         clearSelection()
         guard ensureContent() else { return }
         rebuildIfCheap(stale: 20)
+        let visited = Self.visitedFilter(q.name)
         /// Search the buffer by role (headings, buttons, links…): no WebKit to ask, or WebKit's answer is unusable.
         /// Nothing further this way: from the other end of the page (wrapping on), or "no next heading".
         func wrapOrStop() {
@@ -42,7 +53,7 @@ extension BrowseModeDocument {
                 Speech.speakMessage(Phrases.noNext(q.spoken, forward: forward)); return
             }
             let level = headingLevel(for: q)
-            guard let (at, el) = buffer.find(from: forward ? -1 : buffer.text.length + 1, forward: forward, roles: roles, headingLevel: level), at != position else {
+            guard let (at, el) = buffer.find(from: forward ? -1 : buffer.text.length + 1, forward: forward, roles: roles, headingLevel: level, visited: visited), at != position else {
                 Speech.speakMessage(Phrases.noNext(q.spoken, forward: forward)); return
             }
             Tones.edge()
@@ -62,10 +73,10 @@ extension BrowseModeDocument {
         func bufferSearch() {
             guard let roles = BrowseModeDocument.quickNavRoles[q.name] else { Speech.speakMessage(String(localized: "not available here", comment: "Spoken message")); return }
             let level = headingLevel(for: q)
-            var hit = buffer.find(from: position, forward: forward, roles: roles, headingLevel: level)
+            var hit = buffer.find(from: position, forward: forward, roles: roles, headingLevel: level, visited: visited)
             // Nothing ahead on a page that may have more below: read on (a long chat, issue 227), or once, the page read
             // again from its end.
-            if hit == nil, forward { hit = readingOn { buffer.find(from: position, forward: forward, roles: roles, headingLevel: level) } }
+            if hit == nil, forward { hit = readingOn { buffer.find(from: position, forward: forward, roles: roles, headingLevel: level, visited: visited) } }
             // Still nothing, with more of a long page not yet read: said, rather than wrapping to the top past it.
             if hit == nil, forward, buffer.isPartial { Speech.speakMessage(String(localized: "page read in part, it is very long", comment: "Spoken message")); return }
             guard let (at, el) = hit else {
@@ -129,8 +140,9 @@ extension BrowseModeDocument {
             guard BrowseModeDocument.quickNavRoles[q.name] != nil else { wrapOrStop(); return }
             Log.io("browse mode: the page's search found nothing \(forward ? "ahead" : "back"); searching the buffer"); bufferSearch(); return
         }
-        var found = buffer.offset(of: target)
-        if found == nil { buffer.build(); clampPosition(); found = buffer.offset(of: target) }
+        // Not in the copy: read on toward it on a long page, or the page read again at most every 1.5 s if slow to
+        // read; a full read for every letter held a big page's main thread for seconds a key (a review, 13 Nov 2026).
+        var found = offsetReadingOnOrAgain(target)
         if found == position, let again = bridge.search(key: q.searchKey, from: target, forward: forward, limit: 1).first, let at = buffer.offset(of: again) {
             found = at   // WebKit handed back the element we are on; the one past it is the move
         }
@@ -247,9 +259,10 @@ extension BrowseModeDocument {
         if q.name.hasPrefix("Heading"), q.name.count > 7 { return Int(q.name.dropFirst(7)) }
         guard q.name == "SameLevelHeading", let i = buffer.lineIndex(at: position) else { return nil }
         for j in stride(from: i, through: 0, by: -1) {
+            // By the kinds kept as the page was read, not asked of each line passed (a review, 13 Nov 2026).
             let l = buffer.lines[j]
-            let h = l.element?.role == "AXHeading" ? l.element : l.entering.first { $0.role == "AXHeading" }
-            if let h, let n = (h.attr(kAXValueAttribute) as? NSNumber)?.intValue { return n }
+            let kinds = [l.elementKind].compactMap { $0 } + l.entering.indices.map { l.enteringKind($0) }
+            if let n = kinds.first(where: { $0.role == "AXHeading" })?.headingLevel { return n }
         }
         return nil
     }

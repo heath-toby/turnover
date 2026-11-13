@@ -23,7 +23,41 @@ import AppKit
 public final class WebBuffer {
     public struct Segment {
         public let start: Int; public let end: Int; public let element: AXUIElement; public let isLink: Bool
-        public init(start: Int, end: Int, element: AXUIElement, isLink: Bool) { self.start = start; self.end = end; self.element = element; self.isLink = isLink }
+        /// The link a link piece is in (its element is the text, not the link): V and U ask it whether it was visited,
+        /// without walking up from the text (a review, 13 Nov 2026).
+        public let link: AXUIElement?
+        public init(start: Int, end: Int, element: AXUIElement, isLink: Bool, link: AXUIElement? = nil) {
+            self.start = start; self.end = end; self.element = element; self.isLink = isLink; self.link = link
+        }
+    }
+    /// What a line's element, or a container a line enters, is, read once as the page is read: a search of the copy
+    /// (H, K, the elements list) asked the page for the role, subrole, role description and level of every line it
+    /// passed, two to four questions a line on a page of thousands (a review, 13 Nov 2026).
+    public struct ElementKind: Equatable {
+        public let role: String; public let subrole: String; public let roleDescription: String; public let headingLevel: Int?
+        public init(role: String, subrole: String = "", roleDescription: String = "", headingLevel: Int? = nil) {
+            self.role = role; self.subrole = subrole; self.roleDescription = roleDescription; self.headingLevel = headingLevel
+        }
+        /// Read from the page now (a line made without one: a test's).
+        public static func live(_ el: AXUIElement) -> ElementKind {
+            let role = el.role
+            return ElementKind(role: role, subrole: el.string(kAXSubroleAttribute) ?? "", roleDescription: el.string(kAXRoleDescriptionAttribute) ?? "",
+                               headingLevel: role == "AXHeading" ? (el.attr(kAXValueAttribute) as? NSNumber)?.intValue : nil)
+        }
+        /// Whether quick navigation's roles (and a heading level) take an element of this kind. Pure, for the tests.
+        public func matches(roles: Set<String>, headingLevel level: Int? = nil) -> Bool {
+            if roles.contains("AXLandmark"), role == "AXGroup", subrole.hasPrefix("AXLandmark") { return true }
+            if roles.contains("AXBlockQuote"), role == "AXGroup", subrole == "AXBlockQuote" || roleDescription == "blockquote" { return true }
+            if roles.contains("AXListItem"), subrole == "AXListItem" { return true }
+            let desc = roleDescription.lowercased()
+            // NVDA's A: comments and revisions (insertions, deletions, highlights) the page marks as such.
+            if roles.contains("Annotation"), ["AXInsertStyleGroup", "AXDeleteStyleGroup"].contains(subrole) || ["comment", "suggestion", "insertion", "deletion", "highlight", "mark"].contains(desc) { return true }
+            // NVDA's O: audio and video players, embedded applications, dialogs.
+            if roles.contains("EmbeddedObject"), ["AXWebApplication", "AXApplicationDialog", "AXApplicationAlertDialog"].contains(subrole) || desc.contains("video") || desc.contains("audio") { return true }
+            guard roles.contains(role) else { return false }
+            if let level, headingLevel != level { return false }
+            return true
+        }
     }
     public struct Line {
         public let start: Int
@@ -38,9 +72,19 @@ public final class WebBuffer {
         public let fields: [String]
         /// The last piece of a wrapped line owns the break after it; earlier pieces end at a space.
         public let hasBreak: Bool
-        public init(start: Int, end: Int, element: AXUIElement?, entering: [AXUIElement], isControl: Bool, fields: [String], hasBreak: Bool) {
+        /// What `element` is, and each of `entering` (same order), as the page was read: nil and empty for a line made
+        /// without them (a test's), which are then asked of the page.
+        public let kind: ElementKind?
+        public let enteringKinds: [ElementKind]
+        public init(start: Int, end: Int, element: AXUIElement?, entering: [AXUIElement], isControl: Bool, fields: [String], hasBreak: Bool,
+                    kind: ElementKind? = nil, enteringKinds: [ElementKind] = []) {
             self.start = start; self.end = end; self.element = element; self.entering = entering; self.isControl = isControl; self.fields = fields; self.hasBreak = hasBreak
+            self.kind = kind; self.enteringKinds = enteringKinds
         }
+        /// The kind of `entering[n]`, kept or read now.
+        public func enteringKind(_ n: Int) -> ElementKind { n < enteringKinds.count ? enteringKinds[n] : .live(entering[n]) }
+        /// The kind of `element`, kept or read now.
+        public var elementKind: ElementKind? { kind ?? element.map(ElementKind.live) }
         public var endWithBreak: Int { end + (hasBreak ? 1 : 0) }
     }
 
@@ -74,7 +118,11 @@ public final class WebBuffer {
 
     private var out = ""                       // the text so far
     private var outLength = 0                  // its length in UTF-16 units (measuring `out` each line made a build quadratic on a non-ASCII page, 8 Oct 2026)
-    private var current: [(String, AXUIElement, Bool)] = []   // pieces of the line being built: text, element, isLink
+    private var current: [(String, AXUIElement, Bool, AXUIElement?)] = []   // pieces of the line being built: text, element, isLink, its link
+    /// The kinds of the elements lines are made of, this read (`kind(of:)`), and the role and subrole of each element
+    /// the walk visited, which it read anyway.
+    private var kinds: [ElementKey: ElementKind] = [:]
+    private var seenRoles: [ElementKey: (String, String)] = [:]
     private var currentElement: AXUIElement?
     private var pendingEntering: [AXUIElement] = []
     private var containerStack: [AXUIElement] = []
@@ -177,6 +225,8 @@ public final class WebBuffer {
         let budget = buildDeadline
         profiled = !ProfileStore.shared.profiles(for: ProfileStore.shared.bundle(of: webArea.pid)).isEmpty
         consumed = []
+        kinds = [:]; seenRoles = [:]
+        rootIsWeb = webArea.role == "AXWebArea"
         // WebKit's own text of the page has a line break wherever a <br> is; the elements do not (a plain
         // e-mail is sibling texts separated by <br>: "Hi there," and the paragraph after it read as one line).
         let bridge = WebDocumentBridge(webArea: webArea)
@@ -413,6 +463,22 @@ public final class WebBuffer {
 
     /// Whether a plugin profile applies to this page's application (checked once per build).
     private var profiled = false
+    /// The root is a web page: a web area inside it is a frame (an iframe's page), announced as the reading enters it.
+    private var rootIsWeb = false
+
+    /// Roles whose description is never needed to tell what they are (most lines): not asked for it.
+    private static let plainRoles: Set<String> = ["AXStaticText", "AXLink", "AXImage", "AXHeading", "AXList", "AXTable", "AXRow", "AXCell", "AXWebArea", "AXSplitter", "AXProgressIndicator"]
+    /// What an element of a line is, read once a build (its role and subrole from the walk, which read them going by).
+    private func kind(of el: AXUIElement) -> ElementKind {
+        let key = ElementKey(el)
+        if let k = kinds[key] { return k }
+        let (role, sub) = seenRoles[key] ?? (el.role, el.string(kAXSubroleAttribute) ?? "")
+        let plain = Self.plainRoles.contains(role) || Self.controlRoles.contains(role)
+        let k = ElementKind(role: role, subrole: sub, roleDescription: plain ? "" : (el.string(kAXRoleDescriptionAttribute) ?? ""),
+                            headingLevel: role == "AXHeading" ? (el.attr(kAXValueAttribute) as? NSNumber)?.intValue : nil)
+        kinds[key] = k
+        return k
+    }
     /// Siblings whose text a plugin label took (so "Open Project" is not read twice).
     private var consumed: [AXUIElement] = []
 
@@ -452,6 +518,7 @@ public final class WebBuffer {
             }
         }
         let sub = el.string(kAXSubroleAttribute) ?? ""
+        seenRoles[ElementKey(el)] = (role, sub)
         switch role {
         case "AXStaticText":
             // An iOS app's text (Kindle's own screens, read as a document) carries its words as the description.
@@ -529,7 +596,10 @@ public final class WebBuffer {
             pendingEntering.removeAll { $0.isSame(el) }
         default:
             let isLandmark = sub.hasPrefix("AXLandmark") || sub == "AXDocumentArticle" || sub == "AXBlockQuote"
-            let announced = Self.announcedContainers.contains(role) || isLandmark || Self.announcedSubroles.contains(sub)
+            // A frame (an iframe's page, inlined in the copy): "frame" as the reading goes in and "out of frame" as it
+            // leaves, as NVDA says them (a review, 13 Nov 2026: nothing said where an embedded page began or ended).
+            let isFrame = role == "AXWebArea" && depth > 0 && rootIsWeb
+            let announced = Self.announcedContainers.contains(role) || isLandmark || Self.announcedSubroles.contains(sub) || isFrame
             let block = Self.blockRoles.contains(role) || isLandmark || sub == "AXListItem" || role == "AXMenuBar" || Self.announcedSubroles.contains(sub)
             if block { flush() }
             if announced { pendingEntering.append(el); containerStack.append(el) }
@@ -610,7 +680,9 @@ public final class WebBuffer {
 
     /// A piece of the line being built (one with words is counted, for a link a pass stops inside).
     private func addPiece(_ s: String, _ el: AXUIElement, _ link: Bool) {
-        current.append((s, el, link))
+        // Its link: the innermost one the walk is inside, or, for a link's title added as it closes (its frame gone
+        // from the walk by then), the link itself.
+        current.append((s, el, link, link ? (frames.last(where: \.isLink)?.element ?? el) : nil))
         if s.contains(where: { !$0.isWhitespace }) { textPieces += 1 }
     }
 
@@ -633,9 +705,9 @@ public final class WebBuffer {
         // Segments in absolute offsets.
         var cursor = lineStart
         var segs: [Segment] = []
-        for (piece, el, link) in current {
+        for (piece, el, link, linkElement) in current {
             let len = (piece as NSString).length
-            if len > 0 { segs.append(Segment(start: cursor, end: cursor + len, element: el, isLink: link)) }
+            if len > 0 { segs.append(Segment(start: cursor, end: cursor + len, element: el, isLink: link, link: linkElement)) }
             cursor += len
         }
         out += full + "\n"
@@ -645,8 +717,11 @@ public final class WebBuffer {
         // Wrap at the configured length, breaking at spaces.
         let maxLen = max(20, config.virtualBuffers.maxLineLength)
         var first = true
+        let elementKind = currentElement.map { kind(of: $0) }
+        let enteringKinds = entering.map { kind(of: $0) }
         for (a, b) in Self.wrapPieces(full as NSString, maxLen: maxLen) {
-            newLines.append(Line(start: lineStart + a, end: lineStart + b, element: currentElement, entering: first ? entering : [], isControl: control, fields: first ? fields : [], hasBreak: b == (full as NSString).length))
+            newLines.append(Line(start: lineStart + a, end: lineStart + b, element: currentElement, entering: first ? entering : [], isControl: control, fields: first ? fields : [], hasBreak: b == (full as NSString).length,
+                                 kind: elementKind, enteringKinds: first ? enteringKinds : []))
             first = false
         }
         _ = totalEnd
@@ -747,7 +822,7 @@ public final class WebBuffer {
         }
         func isHeading(_ b: Block) -> Bool {
             let l = lines[b.first]
-            return l.element?.role == "AXHeading" || l.entering.contains { $0.role == "AXHeading" }
+            return l.elementKind?.role == "AXHeading" || l.entering.indices.contains { l.enteringKind($0).role == "AXHeading" }
         }
         /// Mostly links, or a control: what N skips over.
         func linkish(_ b: Block) -> Bool { let c = content(b); return lines[b.first].isControl || (c.chars > 0 && c.linked * 2 >= c.chars) }
@@ -779,28 +854,20 @@ public final class WebBuffer {
         }
     }
 
-    public func find(from offset: Int, forward: Bool, roles: Set<String>, headingLevel: Int? = nil) -> (offset: Int, element: AXUIElement)? {
+    /// Whether a link (or a piece of one) was visited, as the page says (AXVisited, which WebKit and Chromium give).
+    public static func isVisited(_ el: AXUIElement) -> Bool { (el.attr("AXVisited") as? NSNumber)?.boolValue ?? false }
+
+    /// `visited`: links only, visited (true) or not (false): NVDA's V and U where the page has no search for them
+    /// (Chromium and Electron said "not available here", a review, 13 Nov 2026).
+    public func find(from offset: Int, forward: Bool, roles: Set<String>, headingLevel: Int? = nil, visited: Bool? = nil) -> (offset: Int, element: AXUIElement)? {
         guard !lines.isEmpty else { return nil }
         // Past either end (a search wrapping round): the last line, or the first.
         let i = lineIndex(at: offset) ?? (offset >= text.length ? lines.count - 1 : 0)
         let wantsLinks = roles.contains("AXLink")
-        func matches(_ el: AXUIElement) -> Bool {
-            let role = el.role
-            if roles.contains("AXLandmark"), role == "AXGroup", (el.string(kAXSubroleAttribute) ?? "").hasPrefix("AXLandmark") { return true }
-            if roles.contains("AXBlockQuote"), role == "AXGroup", el.string(kAXSubroleAttribute) == "AXBlockQuote" || el.string(kAXRoleDescriptionAttribute) == "blockquote" { return true }
-            if roles.contains("AXListItem"), el.string(kAXSubroleAttribute) == "AXListItem" { return true }
-            if roles.contains("Annotation") {
-                // NVDA's A: comments and revisions (insertions, deletions, highlights) the page marks as such.
-                let sub = el.string(kAXSubroleAttribute) ?? "", desc = (el.string(kAXRoleDescriptionAttribute) ?? "").lowercased()
-                if ["AXInsertStyleGroup", "AXDeleteStyleGroup"].contains(sub) || ["comment", "suggestion", "insertion", "deletion", "highlight", "mark"].contains(desc) { return true }
-            }
-            if roles.contains("EmbeddedObject") {
-                // NVDA's O: audio and video players, embedded applications, dialogs.
-                let sub = el.string(kAXSubroleAttribute) ?? "", desc = (el.string(kAXRoleDescriptionAttribute) ?? "").lowercased()
-                if ["AXWebApplication", "AXApplicationDialog", "AXApplicationAlertDialog"].contains(sub) || desc.contains("video") || desc.contains("audio") { return true }
-            }
-            guard roles.contains(role) else { return false }
-            if let level = headingLevel, (el.attr(kAXValueAttribute) as? NSNumber)?.intValue != level { return false }
+        // By the kinds kept as the page was read: nothing asked of the page line by line (a review, 13 Nov 2026).
+        func matches(_ el: AXUIElement, _ k: ElementKind) -> Bool {
+            guard k.matches(roles: roles, headingLevel: headingLevel) else { return false }
+            if let visited, k.role == "AXLink" { return Self.isVisited(el) == visited }
             return true
         }
         /// What line j offers, in reading order.
@@ -808,10 +875,10 @@ public final class WebBuffer {
             let l = lines[j]
             var out: [(Int, AXUIElement)] = []
             var seen: [AXUIElement] = []
-            for c in l.entering where matches(c) { out.append((l.start, c)); seen.append(c) }
+            for (n, c) in l.entering.enumerated() where matches(c, l.enteringKind(n)) { out.append((l.start, c)); seen.append(c) }
             // A line that carries on the element of the line before (a heading wrapped over two lines) is not a
             // second hit: H landed on "closed beta" after the whole heading (8 Oct 2026).
-            if let el = l.element, !lineContinues(j), !seen.contains(where: { $0.isSame(el) }), matches(el) { out.append((l.start, el)) }
+            if let el = l.element, !lineContinues(j), !seen.contains(where: { $0.isSame(el) }), let k = l.elementKind, matches(el, k) { out.append((l.start, el)) }
             if wantsLinks, out.isEmpty {
                 // Link text inside the line; a link split over several pieces counts once.
                 var lo = 0, hi = segments.count
@@ -821,7 +888,7 @@ public final class WebBuffer {
                 while k < segments.count, segments[k].start < l.end {
                     let sg = segments[k]
                     // A link that began on an earlier piece of a wrapped line was counted there.
-                    if sg.isLink, sg.start >= l.start, sg.start > prevLinkEnd + 1 { out.append((sg.start, sg.element)) }
+                    if sg.isLink, sg.start >= l.start, sg.start > prevLinkEnd + 1, visited.map({ Self.isVisited(sg.link ?? sg.element) == $0 }) ?? true { out.append((sg.start, sg.element)) }
                     prevLinkEnd = sg.isLink ? sg.end : -2
                     k += 1
                 }

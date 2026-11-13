@@ -43,8 +43,12 @@ extension BrowseModeDocument {
         if Self.inPlayerOrApplication(obj.element) { return true }
         let s = obj.states
         if s.contains(.editable) && !s.contains(.unavailable) && !s.contains(.readOnly) { return true }   // (not a read-only edit, as NVDA)
+        if let decided = Self.focusModeContainer(obj.role, subrole: obj.element.string(kAXSubroleAttribute),
+                                                  roleDescription: [.list, .table].contains(obj.role) ? obj.element.string(kAXRoleDescriptionAttribute) : nil) {
+            return decided
+        }
         switch obj.role {
-        case .comboBox, .popUpButton, .slider, .spinButton, .list, .table, .treeView, .menu, .menuItem, .tabControl, .tab: return true
+        case .comboBox, .popUpButton, .slider, .spinButton, .treeView, .grid, .menu, .menuItem, .tabControl, .tab: return true
         case .listItem, .treeViewItem: return true   // NVDA's LISTITEM, TREEVIEWITEM
         default:
             // Focus on the text of an option (Safari focuses the text of a search box's suggestion as Down moves
@@ -58,6 +62,19 @@ extension BrowseModeDocument {
                 p = x.element(kAXParentAttribute); hops += 1
             }
             return false
+        }
+    }
+
+    /// A focused list or table: focus mode for a list box or a grid, whose arrows are the page's; browse mode for a
+    /// plain list or table that only took the focus (tabindex), as NVDA, whose arrows read on. Every focusable table
+    /// and list switched, and the arrows then went to a page that did nothing with them (a review, 13 Nov 2026).
+    /// Nil for any other role. Pure, for the tests. WebKit and Chromium give a page's <ul> and <ol> the subrole
+    /// AXContentList (a <dl> AXDescriptionList); a listbox has none. A grid is an AXTable described "grid".
+    package static func focusModeContainer(_ role: Role, subrole: String?, roleDescription: String?) -> Bool? {
+        switch role {
+        case .list: return !["AXContentList", "AXDescriptionList"].contains(subrole ?? "")
+        case .table: return (roleDescription ?? "").lowercased().contains("grid")
+        default: return nil
         }
     }
 
