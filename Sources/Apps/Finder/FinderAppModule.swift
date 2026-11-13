@@ -27,8 +27,8 @@ final class FinderAppModule: AppModule {
         }
         // Command Down on a folder and Command Up are sometimes ignored by Finder: about one press in twenty did nothing,
         // the key reached Finder (a tap after VoiceOver's saw it, 21 Oct 2026) and no synthetic press ever failed.
-        // A symptom fix, the cause in Finder unknown: the key is sent on, and if nothing changes within 350 ms it is
-        // sent once more. Down only for a folder (a file would open twice), and only while Finder is still in front.
+        // A symptom fix, the cause in Finder unknown: the key is sent on, and if nothing changes within 700 ms (350 until
+        // a review, 13 Nov 2026) and the same item is still selected, it is sent once more. Down only for a folder (a file would open twice), and only while Finder is still in front.
         script("finder_openSelected", String(localized: "Opens the selected item (Command Down); a folder is asked for again if Finder ignored it", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:command+downArrow"], category: cat) { [weak self] g in
             self?.sendAgainIfIgnored(g, what: "Command Down", foldersOnly: true)
         }.isAvailable = { [weak self] in
@@ -142,19 +142,45 @@ final class FinderAppModule: AppModule {
     }
 
     /// The focus is a file view (list, icon, column or gallery view) in an ordinary Finder window.
-    /// The key goes to Finder; if Finder shows no change within 350 ms (no focus or selection event, the same window
-    /// title and selected row), it is sent once more. See the comment at the scripts.
+    /// The key goes to Finder; if Finder shows no change within 700 ms (no focus or selection event, the same window
+    /// title and selected row, and no other key), and Finder's own selection is still the same item, it is sent once more. See the comment at the scripts.
     private func sendAgainIfIgnored(_ g: KeyboardGesture, what: String, foldersOnly: Bool) {
         let before = Self.viewState()
+        let beforeItem = Self.selectedIdentity(pid)
+        let keys = ScriptHandler.keysArrivedCount
         g.send()
-        let changed = Poll.pumping(limit: 0.35) {
+        // 700 ms, not 350: a slow folder (a network share, a large folder) opened after the second Command Down was
+        // sent, which then opened what was selected inside it (a review, 13 Nov 2026).
+        let changed = Poll.pumping(limit: 0.7) {
             EventHandler.isPending(.gainFocus) || EventHandler.isPending(.selection) || !Self.same(Self.viewState(), before)
+                || ScriptHandler.keysArrivedCount != keys
         }
         if changed { return }
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { Log.io("finder: \(what) did nothing within 350 ms; another app is in front, not sent again"); return }
-        if foldersOnly, let f = API.focusObject, !Self.selectedIsFolder(in: f.element) { Log.io("finder: \(what) did nothing within 350 ms on a file; not sent again"); return }
-        Log.io("finder: \(what) did nothing within 350 ms (Finder ignored the key, 21 Oct 2026); sent again")
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { Log.io("finder: \(what) did nothing within 700 ms; another app is in front, not sent again"); return }
+        if foldersOnly, let f = API.focusObject, !Self.selectedIsFolder(in: f.element) { Log.io("finder: \(what) did nothing within 700 ms on a file; not sent again"); return }
+        // Finder's own focus and selection, asked again: the same item, in the same window, still selected (the window's
+        // title alone missed a folder that had opened in place with the same name showing).
+        let now = Self.selectedIdentity(pid)
+        let unchanged: Bool
+        if let item = beforeItem, let now { unchanged = now.window == item.window && now.row.isSame(item.row) && now.name == item.name }
+        else { unchanged = !foldersOnly && beforeItem == nil && now == nil && Self.viewState().0 == before.0 }   // Command Up with nothing selected
+        guard unchanged else { Log.io("finder: \(what): the selection has changed or can't be read; not sent again"); return }
+        Log.io("finder: \(what) did nothing within 700 ms (Finder ignored the key, 21 Oct 2026); sent again")
         g.send()
+    }
+
+    /// Finder's focused file view's selected item, by Finder's own focus (not TurnOver's copy): the row or item, its
+    /// words, and the window's title.
+    private static func selectedIdentity(_ pid: pid_t) -> (window: String, row: AXUIElement, name: String)? {
+        guard let f = AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute) else { return nil }
+        let selected = f.elements(kAXSelectedRowsAttribute) + f.elements(kAXSelectedChildrenAttribute)
+        guard selected.count == 1, let row = selected.first else { return nil }
+        // (List view's names are text fields in cells; icon view's items carry a title.)
+        var name = row.elements(kAXChildrenAttribute).flatMap { [$0] + $0.elements(kAXChildrenAttribute) }
+            .compactMap { $0.string(kAXValueAttribute) ?? $0.string(kAXTitleAttribute) }.filter { !$0.isEmpty }.joined(separator: " ")
+        if name.isEmpty { name = row.string(kAXTitleAttribute) ?? row.string(kAXDescriptionAttribute) ?? "" }
+        guard !name.isEmpty else { return nil }
+        return (f.element(kAXWindowAttribute)?.string(kAXTitleAttribute) ?? "", row, name)
     }
 
     /// The window's title and the selected row's identity, as a view-change check.
