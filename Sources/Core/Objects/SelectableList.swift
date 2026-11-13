@@ -221,6 +221,13 @@ open class SelectableList: TurnOverObject {
 
     /// Whether the selection is on the first (or last) row.
     private func atEnd(top: Bool) -> Bool {
+        // By the count and the selected row's index where the list gives them: Mail's message list is 23,000 rows,
+        // and fetching them all on every arrow cost a tenth of a second (13 Nov 2026).
+        var n: CFIndex = 0
+        if AXUIElementGetAttributeValueCount(element, kAXRowsAttribute as CFString, &n) == .success, n > 0,
+           let sel = element.elements(kAXSelectedRowsAttribute).first, let i = sel.int(kAXIndexAttribute) {
+            return top ? i == 0 : i == n - 1
+        }
         let (rows, key) = rowsAndKey
         guard let end = top ? rows.first : rows.last, let selected = element.elements(key).first else { return false }
         return selected.isSame(end)

@@ -73,6 +73,25 @@ enum NewDialogs {
         }
     }
 
+    /// A Command shortcut that went to the app in front (Command N in Mail): if a moment later the app says another
+    /// window has the focus, TurnOver goes there. Mail opened its New Message window with no window or focus news at
+    /// all, and Tab went on in the main window behind it until the user left Mail and came back (a tester, 13 Nov 2026).
+    static func watchCommandKey(_ g: KeyboardGesture) {
+        guard g.modifiers.contains(.command), !g.modifiers.contains(.turnover), g.keyName.count == 1,
+              let front = NSWorkspace.shared.frontmostApplication, front.processIdentifier != getpid() else { return }
+        let pid = front.processIdentifier, before = AXHandler.shared.focusWindow, keyAt = InputManager.lastKeyDownAt
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            guard InputManager.lastKeyDownAt == keyAt, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+                  !AXHandler.shared.isMenuOpen else { return }
+            let appEl = AXUIElementCreateApplication(pid)
+            guard let w = appEl.element(kAXFocusedWindowAttribute), w.role == "AXWindow", before.map({ !$0.isSame(w) }) ?? true,
+                  API.focusObject.map({ !isInside($0.element, w) }) ?? true else { return }
+            Log.io("new window: \(g.keyName) opened a window the app gave no news of; going there")
+            AXHandler.shared.foregroundChanged(w, appName: nil)
+            if let f = appEl.element(kAXFocusedUIElementAttribute) { AXHandler.shared.focusChanged(f, pid: pid) }
+        }
+    }
+
     /// A window was created in the app in front; a moment later, one holding a progress bar is read and its bar followed,
     /// and a small one that took the focus with no control inside it focused is entered.
     static func windowAppeared(_ window: AXUIElement, pid: pid_t) {

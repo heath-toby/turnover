@@ -291,6 +291,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
         super.init()
         Self.current = self
         InputManager.passThroughWatchers.append(Self.watchTabLoop)
+        InputManager.passThroughWatchers.append(NewDialogs.watchCommandKey)
         // An app that ignores Tab or Shift+Tab on a control: Mail's compose window keeps the focus on the formatting
         // bar's "more…" button, so Shift+Tab went nowhere and said nothing (5 Oct 2026). If the focus has not moved
         // shortly after the key, TurnOver moves it to the next or previous control in screen order.
