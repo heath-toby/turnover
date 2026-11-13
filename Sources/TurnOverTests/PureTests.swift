@@ -1558,4 +1558,20 @@ func browseTextNavTests() {
         check(!AXHandler.isSettingsExtension("com.apple.TextInputUI.xpc.CursorUIViewService", front: ss), "other services stay ignored")
         check(!AXHandler.isSettingsExtension("com.example.settings.extension", front: ss), "not Apple's")
     }
+    test("notification centre: the place is the cursor's item, else the remembered place, not the first with its words") {
+        let names = ["Notification Centre", "Messages", "Mail"]
+        let words = [["Clear All"], ["Messages, Hi", "Messages, Hi", "Messages, Bye"], ["Mail, News"]]
+        func place(hit: (Int, Int)? = nil, group: String?, index: Int?, words w: String?) -> [Int] {
+            let r = NotificationCentreNavigator.resolvePlace(groupNames: names, itemWords: words, hit: hit, group: group, index: index, words: w,
+                                                            defaultGroup: 1, firstNotifications: [0, 0, 0])
+            return [r.0, r.1]
+        }
+        expect(place(hit: (2, 0), group: "Messages", index: 1, words: "Messages, Hi"), [2, 0], "the cursor moved by Tab wins over the arrows' place")
+        expect(place(group: "Messages", index: 1, words: "Messages, Hi"), [1, 1], "the second of two alike stays the second")
+        expect(place(group: "Messages", index: 2, words: "Messages, Hi"), [1, 1], "moved up: the same words nearest the place")
+        expect(place(group: "Messages", index: 1, words: nil), [1, 1], "closed: what moved into its place")
+        expect(place(group: "Messages", index: 7, words: nil), [1, 2], "closed at the end: the last")
+        expect(place(group: "Gone", index: 1, words: "x"), [1, 0], "the app gone: the default app's first")
+        expect(place(hit: (5, 0), group: nil, index: nil, words: nil), [1, 0], "a hit outside the groups is ignored")
+    }
 }
