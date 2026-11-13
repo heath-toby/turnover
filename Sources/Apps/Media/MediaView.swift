@@ -1351,9 +1351,38 @@ public final class MediaView {
         // outside the item pieces; Number in list must not be hardcoded back on here (#187, 29 Oct 2026).
         parts += Speech.arranged(pieces, by: config.presentation.verbosity(for: bundleIdentifier))
         Speech.speakItem(parts.joined(separator: ", "), processed: true)
+        if item.tableRow { selectTableRow(item) }
         // Object navigation starts from the item Tab or the arrows reached (a tester, 12 Nov 2026).
         ObjectNavigator.shared.focusMoved(to: item.element, pid: item.element.pid)
         Hints.schedule(hint(for: item))
+    }
+
+    /// A library song read by the arrows is Music's selected row too. Delete, Command-Delete and Command-I go to Music,
+    /// which acts on its own selection: with only TurnOver's index moved, Delete removed the song Music had selected,
+    /// not the one just read (a review, 13 Nov 2026). The table takes the focus as Return's press does, so those keys
+    /// reach it.
+    private func selectTableRow(_ item: Item) {
+        guard let table = item.element.element(kAXParentAttribute), acceptsWindow(modelWindow) else { return }
+        if (table.attr(kAXFocusedAttribute) as? Bool) != true { _ = table.set(kAXFocusedAttribute, kCFBooleanTrue) }
+        if table.set(kAXSelectedRowsAttribute, [item.element] as CFArray) != .success { Log.io("media: the library row refused the selection") }
+    }
+
+    /// The library song TurnOver reads, when the page's current item is one (Delete and Command-I are sent for it).
+    public var onLibraryRow: Bool { pane == .page && !catalogHasThePage && currentItem()?.tableRow == true }
+
+    /// A key that acts on Music's selected song (Delete, Command-Delete, Command-I): sent only once that song is the one
+    /// read; otherwise not sent at all, so it can't act on another (a review, 13 Nov 2026).
+    public func sendForLibraryRow(_ g: KeyboardGesture) {
+        guard let item = currentItem(), item.tableRow, let table = item.element.element(kAXParentAttribute) else { g.send(); return }
+        selectTableRow(item)
+        let selected = table.elements(kAXSelectedRowsAttribute)
+        guard selected.count == 1, selected[0].isSame(item.element) else {
+            Log.io("media: \(g.identifier) not sent; the read song isn't Music's selection")
+            Tones.edge()
+            Speech.speakMessage(String(localized: "could not select that song", comment: "Spoken message: a key that acts on the selected song was not sent"))
+            return
+        }
+        g.send()
     }
 
     private func hint(for item: Item) -> String {

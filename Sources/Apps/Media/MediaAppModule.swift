@@ -83,6 +83,12 @@ final class MediaAppModule: AppModule {
         for ch in "abcdefghijklmnopqrstuvwxyz" {
             add("letter_\(ch)", String(localized: "Jumps to the next item starting with the letter", comment: "A command, as the key list and keyboard help say it"), [String(ch)]) { [weak self] _ in self?.view.letter(ch) }
         }
+        // Keys Music applies to its selected song: sent only once the song TurnOver reads is that selection (a review,
+        // 13 Nov 2026: Delete after the arrows went to the row Music had selected before).
+        script("media_libraryRowKey", String(localized: "Deletes or shows the info of the song being read", comment: "A command, as the key list and keyboard help say it"),
+               gestures: ["kb:backspace", "kb:delete", "kb:command+backspace", "kb:option+command+backspace", "kb:command+i"], category: cat) { [weak self] g in
+            self?.view.sendForLibraryRow(g)
+        }.isAvailable = { [weak self] in active() && self?.view.onLibraryRow == true }
         script("media_submitSearch", String(localized: "Searches, then reads the results", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:enter", "kb:numpadEnter"], category: cat) { [weak self] g in
             let term = API.focusObject.flatMap { $0.element.string(kAXValueAttribute) ?? $0.value } ?? ""   // read before the app starts searching (it answers slowly then)
             // Return again on the same term while the catalog's list is up opens the item it is on.
