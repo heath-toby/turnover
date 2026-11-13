@@ -27,6 +27,10 @@ extension AXHandler {
             kAXFocusedWindowChangedNotification, kAXMenuOpenedNotification, kAXSheetCreatedNotification].contains(name) {
             lastMoveNewsAt[element.pid] = Date()
         }
+        if [kAXCreatedNotification, kAXLayoutChangedNotification, kAXRowCountChangedNotification, kAXWindowCreatedNotification,
+            kAXSheetCreatedNotification, kAXUIElementDestroyedNotification].contains(name) {
+            lastStructureAt[element.pid] = Date()
+        }
         guard running else { return }
         let pid = element.pid
         // A banner from Notification Centre (a message, a calendar alert): read as it appears, as VoiceOver and NVDA do

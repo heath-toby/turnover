@@ -170,7 +170,7 @@ extension SettingsPanePlugin {
         guard let cur = API.focusObject?.element, let scope = Self.scopeOf(cur) else { g.send(); return }
         // The window's stops from a moment ago where they're still the window's (a walk costs 100 ms or more).
         var all: [AXUIElement]
-        if let c = Self.trapList, c.window.isSame(scope), Date().timeIntervalSince(c.at) < 3, !c.controls.contains(where: { $0.role == "?" }) { all = c.controls }
+        if let c = Self.trapList, c.window.isSame(scope), Self.listStillGood(c.at, pid: scope.pid), !c.controls.contains(where: { $0.role == "?" }) { all = c.controls }
         else { all = Self.controls(in: scope, toolbars: true, unfocusable: true) }
         // The toolbar's stop is the item just used (remembered as the focus landed).
         // The item itself, or whichever of the toolbar's items stands for it (Font Book's Hide Sidebar was missing from

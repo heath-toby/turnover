@@ -66,6 +66,12 @@ public final class SettingsPanePlugin: GlobalPlugin {
     /// control that refuses the focus: the app's own Tab would go on from its focus elsewhere, Weather, 11 Nov 2026).
     static var inTrapZone: Bool { lock.lock(); defer { lock.unlock() }; return _inTrapZone || (_holding && _heldByTrap) }
     private static var _heldByTrap = false
+    /// The last window's controls in screen order, reused for a few seconds (walking the window costs 60 ms), or up to
+    /// a minute while the app says nothing of its controls changing.
+    static func listStillGood(_ at: Date, pid: pid_t) -> Bool {
+        let age = Date().timeIntervalSince(at)
+        return age < 5 || age < 60 && (AXHandler.shared.lastStructureAt[pid] ?? .distantPast) < at
+    }
     /// The last window's controls in screen order, reused for a few seconds (walking the window costs 60 ms).
     static var trapList: (window: AXUIElement, controls: [AXUIElement], at: Date)?
 
@@ -97,7 +103,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
             g.send(); return
         }
         var all: [AXUIElement]
-        if let c = Self.trapList, c.window.isSame(window), Date().timeIntervalSince(c.at) < 5 { all = c.controls }
+        if let c = Self.trapList, c.window.isSame(window), Self.listStillGood(c.at, pid: window.pid) { all = c.controls }
         else { all = Self.controls(in: window, toolbars: true, unfocusable: true); Self.trapList = (window, all, Date()) }
         // On a row of a list the trap made (rowLists): its place is the list's, which stands for all its rows.
         func stop(_ e: AXUIElement) -> AXUIElement { Self.rowList(of: e)?.stop ?? e }
@@ -172,7 +178,6 @@ public final class SettingsPanePlugin: GlobalPlugin {
             guard let j = all.firstIndex(where: { $0.isSame(current) }), !all.isEmpty else { g.send(); return }
             i = j; n = ((forward ? i + 1 : i - 1) + all.count) % all.count
         }
-        Self.trapList = (window, all, Date())
         // Round to the same control (a window with one, Reminders' Continue): nothing changes, so nothing would be
         // said; it is said again, as Tab on Windows says it (the sweep, 11 Nov 2026).
         if all[n].isSame(current) { Speech.cancel(); Speech.speakObject(ObjectFactory.make(current), reason: .focus); return }
@@ -185,8 +190,12 @@ public final class SettingsPanePlugin: GlobalPlugin {
             return
         }
         Log.io("tab trap: to \(all[n].role) \(n + 1) of \(all.count)")
-        Self.focus(all[n], byTrap: true)
-        Self.setTrapState(for: all[n])
+        var target = all[n]
+        // Onto a toolbar: its item last used, which a list kept from before may not name.
+        if let w = Self.windowOf(target), let (tb, _) = Self.toolbarFor(target, in: w), !Self.ownArrows(target),
+           let items = Self.toolbarItems(around: tb)?.items, let stop = Self.toolbarStop(tb, items) { target = stop }
+        Self.focus(target, byTrap: true)
+        Self.setTrapState(for: target)
     }
 
     /// Whether a control is in a place where the app ignores Tab; set as the focus (or TurnOver's held place) moves.

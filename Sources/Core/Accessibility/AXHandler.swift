@@ -201,6 +201,9 @@ public final class AXHandler {
     /// which Catalyst apps (Home, Journal) and a copy window's bar send all the time, so the Tab trap judged every Tab
     /// answered and did nothing (11 Nov 2026).
     public internal(set) var lastMoveNewsAt: [pid_t: Date] = [:]
+    /// When each app last said its controls came or went (created, layout, rows, a window or sheet): the Tab trap's
+    /// list of a window's controls holds until then (13 Nov 2026: a walk cost a third of a second each five seconds).
+    public internal(set) var lastStructureAt: [pid_t: Date] = [:]
     /// Ask the application what has focus now and treat it as a focus change (after a menu closes: Word sends nothing).
     var menuGapTarget: AXUIElement?
     var lastAnnouncement = ("", Date.distantPast)
