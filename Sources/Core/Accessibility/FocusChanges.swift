@@ -243,23 +243,40 @@ extension AXHandler {
               let front = AXUIElementCreateApplication(pid).element(kAXFocusedWindowAttribute),
               front.string(kAXSubroleAttribute) == "AXStandardWindow", !front.isSame(window) else { return .go(target) }
         Log.io("focus in the background window \"\(Log.words(String(window.string(kAXTitleAttribute)?.prefix(40) ?? "")))\"; ignored")
-        if !backgroundRecheckPending {
+        if backgroundRecheckPending {
+            if backgroundSetAside.elements.count < 8 { backgroundSetAside.elements.append(target) }
+        } else {
             backgroundRecheckPending = true
+            backgroundSetAside = ([target], AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute))
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 guard let self else { return }
                 self.backgroundRecheckPending = false
-                // The application's focus now, whatever it is, if its window is the front one and TurnOver isn't on it:
-                // only the first focus of a burst set aside was tested again, and a later one in a window just opened
-                // was never read (a review, 13 Nov 2026). Still the first one: the window is the front one after all.
+                let setAside = self.backgroundSetAside
+                self.backgroundSetAside = ([], nil)
+                // The application's focus now, if its window is the front one and TurnOver isn't on it: only the first
+                // focus of a burst set aside was tested again, and a later one in a window just opened was never read
+                // (a review, 13 Nov 2026). Only if it is one set aside (the window is the front one after all) or has
+                // moved since: the app's focus left where it was while TurnOver holds a place of its own (the Tab
+                // trap, a toolbar, NewDialogs) is no news, and taking it dropped the place (a review, 13 Nov 2026).
                 guard pid == self.activePid else { return }
                 let app = AXUIElementCreateApplication(pid)
-                if let f = app.element(kAXFocusedUIElementAttribute), API.focusObject?.isSameElement(as: f) != true,
-                   let w = f.element(kAXWindowAttribute), let fw = app.element(kAXFocusedWindowAttribute), w.isSame(fw) {
-                    self.focusChanged(f, pid: pid)
+                guard let f = app.element(kAXFocusedUIElementAttribute), API.focusObject?.isSameElement(as: f) != true,
+                      let w = f.element(kAXWindowAttribute), let fw = app.element(kAXFocusedWindowAttribute), w.isSame(fw) else { return }
+                let held = SettingsPanePlugin.heldRow.flatMap { SettingsPanePlugin.windowOf($0) }.map { $0.isSame(fw) } ?? false
+                guard AXHandler.backgroundRecheckActs(isSetAside: setAside.elements.contains { $0.isSame(f) },
+                                                 focusMovedSince: setAside.appFocus.map { !$0.isSame(f) } ?? true,
+                                                 holdInFrontWindow: held) else {
+                    Log.io("background window recheck: the app's focus is where it was, or TurnOver holds a place; left")
+                    return
                 }
+                self.focusChanged(f, pid: pid)
             }
         }
         return .ignore
+    }
+    /// Whether the app's focus, read again after focus news in a background window was set aside, is taken.
+    nonisolated public static func backgroundRecheckActs(isSetAside: Bool, focusMovedSince: Bool, holdInFrontWindow: Bool) -> Bool {
+        !holdInFrontWindow && (isSetAside || focusMovedSince)
     }
 
     /// SwiftUI reports the focus on a text field twice (System Settings' search field and the fields in its panes, macOS

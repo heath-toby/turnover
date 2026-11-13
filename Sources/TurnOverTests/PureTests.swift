@@ -1620,6 +1620,12 @@ func browseTextNavTests() {
         check(!AXHandler.servesPanel(helperBundle: svc, helperName: nil, frontName: "TextEdit"), "a service without a name")
         check(!AXHandler.servesPanel(helperBundle: svc, helperName: "Open and Save Panel Service ()", frontName: ""), "no app in front")
     }
+    test("focus: a background window's focus read again is taken only if set aside or moved, never over a held place") {
+        check(AXHandler.backgroundRecheckActs(isSetAside: true, focusMovedSince: false, holdInFrontWindow: false), "the window set aside was the front one")
+        check(AXHandler.backgroundRecheckActs(isSetAside: false, focusMovedSince: true, holdInFrontWindow: false), "the app's focus moved since")
+        check(!AXHandler.backgroundRecheckActs(isSetAside: false, focusMovedSince: false, holdInFrontWindow: false), "where it was while TurnOver held a place")
+        check(!AXHandler.backgroundRecheckActs(isSetAside: true, focusMovedSince: true, holdInFrontWindow: true), "a place held in the front window")
+    }
     test("a System Settings pane's extension counts as System Settings") {
         let ss = "com.apple.systempreferences"
         check(AXHandler.isSettingsExtension("com.apple.settings.PrivacySecurity.extension", front: ss), "Privacy & Security")
