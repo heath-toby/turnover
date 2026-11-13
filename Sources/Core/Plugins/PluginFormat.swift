@@ -30,7 +30,7 @@ nonisolated public enum PluginFormat {
     static let labelFields = ["match", "name", "nameFrom", "role"]
     static let keyFields = ["key", "description", "action", "target", "menu", "keys", "say", "letter"]
     static let watchFields = ["match", "prefix", "read"]
-    static let matchFields = ["role", "roles", "subrole", "identifier", "title", "description", "help", "value", "text", "window",
+    static let matchFields = ["role", "roles", "subrole", "identifier", "domClass", "title", "description", "help", "value", "text", "window",
                               "inside", "parent", "unnamed", "pressable", "nth", "any"]
 
     // MARK: Lenient JSON

@@ -1,0 +1,21 @@
+{
+  "bundle": "org.whispersystems.signal-desktop",
+  "name": "Signal",
+  "view": {
+    "kind": "chat",
+    "chat": {
+      "conversations": "signal.chats",
+      "transcript": "signal.messages",
+      "composer": "signal.box",
+      "title": "signal.title",
+      "match": {
+        "conversations": { "role": "AXTable", "domClass": "*module-conversation-list*" },
+        "transcript": { "role": "AXList", "domClass": "*module-timeline__messages*" },
+        "composer": { "role": "AXTextArea", "domClass": "*ql-editor*" },
+        "title": { "role": "AXButton", "domClass": "*module-ConversationHeader__header*" }
+      },
+      "message": { "role": "AXGroup", "subrole": "" },
+      "conversation": { "any": [ { "role": "AXRow" } ] }
+    }
+  }
+}

@@ -68,6 +68,9 @@ nonisolated public struct ElementMatch: Codable {
     public var roles: [String]?
     public var subrole: String?
     public var identifier: String?    // AXIdentifier: the steadiest thing to match where the app sets it
+    /// A web element's CSS classes (AXDOMClassList, joined by spaces), globbed: Electron apps that set no names or
+    /// identifiers (Signal's message list, box and header, 13 Nov 2026).
+    public var domClass: String?
     public var title: String?
     public var description: String?
     public var help: String?
@@ -205,6 +208,7 @@ nonisolated public enum ElementMatcher {
         if let rs = m.roles { let actual = e.role; if !rs.contains(where: { roleMatches($0, actual) }) { return false } }
         if let s = m.subrole, !glob(s, e.string(kAXSubroleAttribute) ?? "") { return false }
         if let i = m.identifier, !glob(i, e.string(kAXIdentifierAttribute) ?? "") { return false }
+        if let c = m.domClass, !glob(c, ((e.attr("AXDOMClassList") as? [String]) ?? []).joined(separator: " ")) { return false }
         if let t = m.title, !glob(t, e.string(kAXTitleAttribute) ?? "") { return false }
         if let d = m.description, !glob(d, e.string(kAXDescriptionAttribute) ?? "") { return false }
         if let h = m.help, !glob(h, e.string(kAXHelpAttribute) ?? "") { return false }

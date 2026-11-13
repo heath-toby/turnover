@@ -913,7 +913,7 @@ func pureTests() {
         let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         Recipes.load(builtIn: repo.appendingPathComponent("Resources/recipes"), plugins: [])
         expect(Recipes.problems.count, 0, "problems: \(Recipes.problems)")
-        expect(Recipes.bundles(kind: "chat"), ["com.apple.MobileSMS", "com.hnc.Discord", "net.whatsapp.WhatsApp"])
+        expect(Recipes.bundles(kind: "chat"), ["com.apple.MobileSMS", "com.hnc.Discord", "net.whatsapp.WhatsApp", "org.whispersystems.signal-desktop", "org.whispersystems.signal-desktop-beta"])
         expect(Recipes.bundles(kind: "media"), ["com.apple.Music", "com.apple.TV", "com.apple.podcasts"])
         guard let w = Recipes.recipe(for: "net.whatsapp.WhatsApp")?.view.chat, let m = Recipes.recipe(for: "com.apple.MobileSMS")?.view.chat else { return Harness.fail("recipes missing") }
         let spec = ChatView.Spec(w)

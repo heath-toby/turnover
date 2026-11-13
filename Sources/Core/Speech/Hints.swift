@@ -23,9 +23,14 @@ public enum Hints {
             // said as a message window came up (7 Oct 2026).
             guard g == generation, config.presentation.speakHints, !SayAll.isRunning else { return }
             if let a = focusAt, let b = API.focusObject?.element, !CFEqual(a, b) { return }
+            // The same hint once a minute at most: moving message to message in a chat, the same sentence came after
+            // every pause (13 Nov 2026).
+            if let last = lastSaid, last.text == text, Date().timeIntervalSince(last.at) < 60 { return }
+            lastSaid = (text, Date())
             Speech.speakText(text)
         }
     }
+    private static var lastSaid: (text: String, at: Date)?
 
     /// A web page or message in browse mode.
     public static var page: String {
