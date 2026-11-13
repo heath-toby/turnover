@@ -64,7 +64,7 @@ public final class SystemPrompts {
     public func remindIfWaiting(activated pid: pid_t) {
         guard let p = waiting.first, p.pid != pid, Date().timeIntervalSince(lastReminder) > 5 else { return }
         lastReminder = Date()
-        let key = config.general.windowsKeys ? String(localized: "Option Tab", comment: "Keys to reach a waiting system dialog") : String(localized: "VO-F1 twice", comment: "Keys to reach a waiting system dialog")
+        let key = config.general.windowsKeys ? String(localized: "Option Command Tab", comment: "Keys to reach a waiting system dialog") : String(localized: "VO-F1 twice", comment: "Keys to reach a waiting system dialog")
         Log.io("system prompt still open (pid \(p.pid)); reminded")
         Speech.speakMessage(String(localized: "system dialog waiting: \(p.text). \(key) to go to it", comment: "A system dialog waiting: its words, then the keys to reach it"))
     }

@@ -854,8 +854,8 @@ Client
 Contacts
 
   Key: What it does
-  Shift Tab: From the card back to the list
-  Tab: From the list to the person's card, read as a page
+  Shift Tab: From the list back to the search field
+  Tab: From the search field to the list of people
 
 Discord
 
@@ -931,8 +931,8 @@ Mail
   Enter: Searching: Return searches, says how many results, and goes to them
   Escape: Reading a message: back to the message list (closes the message's own window)
   Option Command Apostrophe: Writing a message: decreases the quote level, and says it
-  Shift Tab: From the message list: the mailbox list (Shift Tab)
-  Tab: From the mailbox list: the message list (Tab)
+  Shift Tab: Reading a message: the previous header field
+  Tab: Reading a message: the next header field (From, Subject, To, Cc), then its buttons
 
 Maps
 
@@ -1369,10 +1369,10 @@ Windows keys
   Control F4: Closes the window or tab (Windows: Control+F4)
   Option B: Status menus; lists the status menus at the right of the menu bar, TurnOver's own item last (Windows: Windows+B)
   Option D: The desktop: its icons and widgets under the arrows, Return opens or goes in (Windows: Windows+D)
-  Option Tab: Application chooser; lists every application with a window, system alerts too, to switch to (Windows: Windows+Tab, Task View)
   Shift F10: Opens the context menu, as Control+Return does (Windows: the Applications key, Shift+F10). Also right Option on its own
   TurnOver F7: Elements list for the window: its buttons, fields, lists and links, by kind; Enter goes there (NVDA+F7 outside a page)
   Control Shift Escape: Force quit, as Task Manager's key (Windows: Control+Shift+Escape)
+  Option Command Tab: Application chooser; lists every application with a window, system alerts too, to switch to (Windows: Windows+Tab, Task View)
   Option Shift D: Opens the Desktop folder in Finder, its items under the arrows (Option Shift D)
 
 IN THE APPS
@@ -1462,8 +1462,8 @@ Client
 Contacts
 
   Key: What it does
-  Shift Tab: From the card back to the list
-  Tab: From the list to the person's card, read as a page
+  Shift Tab: From the list back to the search field
+  Tab: From the search field to the list of people
 
 Discord
 
@@ -1551,8 +1551,8 @@ Mail
   Enter: Searching: Return searches, says how many results, and goes to them
   Escape: Reading a message: back to the message list (closes the message's own window)
   Option Command Apostrophe: Writing a message: decreases the quote level, and says it
-  Shift Tab: From the message list: the mailbox list (Shift Tab)
-  Tab: From the mailbox list: the message list (Tab)
+  Shift Tab: Reading a message: the previous header field
+  Tab: Reading a message: the next header field (From, Subject, To, Cc), then its buttons
 
 Maps
 
@@ -1864,7 +1864,7 @@ JAWS keys
   TurnOver Comma: Reports the current character. Twice, its name; three times, its code (JAWS: Insert+Numpad 5)
   TurnOver Escape: Rebuilds the page's browse mode view (NVDA+F5)
   TurnOver F1: Reads the item's help tag (VO-Shift-H)
-  TurnOver F10: Application chooser; lists every application with a window, system alerts too, to switch to (Windows: Windows+Tab, Task View)
+  TurnOver F10: Selects from the marked start to the review cursor; twice, copies it (NVDA+F10)
   TurnOver F11: Status menus; lists the status menus at the right of the menu bar, TurnOver's own item last (Windows: Windows+B)
   TurnOver F2: Opens TurnOver's settings in its menu (JAWS: Insert+F2, Insert+6)
   TurnOver F3: Elements list for the window: its buttons, fields, lists and links, by kind; Enter goes there (NVDA+F7 outside a page)
@@ -2050,9 +2050,9 @@ Windows keys
   Control F4: Closes the window or tab (Windows: Control+F4)
   Option B: Status menus; lists the status menus at the right of the menu bar, TurnOver's own item last (Windows: Windows+B)
   Option D: The desktop: its icons and widgets under the arrows, Return opens or goes in (Windows: Windows+D)
-  Option Tab: Application chooser; lists every application with a window, system alerts too, to switch to (Windows: Windows+Tab, Task View)
   Shift F10: Opens the context menu, as Control+Return does (Windows: the Applications key, Shift+F10). Also right Option on its own
   Control Shift Escape: Force quit, as Task Manager's key (Windows: Control+Shift+Escape)
+  Option Command Tab: Application chooser; lists every application with a window, system alerts too, to switch to (Windows: Windows+Tab, Task View)
   Option Shift D: Opens the Desktop folder in Finder, its items under the arrows (Option Shift D)
 
 During say all
@@ -2152,8 +2152,8 @@ Client
 Contacts
 
   Key: What it does
-  Shift Tab: From the card back to the list
-  Tab: From the list to the person's card, read as a page
+  Shift Tab: From the list back to the search field
+  Tab: From the search field to the list of people
 
 Discord
 
@@ -2240,8 +2240,8 @@ Mail
   Enter: Searching: Return searches, says how many results, and goes to them
   Escape: Reading a message: back to the message list (closes the message's own window)
   Option Command Apostrophe: Writing a message: decreases the quote level, and says it
-  Shift Tab: From the message list: the mailbox list (Shift Tab)
-  Tab: From the mailbox list: the message list (Tab)
+  Shift Tab: Reading a message: the previous header field
+  Tab: Reading a message: the next header field (From, Subject, To, Cc), then its buttons
 
 Maps
 

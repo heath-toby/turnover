@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The keys an application's own menus use. The Windows style's Option keys (Option B, Option D, Option Shift D,
-// Option Tab) were TurnOver's in every app, and REAPER's Option B (Virtual MIDI Keyboard) and Option D (Duplicate
+// The keys an application's own menus use. The Windows style's Option keys (Option B, Option D, Option Shift D) were TurnOver's in every app, and REAPER's Option B (Virtual MIDI Keyboard) and Option D (Duplicate
 // Tracks) never reached it (found by reading the tester's apps' menus, 13 Nov 2026). Such a key goes to an app whose
 // menus have it. The menus are read off the main thread as the app comes to the front, and again after two minutes.
 import Foundation

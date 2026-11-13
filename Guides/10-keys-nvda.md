@@ -177,10 +177,10 @@ Switch styles with Command Control Comma, then K. TurnOver's own commands behind
 | Control F4 | Closes the window or tab (Windows: Control+F4) |
 | Option B | Status menus; lists the status menus at the right of the menu bar, TurnOver's own item last (Windows: Windows+B) |
 | Option D | The desktop: its icons and widgets under the arrows, Return opens or goes in (Windows: Windows+D) |
-| Option Tab | Application chooser; lists every application with a window, system alerts too, to switch to (Windows: Windows+Tab, Task View) |
 | Shift F10 | Opens the context menu, as Control+Return does (Windows: the Applications key, Shift+F10). Also right Option on its own |
 | TurnOver F7 | Elements list for the window: its buttons, fields, lists and links, by kind; Enter goes there (NVDA+F7 outside a page) |
 | Control Shift Escape | Force quit, as Task Manager's key (Windows: Control+Shift+Escape) |
+| Option Command Tab | Application chooser; lists every application with a window, system alerts too, to switch to (Windows: Windows+Tab, Task View) |
 | Option Shift D | Opens the Desktop folder in Finder, its items under the arrows (Option Shift D) |
 
 # In the apps
@@ -276,8 +276,8 @@ Keys an app's own support adds at the app level, in that app only; the keys abov
 
 | Key | What it does |
 |---|---|
-| Shift Tab | From the card back to the list |
-| Tab | From the list to the person's card, read as a page |
+| Shift Tab | From the list back to the search field |
+| Tab | From the search field to the list of people |
 
 ## Discord
 
@@ -372,8 +372,8 @@ Keys an app's own support adds at the app level, in that app only; the keys abov
 | Enter | Searching: Return searches, says how many results, and goes to them |
 | Escape | Reading a message: back to the message list (closes the message's own window) |
 | Option Command Apostrophe | Writing a message: decreases the quote level, and says it |
-| Shift Tab | From the message list: the mailbox list (Shift Tab) |
-| Tab | From the mailbox list: the message list (Tab) |
+| Shift Tab | Reading a message: the previous header field |
+| Tab | Reading a message: the next header field (From, Subject, To, Cc), then its buttons |
 
 ## Maps
 

@@ -359,8 +359,8 @@ Keys an app's own support adds at the app level, in that app only; the keys abov
 
 | Key | What it does |
 |---|---|
-| Shift Tab | From the card back to the list |
-| Tab | From the list to the person's card, read as a page |
+| Shift Tab | From the list back to the search field |
+| Tab | From the search field to the list of people |
 
 ## Discord
 
@@ -443,8 +443,8 @@ Keys an app's own support adds at the app level, in that app only; the keys abov
 | Enter | Searching: Return searches, says how many results, and goes to them |
 | Escape | Reading a message: back to the message list (closes the message's own window) |
 | Option Command Apostrophe | Writing a message: decreases the quote level, and says it |
-| Shift Tab | From the message list: the mailbox list (Shift Tab) |
-| Tab | From the mailbox list: the message list (Tab) |
+| Shift Tab | Reading a message: the previous header field |
+| Tab | Reading a message: the next header field (From, Subject, To, Cc), then its buttons |
 
 ## Maps
 

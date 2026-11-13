@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The application chooser (VoiceOver's VO-F1-F1; in the Windows style, Option Tab, as Windows+Tab is Task View):
+// The application chooser (VoiceOver's VO-F1-F1; in the Windows style, Command Option Tab (Option Tab until 13 Nov 2026: it leaves a field that takes Tab), as Windows+Tab is Task View):
 // every application with a window on screen, its windows under it, to switch to. Command Tab leaves out the ones
 // that matter most when something is stuck: system prompts with no Dock icon (Screen Recording's "allow" alert,
 // a password prompt, a security agent). Screen Recording's alert could not be reached, 6 Oct 2026.

@@ -124,9 +124,9 @@ public final class GlobalCommands: ScriptableObject {
         script("windowElementsList", String(localized: "Elements list for the window: its buttons, fields, lists and links, by kind; Enter goes there (NVDA+F7 outside a page)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:turnover+f7"], category: win) { _ in
             ItemChooser.openRotor()
         }.isAvailable = windowsOn
-        script("applicationChooser", String(localized: "Application chooser; lists every application with a window, system alerts too, to switch to (Windows: Windows+Tab, Task View)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:option+tab"], category: win) { _ in
+        script("applicationChooser", String(localized: "Application chooser; lists every application with a window, system alerts too, to switch to (Windows: Windows+Tab, Task View)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:command+option+tab"], category: win) { _ in
             DispatchQueue.main.async { ApplicationChooser.open() }
-        }.isAvailable = { windowsOn() && !GlobalCommands.leftToApp("kb:option+tab") }
+        }.isAvailable = windowsOn   // Command Option Tab: Option Tab is how a field that takes Tab is left (a tester, 13 Nov 2026)
         // Option+D is Windows+D, the desktop: Finder's Desktop folder in a window, its items under the arrow keys (an
         // AppleVis reader asked how to reach the desktop in the NVDA style, 25 Oct 2026). F11 only clears the screen.
         // Option D: the desktop itself, its icons and widgets under the arrows (a tester's design, 12 Nov 2026); the
@@ -622,7 +622,7 @@ public final class GlobalCommands: ScriptableObject {
     /// page in browse mode, the link or control at the reading position, as NVDA and VoiceOver open it (a tester,
     /// 13 Oct 2026: on a link the page's menu came up, without "open in a new tab", until he interacted with it).
     /// The Windows style's Option keys stay the app's where it uses them: typing in a field (Option D and B are
-    /// letters there, Option Tab and B a word in Terminal), or a key the app's own menus have (REAPER's Option B and
+    /// letters there, Option B a word in Terminal), or a key the app's own menus have (REAPER's Option B and
     /// D). A tester's ruling, 13 Nov 2026.
     static func leftToApp(_ gesture: String) -> Bool {
         guard let pid = API.focusPid ?? NSWorkspace.shared.frontmostApplication?.processIdentifier else { return false }
