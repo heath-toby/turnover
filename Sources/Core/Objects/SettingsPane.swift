@@ -278,7 +278,13 @@ public final class SettingsPanePlugin: GlobalPlugin {
             let leaves = Self.scrollArea(of: all[n]).map { !$0.isSame(area) } ?? true
             if leaves || (forward ? n < h : n > h), Self.scrollPage(area, down: forward) {
                 Log.io("tab trap: the last control in sight of a scroll area with more; scrolled a page")
+                let keyAt = InputManager.lastKeyDownAt
                 Poll.pumping(every: 0.05, limit: 0.3) { false }
+                // The pump runs focus news and queued keys: a newer key, or a place moved meanwhile, has made `current`
+                // stale, and moving on from it would undo what they did (a review, 13 Nov 2026).
+                guard InputManager.lastKeyDownAt == keyAt, (Self.virtual ?? API.focusObject?.element).map({ $0.isSame(current) }) ?? false else {
+                    Log.io("tab trap: the place moved while the page scrolled; left there"); return
+                }
                 let fresh = Self.controls(in: window, toolbars: true, unfocusable: true)
                 Self.trapList = (window, fresh, Date())
                 if let j = fresh.firstIndex(where: { $0.isSame(stop(current)) }) {
@@ -476,10 +482,13 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 }
                 before = f.element; window = w
             }
-            let pid = before.pid, at = Date()
+            let pid = before.pid, at = Date(), keyAt = InputManager.lastKeyDownAt
             let chosenBefore = nowhere || detached != nil ? [] : Self.chosen(in: before)
             // 0.4 s: Reminders' SwiftUI sidebar takes longer than a quarter of a second to pass Tab on (10 Oct 2026).
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                // A key since (a second Tab, an arrow) has its own say: moving on from this one's place now would make
+                // two moves of one, or undo the newer key's (a review, 13 Nov 2026).
+                guard InputManager.lastKeyDownAt == keyAt else { return }
                 let unmoved = nowhere ? (API.focusObject.map { $0.pid != pid } ?? true)
                     : detached != nil ? (f.map { API.focusObject?.isSameElement(as: $0.element) == true } ?? false)
                     : API.focusObject?.isSameElement(as: before) == true
@@ -621,7 +630,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
             expected = nil
             let trap = byTrap || inLoopWindow(target) || inTrapZone
             Log.io("settings: an iPad app; TurnOver's cursor moves, the app's focus is left alone")
-            holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true, ownTab: !trap)
+            holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true, ownTab: !trap && paneOwnsTab(target))
             lock.lock(); _heldByTrap = trap && target.role != "AXWebArea" && !isInWeb(target); lock.unlock()   // a page keeps its own Tab (BT Cloud Work, 13 Nov 2026)
             return
         }
@@ -682,10 +691,20 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 // In a window whose Tab is the trap's (TabLoop, NewDialogs), the settings panes' Tab must not take
                 // over from the held place: Shift Tab went to it and did nothing (11 Nov 2026).
                 let trap = byTrap || inLoopWindow(target) || inTrapZone
-                holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true, ownTab: !trap)
+                holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true, ownTab: !trap && paneOwnsTab(target))
                 lock.lock(); _heldByTrap = trap && target.role != "AXWebArea" && !isInWeb(target); lock.unlock()   // a page keeps its own Tab (BT Cloud Work, 13 Nov 2026)
             }
         }
+    }
+
+    /// Whether the settings panes' own Tab (settings_next) belongs where `target` is held: a window with a tab bar of
+    /// panes, or a ribbon's commands, as focusMoved judges it. A place held in an ordinary window (Mail's toolbar,
+    /// Spotlight's results) took Tab into the panes' move, which walks fewer controls, missed the held one and went to
+    /// the window's first control (a review, 13 Nov 2026).
+    static func paneOwnsTab(_ target: AXUIElement) -> Bool {
+        if ribbonCommands(of: target) != nil { return true }
+        guard let window = windowOf(target) else { return false }
+        return PreferenceTab.selectedTab(in: window) != nil
     }
 
     /// The app's module has Tab keys of its own (Messages' and WhatsApp's parts, Podcasts' areas, Books): the iPad-app
