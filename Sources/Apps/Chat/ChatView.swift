@@ -16,7 +16,7 @@
 // Keys (the app module's): in the box, Tab goes to the messages (on the newest) and Shift Tab to the conversations;
 // there, Up and Down move, Home and End go to the ends, Return opens a conversation, the shortcut menu (VO Shift M,
 // Shift F10, the Applications key) lists the item's actions, and Tab, Shift Tab or Escape move on or go back to the
-// box. Command Control 1 to 9 read the latest messages (1 the newest) from anywhere in the window. New messages that arrive
+// box. TurnOver Command 1 to 9 read the latest messages (1 the newest) from anywhere in the window. New messages that arrive
 // in the open conversation are read as they come.
 import Foundation
 import AppKit
@@ -184,6 +184,33 @@ public final class ChatView {
         guard let t = find(spec.transcriptID) else { return [] }
         return items(in: t, spec.isMessage)
     }
+
+    /// The newest messages only, for the watcher: in a web page's chat (Discord) the whole transcript was walked
+    /// every second on the main thread, up to 3000 elements (a review, 13 Nov 2026); only its last few children are
+    /// looked in. Native chats keep their list of children, as before.
+    private func recentMessages() -> [AXUIElement] {
+        guard let t = find(spec.transcriptID) else { return [] }
+        guard !spec.partMatch.isEmpty else { return items(in: t, spec.isMessage) }
+        var n: CFIndex = 0
+        guard AXUIElementGetAttributeValueCount(t, kAXChildrenAttribute as CFString, &n) == .success, n > 0 else { return [] }
+        let take = min(n, Self.recentChildren)
+        var v: CFArray?
+        guard AXUIElementCopyAttributeValues(t, kAXChildrenAttribute as CFString, n - take, take, &v) == .success,
+              let tail = v as? [AXUIElement] else { return [] }
+        var out: [AXUIElement] = []
+        for c in tail {
+            if spec.isMessage(c) { out.append(c); continue }
+            var stack = Array(c.elements(kAXChildrenAttribute).reversed()), visited = 0
+            while let e = stack.popLast(), visited < 60 {
+                visited += 1
+                if spec.isMessage(e) { out.append(e); continue }
+                stack.append(contentsOf: e.elements(kAXChildrenAttribute).reversed())
+            }
+        }
+        return out
+    }
+    /// Enough of the transcript's end for a burst of five, with day dividers between.
+    static let recentChildren = 8
 
     /// A part's items: its children that match (Messages, WhatsApp), or, in a web page's chat, the matching elements
     /// anywhere inside it (Discord's channel links sit two groups down in each list item), in the page's order.
@@ -807,7 +834,7 @@ public final class ChatView {
         TurnOverMenu.shared.openList("Actions", items: menu)
     }
 
-    /// Command Control 1 to 9: the latest messages, 1 the newest, without moving.
+    /// TurnOver Command 1 to 9: the latest messages, 1 the newest, without moving.
     public func readLatest(_ n: Int) {
         let list = messages().filter { !Self.words($0).isEmpty && $0.role != "AXHeading" && !Self.isTimeStamp($0) }
         guard list.count >= n else { Speech.speakMessage(list.isEmpty ? String(localized: "no messages", comment: "A chat app's list is empty") : String(localized: "only \(String(list.count)) messages", comment: "Fewer messages than asked for: how many there are")); return }
@@ -818,7 +845,16 @@ public final class ChatView {
 
     /// Messages' nameless groups that hold only a time stamp.
     static func isTimeStamp(_ e: AXUIElement) -> Bool {
-        e.role == "AXGroup" && (e.string(kAXDescriptionAttribute) ?? "").isEmpty
+        isTimeStamp(role: e.role, description: e.string(kAXDescriptionAttribute) ?? "", title: e.string(kAXTitleAttribute) ?? "",
+                    subrole: e.string(kAXSubroleAttribute) ?? "")
+    }
+
+    /// A group with neither description nor title. Discord's messages are groups too, articles named by their title
+    /// with no description: every one was taken for a time stamp, so "no messages" was said and none arriving was
+    /// read (a review, 13 Nov 2026).
+    package static func isTimeStamp(role: String, description: String, title: String, subrole: String) -> Bool {
+        role == "AXGroup" && subrole != "AXDocumentArticle"
+            && description.trimmingCharacters(in: .whitespaces).isEmpty && title.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     // MARK: New messages
@@ -842,18 +878,35 @@ public final class ChatView {
 
     public func stopWatching() { watch?.invalidate(); watch = nil }
 
-    private func latestWords() -> String? {
-        messages().last { !Self.isTimeStamp($0) && $0.role != "AXHeading" }.map(Self.words)
+    private func latestWords() -> String? { recentWords().last }
+
+    /// The words of the newest messages, time stamps and headings left out.
+    private func recentWords() -> [String] {
+        recentMessages().filter { !Self.isTimeStamp($0) && $0.role != "AXHeading" }.map(Self.words)
+    }
+
+    /// When the watcher last looked, so a web page's chat is looked at less often while the user types.
+    private var lastCheck = Date.distantPast
+
+    /// Whether the watcher looks now: a web page's chat, while a key went down in the last second, every three
+    /// seconds rather than every one, so typing in Discord isn't slowed by its walks (a review, 13 Nov 2026).
+    /// A message that comes in meanwhile is still read, a little later.
+    package static func watcherLooks(web: Bool, sinceKey: TimeInterval, sinceLastLook: TimeInterval) -> Bool {
+        !web || sinceKey > 1 || sinceLastLook >= 3
     }
 
     private func checkNew() {
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+        guard Self.watcherLooks(web: !spec.partMatch.isEmpty, sinceKey: Date().timeIntervalSince(InputManager.lastKeyDownAt),
+                                sinceLastLook: Date().timeIntervalSince(lastCheck)) else { return }
+        lastCheck = Date()
         let title = find(spec.titleID).map(Self.words)
         if title != lastTitle { lastTitle = title; lastSeen = latestWords(); return }   // another conversation opened
         let boxText = (composer?.attr(kAXValueAttribute) as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !boxText.isEmpty { composerText = boxText }
         else if !composerText.isEmpty { justSent = (composerText, Date()); composerText = "" }
-        guard let now = latestWords(), now != lastSeen else { return }
+        let all = recentWords()
+        guard let now = all.last, now != lastSeen else { return }
         let previous = lastSeen
         lastSeen = now
         guard let previous else { return }   // a conversation just opened: nothing new in it
@@ -861,7 +914,6 @@ public final class ChatView {
         // 7 Oct 2026) is not news.
         if Self.withoutStatus(now) == Self.withoutStatus(previous) { return }
         // Every message after the one last heard, up to five: a burst was only its last (a review, 13 Nov 2026).
-        let all = messages().filter { !Self.isTimeStamp($0) && $0.role != "AXHeading" }.map(Self.words)
         let from = all.lastIndex { Self.withoutStatus($0) == Self.withoutStatus(previous) }.map { $0 + 1 } ?? max(0, all.count - 1)
         var fresh = Array(all[min(from, all.count)...].suffix(5))
         if fresh.isEmpty { fresh = [now] }
