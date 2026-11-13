@@ -907,7 +907,9 @@ public final class BufferTextInfo: TextInfo {
     /// they change ("table with 5 rows and 2 columns, row 1, column 1", then "column 2"). Only table navigation said
     /// them (a tester, 13 Nov 2026, in the Lock Screen help page).
     func movementNews(entering: [AXUIElement]) -> (leaving: [String], cell: String?, table: String?) {
-        guard let prev = previousOffset, prev != start else { return ([], nil, nil) }
+        // Not for Tab: what the focus enters is said, not what it leaves, as NVDA does ("out of list out of list,
+        // edit" on Tab in Shortcuts, 13 Nov 2026).
+        guard let prev = previousOffset, prev != start, Date().timeIntervalSince(BrowseModeDocument.lastTabFromCaretAt) > 0.5 else { return ([], nil, nil) }
         let f = config.documentFormatting
         var leaving: [String] = []
         // Innermost first: "out of list, out of navigation landmark". Every kind said on the way in is said on the way

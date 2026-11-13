@@ -278,13 +278,15 @@ extension AXHandler {
     func ruleHiddenScrollBar(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
         // Likewise a split view or its divider, nameless (Freeform's Tab stopped on its split group, 12 Nov 2026).
         let layout = ["AXSplitGroup", "AXSplitter"].contains(target.role) && ObjectFactory.make(target).name.isEmpty
-        guard target.role == "AXScrollBar" && (target.attr("AXHidden") as? Bool) == true || layout else { return .go(target) }
+        // Any scroll bar, shown or not: Mail's message scroll bar took Tab as a stop ("scroll bar 0", 13 Nov 2026), and
+        // Tab is for what can be used, which a scroll bar is not from the keyboard.
+        guard target.role == "AXScrollBar" || layout else { return .go(target) }
         let key = InputManager.lastKeyIdentifier
         // At most twice for one key press: a Tab order of nothing but split views would go round for ever (a review).
         if Date().timeIntervalSince(InputManager.lastKeyDownAt) < 1.5, key == "kb:tab" || key == "kb:shift+tab", let g = KeyboardGesture(identifier: key),
            passedOn.at != InputManager.lastKeyDownAt || passedOn.n < 2 {
             passedOn = (InputManager.lastKeyDownAt, passedOn.at == InputManager.lastKeyDownAt ? passedOn.n + 1 : 1)
-            Log.io("focus on a \(layout ? "nameless \(target.role)" : "hidden scroll bar") after \(key); passing on")
+            Log.io("focus on a \(layout ? "nameless \(target.role)" : "scroll bar") after \(key); passing on")
             g.send()
             return .done
         }

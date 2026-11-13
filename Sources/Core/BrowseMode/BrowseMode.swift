@@ -326,12 +326,30 @@ public final class BrowseModeDocument: ScriptableObject {
                 speakUnit(.line)
                 return
             }
-            if focusFromCaret(forward: !g.modifiers.contains(.shift)) { return }
-            if AppModuleHandler.shared.appModule(for: webArea.pid).browseTabMovesReadingPosition {
+            let movesReading = AppModuleHandler.shared.appModule(for: webArea.pid).browseTabMovesReadingPosition
+            // (Not for an app whose controls take no focus: Shortcuts' button took the request and said nothing.)
+            if !movesReading, focusFromCaret(forward: !g.modifiers.contains(.shift)) { return }
+            if movesReading {
                 guard ensureContent() else { return }
                 let roles: Set<String> = ["AXLink", "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXComboBox", "AXSlider"]
-                if let (at, _) = buffer.find(from: position, forward: !g.modifiers.contains(.shift), roles: roles) { position = at; speakUnit(.line) }
-                else { Tones.edge() }
+                // Past the control the reading is on, its own further lines too: a field of several lines ("Describe
+                // a change" in Shortcuts) was found again on each, empty, and eight Tabs said nothing (13 Nov 2026).
+                var here = buffer.segment(at: position)?.element ?? buffer.lineIndex(at: position).flatMap { buffer.lines[$0].element }
+                for _ in 0..<6 { guard let h = here, !roles.contains(h.role) else { break }; here = h.element(kAXParentAttribute) }
+                if let h = here, !roles.contains(h.role) { here = nil }   // the reading is on no control: nothing to skip
+                let forward = !g.modifiers.contains(.shift)
+                var from = position, found: Int?
+                for _ in 0..<40 {
+                    guard let (at, el) = buffer.find(from: from, forward: forward, roles: roles) else { break }
+                    if let here, Self.within(el, here) { from = at; continue }
+                    found = at; break
+                }
+                // Past the last control: round to the first, after the edge sound, as the app's own Tab does nothing
+                // (Shortcuts: eight Tabs of edge sounds after its last field, 13 Nov 2026).
+                if found == nil, let (at, _) = buffer.find(from: forward ? -1 : buffer.text.length, forward: forward, roles: roles) {
+                    Tones.edge(); found = at
+                }
+                if let found { position = found; speakUnit(.line) } else { Tones.edge() }
                 return
             }
             g.send(); PageWatch.keySent(to: webArea.pid)
@@ -488,6 +506,13 @@ public final class BrowseModeDocument: ScriptableObject {
     /// again now, and keep looking for half a minute, reading the page when it comes. A tester's report (6 Oct
     /// 2026): after a reload the copy stayed empty and every arrow said "bottom" or "top", then "blank".
     @discardableResult
+    /// `e` is `c` or inside it (a few levels up).
+    static func within(_ e: AXUIElement, _ c: AXUIElement) -> Bool {
+        var x: AXUIElement? = e, hops = 0
+        while let y = x, hops < 6 { if y.isSame(c) { return true }; x = y.element(kAXParentAttribute); hops += 1 }
+        return false
+    }
+
     func ensureContent() -> Bool {
         // An empty address too: Safari not answering reports none (6 Oct 2026, playtestcloud: "page  —", 0 lines,
         // and every key said "no next heading").

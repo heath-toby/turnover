@@ -199,6 +199,13 @@ public final class SettingsPanePlugin: GlobalPlugin {
     }
 
     /// Whether a control is in a place where the app ignores Tab; set as the focus (or TurnOver's held place) moves.
+    /// The focus is in a page (Mail's message, its attachment button): Tab is browse mode's. A focus read by a path
+    /// that left the trap's state alone kept Tab, and Shift Tab from the attachment went nowhere (13 Nov 2026).
+    static func focusInPage() -> Bool {
+        guard let f = API.focusObject?.element else { return false }
+        return f.role == "AXWebArea" || isInWeb(f)
+    }
+
     static func setTrapState(for e: AXUIElement) {
         // A text field keeps the app's own Tab even inside a remembered place: Reminders' sidebar was judged to ignore
         // Tab, and the place remembered took Tab from a new reminder's title too, so TurnOver moved the focus itself
@@ -366,12 +373,12 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 Self.setTrapState(for: all[n])   // Mail's buttons do not take the focus: TurnOver holds the place
             }
         }
-        script("trap_next", String(localized: "Where the app ignores Tab: the next control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Settings") { [weak self] g in self?.trapMove(g, forward: true) }.isAvailable = { Self.inTrapZone }
+        script("trap_next", String(localized: "Where the app ignores Tab: the next control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Settings") { [weak self] g in self?.trapMove(g, forward: true) }.isAvailable = { Self.inTrapZone && !Self.focusInPage() }
         script("rowList_up", String(localized: "In a column of rows TurnOver reads as a list: the row above", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:upArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(-1) }.isAvailable = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) }.map { !Self.isSideways($0.container) } == true }
         script("rowList_down", String(localized: "In a column of rows TurnOver reads as a list: the row below", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:downArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(1) }.isAvailable = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) }.map { !Self.isSideways($0.container) } == true }
         script("rowList_left", String(localized: "In a row of items TurnOver reads as a list: the item to the left", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:leftArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(-1) }.isAvailable = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) }.map { Self.isSideways($0.container) } == true }
         script("rowList_right", String(localized: "In a row of items TurnOver reads as a list: the item to the right", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:rightArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(1) }.isAvailable = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) }.map { Self.isSideways($0.container) } == true }
-        script("trap_previous", String(localized: "Where the app ignores Shift+Tab: the previous control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Settings") { [weak self] g in self?.trapMove(g, forward: false) }.isAvailable = { Self.inTrapZone }
+        script("trap_previous", String(localized: "Where the app ignores Shift+Tab: the previous control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Settings") { [weak self] g in self?.trapMove(g, forward: false) }.isAvailable = { Self.inTrapZone && !Self.focusInPage() }
         script("settings_next", String(localized: "In a settings pane: the next control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Settings") { [weak self] g in self?.move(g, forward: true) }.isAvailable = { Self.inPane }
         script("settings_previous", String(localized: "In a settings pane: the previous control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Settings") { [weak self] g in self?.move(g, forward: false) }.isAvailable = { Self.inPane }
         script("ribbon_into", String(localized: "On a ribbon tab: into its commands (Tab or Down; Shift+Tab to the last)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab", "kb:downArrow", "kb:shift+tab"], category: "Settings") { [weak self] g in self?.intoRibbon(g) }.isAvailable = { Self.onRibbonTab }
