@@ -868,6 +868,15 @@ public final class ChatView {
     private var composerText = ""
     private var justSent: (text: String, at: Date)?
 
+    /// A message sent from the box with Return, its words taken before the key went: the watcher, looking once a
+    /// second (every three while typing on the web), saw a short message sent between two looks never in the box, and
+    /// read it back as one that came in (a review, 13 Nov 2026).
+    public func noteSent(_ text: String) {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        justSent = (t, Date()); composerText = ""
+    }
+
     /// While the app is in front: read each new message that arrives in the open conversation (not the one just sent).
     public func startWatching() {
         stopWatching()
