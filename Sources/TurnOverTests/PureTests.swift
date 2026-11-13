@@ -74,6 +74,11 @@ func pureTests() {
         expect(TerminalRules.firstContentLineStart("\u{1F600}\n\nb"), 0, "counted in UTF-16 units")
         expect(TerminalRules.firstContentLineStart("\n\u{1F600}\nb"), 1, "after a newline")
         check(TerminalRules.firstContentLineStart("\n  \n") == nil, "nothing above the prompt: nothing to read")
+        expect(TerminalRules.outputBeforePrompt("hitoby@mac ~ %", prompt: "toby@mac ~ %"), "hi", "output with no newline before the prompt")
+        expect(TerminalRules.outputBeforePrompt("toby@mac ~ % ", prompt: "toby@mac ~ %"), "", "the prompt alone is nothing new")
+        expect(TerminalRules.outputBeforePrompt("Password:", prompt: "toby@mac ~ %"), "Password:", "a program's question is read")
+        expect(TerminalRules.outputBeforePrompt("toby@mac src %", prompt: "toby@mac ~ %"), "", "the prompt in another folder is not output")
+        expect(TerminalRules.outputBeforePrompt("hi", prompt: ""), "", "no prompt known: nothing")
     }
     test("labels: a text labels a field from its left only when it is near and on the field's row") {
         let field = CGRect(x: 300, y: 100, width: 200, height: 22)

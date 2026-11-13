@@ -118,6 +118,18 @@ final class TerminalText: TurnOverObject {
         guard let c = cursor, let l = lineIndex(at: c), let r = lineRange(l) else { return nil }
         return (r.location, string(r.location, r.length).trimmingCharacters(in: .newlines))
     }
+    /// Where the screen above `start` begins: the start of what the window shows when Terminal says, else 200 lines up;
+    /// never more than 40,000 characters back.
+    private func screenTop(above start: Int) -> Int {
+        var top = 0
+        if let v = element.attr(kAXVisibleCharacterRangeAttribute), let r = cfRange(v), r.location >= 0, r.location <= start {
+            top = r.location
+        } else if let l = lineIndex(at: start), let r = lineRange(max(0, l - 200)) {
+            top = min(r.location, start)
+        }
+        return max(top, start - 40_000)
+    }
+
     /// The last line with anything on it (below it is the window's empty padding).
     private func lastContentLine() -> Int {
         guard let n = int(kAXNumberOfCharactersAttribute), n > 0, var l = lineIndex(at: n - 1) else { return 0 }
@@ -262,9 +274,20 @@ final class TerminalText: TurnOverObject {
             // Cleared (clear, Command-K): the text is shorter than the anchor. Whatever arrived in the same batch
             // (clear; ls) is above the cursor's line, from the first line with anything on it; the prompt alone there
             // is nothing new (a review, 13 Nov 2026: that output was lost to the re-anchoring).
+            // Only the screen above the cursor is looked in, never from the text's start: what is left of an old
+            // scrollback (or more than 40,000 characters back) was read as new. Output on the cursor's own line with
+            // no newline after it ("clear; printf hi": "hi" then the prompt) is read too (a review, 13 Nov 2026).
             s.anchor = start; s.anchorText = text
-            guard let first = TerminalRules.firstContentLineStart(string(0, min(start, 40_000))) else { return }
-            s.anchor = first; s.anchorText = ""
+            let top = screenTop(above: start)
+            guard let first = TerminalRules.firstContentLineStart(string(top, start - top)) else {
+                let own = TerminalRules.outputBeforePrompt(text, prompt: s.prompt)
+                guard !own.isEmpty else { return }
+                Log.io("terminal: read \(own.count) characters (the cursor's line after clear)")
+                s.lastOutput = (start, own, Date())
+                Speech.speakNews(own)
+                return
+            }
+            s.anchor = top + first; s.anchorText = ""
             s.enterAt = .distantPast   // its first line is output, not the command line just heard
         }
         guard s.anchor >= 0, s.anchor <= total else {
@@ -305,6 +328,12 @@ final class TerminalText: TurnOverObject {
                 if !added.isEmpty { speech.append(added) }
             }
             var output = rest
+            // Output with no newline before the prompt ("printf hi": "hiuser@host ~ %"): only the output.
+            if let last = output.last, !isPrompt(last), !s.prompt.isEmpty, last.hasSuffix(s.prompt.trimmingCharacters(in: .whitespaces)) {
+                let own = TerminalRules.outputBeforePrompt(last, prompt: s.prompt)
+                output.removeLast()
+                if !own.isEmpty { output.append(own) }
+            }
             // The prompt coming back after the output: the same prompt is not news; a changed one is (after cd,
             // the folder), and only the part that changed is read: "Audible", not the whole user@host line.
             if let last = output.last, isPrompt(last) {
@@ -539,6 +568,20 @@ package enum TerminalRules {
     /// A line without the echo of `keys` characters typed ahead of a prompt at its start. Pure.
     package nonisolated static func withoutTypedAhead(_ line: String, keys: Int) -> String {
         String(line.dropFirst(max(0, keys)))
+    }
+
+    /// What on the cursor's line is output rather than the shell's prompt: the text before the prompt when the line
+    /// holds it ("hi" in "hiuser@host ~ %"), nothing when the line starts with it, the whole line when it isn't there
+    /// (a program's question: "Password:"). Nothing when no prompt is known. Pure.
+    package nonisolated static func outputBeforePrompt(_ line: String, prompt: String) -> String {
+        let p = prompt.trimmingCharacters(in: .whitespaces), t = line.trimmingCharacters(in: .whitespaces)
+        guard !p.isEmpty, !t.isEmpty else { return "" }
+        if t.hasPrefix(p) { return "" }
+        guard let r = t.range(of: p, options: .backwards) else {
+            // Another prompt of the shell's (after cd, another folder): user@host and the same last mark.
+            return t.contains("@") && t.last == p.last ? "" : t
+        }
+        return String(t[..<r.lowerBound]).trimmingCharacters(in: .whitespaces)
     }
 
     /// Runs of three or more box-drawing characters (a program's rules and frames: "────") taken out, and lines left
