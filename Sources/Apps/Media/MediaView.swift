@@ -1366,9 +1366,14 @@ public final class MediaView {
     /// reach it.
     private func selectTableRow(_ item: Item) {
         guard let table = item.element.element(kAXParentAttribute), acceptsWindow(modelWindow) else { return }
+        ownRowSelectionAt = Date()   // (its selection news is the arrows' echo: the item was just said)
         if (table.attr(kAXFocusedAttribute) as? Bool) != true { _ = table.set(kAXFocusedAttribute, kCFBooleanTrue) }
         if table.set(kAXSelectedRowsAttribute, [item.element] as CFArray) != .success { Log.io("media: the library row refused the selection") }
     }
+
+    private var ownRowSelectionAt = Date.distantPast
+    /// TurnOver itself selected a library row a moment ago (selectTableRow).
+    public var selectedRowJustNow: Bool { Date().timeIntervalSince(ownRowSelectionAt) < 0.5 }
 
     /// The library song TurnOver reads, when the page's current item is one (Delete and Command-I are sent for it).
     public var onLibraryRow: Bool { pane == .page && !catalogHasThePage && currentItem()?.tableRow == true }

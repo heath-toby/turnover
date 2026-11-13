@@ -168,6 +168,8 @@ final class MediaAppModule: AppModule {
                 return
             }
         }
+        // The library row the arrows just selected (MediaView.selectTableRow): its news isn't said again.
+        if event.kind == .selection, event.obj.pid == pid, view.selectedRowJustNow { return }
         // The media view speaks for the app; its own focus moves (rows, groups) would only repeat or confuse,
         // except where the user is typing, in a menu, or in a dialog.
         if event.kind == .gainFocus || event.kind == .focusEntered {
