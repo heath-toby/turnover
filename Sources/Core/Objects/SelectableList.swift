@@ -115,6 +115,9 @@ open class SelectableList: TurnOverObject {
         return false
     }
 
+    /// A list whose app posts no selection news: not waited for until then.
+    static var quietUntil: (list: AXUIElement, until: Date)?
+
     private func waitForSelection() -> Bool {
         Poll.pumping(limit: 0.3) { EventHandler.isPending(.selection) || EventHandler.isPending(.gainFocus) }
     }
@@ -148,6 +151,17 @@ open class SelectableList: TurnOverObject {
         if virtualRow != nil, g.modifiers.isEmpty, ["upArrow", "downArrow", "home", "end"].contains(key) { moveVirtually(key); return }
         let before = element.elements(rowsAndKey.1).first
         g.send()
+        // A list whose app has stopped saying its selection moved (Mail after its compose window, 13 Nov 2026: every
+        // arrow waited for news that never came, the keys queued behind, and the watchdog gave the Mac to VoiceOver):
+        // for twenty seconds it isn't waited for. The row is read a moment after the key, the keyboard not held.
+        if let q = Self.quietUntil, q.list.isSame(element), Date() < q.until {
+            let list = element, key = rowsAndKey.1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
+                guard let self, !EventHandler.isPending(.selection) else { return }
+                if let now = list.elements(key).first, before.map({ !$0.isSame(now) }) ?? true { self.speakItem(now) }
+            }
+            return
+        }
         if waitForSelection() { return }   // the selection event reads the row
         // A collection may move its selection a little later still.
         if axSubrole == "AXCollectionList" { _ = Poll.pumping(every: 0.03, limit: 0.4) { EventHandler.isPending(.selection) || self.element.elements(self.rowsAndKey.1).first.map { b in before.map { !$0.isSame(b) } ?? true } == true }
@@ -155,7 +169,8 @@ open class SelectableList: TurnOverObject {
         // The selection moved and nothing said so (SwiftUI's collections post no event: Shortcuts, 12 Nov 2026): read
         // the item now selected.
         if let now = element.elements(rowsAndKey.1).first, before.map({ !$0.isSame(now) }) ?? true {
-            Log.io("list: the selection moved without an event; reading it")
+            Log.io("list: the selection moved without an event; reading it, and not waiting in this list for a while")
+            Self.quietUntil = (element, Date().addingTimeInterval(20))
             speakItem(now)
             return
         }

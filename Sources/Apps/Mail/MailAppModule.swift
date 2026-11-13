@@ -266,6 +266,8 @@ package final class MailAppModule: AppModule {
 
     /// A message being written: its header in the order a person expects. Mail's own Tab skips the three pop-ups
     /// (Priority, From, Signature), so the From address could not be changed from the keyboard (5 Oct 2026).
+    /// A compose window's fields as last found, by identifier.
+    static var composeFields: (window: AXUIElement, at: Date, byId: [String: AXUIElement])?
     static let composeOrder = ["Mail.toField", "Mail.ccField", "Mail.bccField", "Mail.replyToField", "Mail.subjectField",
                                "popup_priority", "popup_from", "popup_signature", "body"]
 
@@ -283,26 +285,37 @@ package final class MailAppModule: AppModule {
 
     private func composeMove(forward: Bool, from: AXUIElement, _ g: KeyboardGesture) {
         guard let w = SettingsPanePlugin.windowOf(from) else { g.send(); return }
+        // The window's fields, kept a few seconds: the walk of up to 300 parts, at Mail's pace, made each Tab lag (a
+        // tester, 13 Nov 2026: "the tab focus was extremely laggy").
         var byId: [String: AXUIElement] = [:]
-        var queue = [w]; var seen = 0
-        while !queue.isEmpty, seen < 300 {
-            let e = queue.removeFirst(); seen += 1
-            if let id = e.string(kAXIdentifierAttribute), Self.composeOrder.contains(id), byId[id] == nil { byId[id] = e }
-            if e.role == "AXWebArea", e.string(kAXDescriptionAttribute) == "message body" { byId["body"] = e; continue }
-            if e.role == "AXToolbar" { continue }
-            queue.append(contentsOf: e.elements(kAXChildrenAttribute))
+        if let c = Self.composeFields, c.window.isSame(w), Date().timeIntervalSince(c.at) < 8, !c.byId.values.contains(where: { $0.role == "?" }) {
+            byId = c.byId
+        } else {
+            var queue = [w]; var seen = 0
+            while !queue.isEmpty, seen < 300 {
+                let e = queue.removeFirst(); seen += 1
+                if let id = e.string(kAXIdentifierAttribute), Self.composeOrder.contains(id), byId[id] == nil { byId[id] = e }
+                if e.role == "AXWebArea", e.string(kAXDescriptionAttribute) == "message body" { byId["body"] = e; continue }
+                if e.role == "AXToolbar" { continue }
+                queue.append(contentsOf: e.elements(kAXChildrenAttribute))
+            }
+            Self.composeFields = (w, Date(), byId)
         }
         // Only what is showing (Cc, Bcc, Reply To and Priority come and go with View, Header Fields).
         let present = Self.composeOrder.filter { id in
             guard let e = byId[id] else { return false }
             return id == "body" || ((e.attr(kAXSizeAttribute)).map { v -> Bool in var z = CGSize.zero; axValue(v, .cgSize, &z); return z.height > 1 } ?? false)
         }
-        let here = String(Self.place.dropFirst("compose:".count))
+        // Where TurnOver is, by the field itself: a field that won't take Mail's focus is held by TurnOver, no focus news
+        // comes, and the place noted stayed the field before, so Shift Tab went to Cc again and again (13 Nov 2026).
+        let on = SettingsPanePlugin.heldRow ?? from
+        let here = byId.first(where: { $0.value.isSame(on) })?.key ?? String(Self.place.dropFirst("compose:".count))
         guard let i = present.firstIndex(of: here) else { g.send(); return }
         let n = forward ? i + 1 : i - 1
         guard present.indices.contains(n), let target = byId[present[n]] else { g.send(); return }   // the ends: Mail's own
         Log.io("mail: \(forward ? "Tab" : "Shift+Tab") from \(here) to \(present[n])")
         SettingsPanePlugin.focus(target)
+        Self.placeLock.lock(); Self._place = "compose:" + present[n]; Self.placeLock.unlock()
     }
 
     /// The message being read inside a scroll area: the first web area that isn't being written in. Mail's "message
