@@ -17,14 +17,32 @@ final class ContactsAppModule: AppModule {
     required init(pid: pid_t, bundleIdentifier: String, appName: String) {
         super.init(pid: pid, bundleIdentifier: bundleIdentifier, appName: appName)
         script("contacts_toCard", String(localized: "From the list to the person's card, read as a page", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Contacts") { [weak self] _ in
-            guard let self, let card = self.card() else { Tones.edge(); return }
+            guard let self, let card = self.card() else { Log.io("contacts: no card to go to"); Tones.edge(); return }
+            Log.io("contacts: to the card")
             AXHandler.shared.focusChanged(card, pid: self.pid)
+        }.isAvailable = { [weak self] in self?.inList() == true }
+        // Shift Tab from the list: Contacts' own went to the window itself and stopped there (13 Nov 2026). To the
+        // search field above the list, as the screen has it.
+        script("contacts_toSearch", String(localized: "From the list back to the search field", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Contacts") { [weak self] g in
+            guard let self, let w = self.window(),
+                  let field = self.searchField(in: w) else { g.send(); return }
+            _ = field.set(kAXFocusedAttribute, kCFBooleanTrue)
         }.isAvailable = { [weak self] in self?.inList() == true }
         script("contacts_toList", String(localized: "From the card back to the list", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Contacts") { [weak self] _ in
             guard let self, let list = self.list() else { return }
             _ = list.set(kAXFocusedAttribute, kCFBooleanTrue)
             AXHandler.shared.focusChanged(list, pid: self.pid)
         }.isAvailable = { [weak self] in self?.inCard() == true }
+    }
+
+    private func searchField(in w: AXUIElement) -> AXUIElement? {
+        var queue = [w], seen = 0
+        while !queue.isEmpty, seen < 80 {
+            let e = queue.removeFirst(); seen += 1
+            if e.string(kAXSubroleAttribute) == "AXSearchField" || e.role == "AXSearchField" { return e }
+            if !["AXOutline", "AXScrollArea"].contains(e.role) { queue.append(contentsOf: e.elements(kAXChildrenAttribute)) }
+        }
+        return nil
     }
 
     private func window() -> AXUIElement? { AXUIElementCreateApplication(pid).element(kAXFocusedWindowAttribute) }
@@ -43,6 +61,16 @@ final class ContactsAppModule: AppModule {
     private func list() -> AXUIElement? { find("personList", in: window()) }
     /// The card's contents: the scroll area inside the detail pane.
     private func card() -> AXUIElement? {
+        // macOS 27.2 names the card's scroll area itself (13 Nov 2026: Tab from the list said nothing, the old pane gone).
+        // (Two AXUnknown elements before it carry the same identifier.)
+        if let w = window() {
+            var queue = [w], seen = 0
+            while !queue.isEmpty, seen < 150 {
+                let e = queue.removeFirst(); seen += 1
+                if e.role == "AXScrollArea", e.string(kAXIdentifierAttribute) == "ContactCardScrollViewReader" { return e }
+                if e.role != "AXOutline" { queue.append(contentsOf: e.elements(kAXChildrenAttribute)) }
+            }
+        }
         guard let pane = find("contactDetailPane", in: window()) else { return nil }
         var queue = [pane], seen = 0
         while !queue.isEmpty, seen < 20 {

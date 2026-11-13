@@ -110,6 +110,9 @@ extension AXHandler {
     /// Tab: its dialog and all its words read again, then dropped as the field came, 11 Nov 2026). The window the
     /// focus is already in is no news: set aside, and taken after all if nothing else has come a moment later.
     private static var passingWindowRecheck: AXUIElement?
+    /// The key press a Tab stopping on its window was sent on for (once each).
+    static var resentFor: Date?
+
     func ruleWindowInPassing(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
         guard target.role == "AXWindow" else { return .go(target) }
         if let r = Self.passingWindowRecheck, r.isSame(target) { Self.passingWindowRecheck = nil; return .go(target) }
@@ -123,9 +126,18 @@ extension AXHandler {
                 guard let wf = TurnOverObject.frame(target), let cf = TurnOverObject.frame(cur.element), cf.width > 0 else { return false }
                 return wf.contains(cf) }() else { return .go(target) }
         Log.io("focus on the window \(Log.words(target.string(kAXTitleAttribute) ?? "")) on the way between its controls; set aside")
+        let key = InputManager.lastKeyIdentifier, keyAt = InputManager.lastKeyDownAt
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             guard let self, API.focusObject?.isSameElement(as: cur.element) == true,
                   AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute).map({ $0.isSame(target) }) == true else { return }
+            // The window was where the key stopped (Contacts' Shift Tab from its list, 13 Nov 2026): the same key once
+            // more, on to the next control, as the window itself is nothing to Tab to. Once only for a key.
+            if InputManager.lastKeyDownAt == keyAt, Self.resentFor != keyAt, let g = KeyboardGesture(identifier: key) {
+                Self.resentFor = keyAt
+                Log.io("focus: the window was where \(key) stopped; \(key) again")
+                g.send()
+                return
+            }
             Self.passingWindowRecheck = target
             self.refocus(pid: pid)
         }
