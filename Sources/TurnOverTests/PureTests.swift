@@ -1210,17 +1210,17 @@ func pureTests() {
     test("text tables: entering, moving and leaving a table say what NVDA says") {
         let t = NSRange(location: 18, length: 16)
         let a = TextTables.Place(table: t, rows: 2, columns: 2, row: 0, column: 0)
-        expect(TextTables.news(from: nil, to: a), "table with 2 rows and 2 columns, row 1, column 1")
+        expect(TextTables.news(from: nil, to: a), "table with 2 rows and 2 columns, row 1 column 1")
         expect(TextTables.news(from: a, to: TextTables.Place(table: t, rows: 2, columns: 2, row: 0, column: 1)), "column 2")
         expect(TextTables.news(from: a, to: TextTables.Place(table: t, rows: 2, columns: 2, row: 1, column: 0)), "row 2")
-        expect(TextTables.news(from: a, to: TextTables.Place(table: t, rows: 2, columns: 2, row: 1, column: 1)), "row 2, column 2")
+        expect(TextTables.news(from: a, to: TextTables.Place(table: t, rows: 2, columns: 2, row: 1, column: 1)), "row 2 column 2")
         check(TextTables.news(from: a, to: a) == nil, "the same cell says nothing")
         expect(TextTables.news(from: a, to: nil), "out of table")
         check(TextTables.news(from: nil, to: nil) == nil, "plain text says nothing")
         let other = TextTables.Place(table: NSRange(location: 60, length: 9), rows: 1, columns: 3, row: 0, column: 2)
-        expect(TextTables.news(from: a, to: other), "table with 1 row and 3 columns, row 1, column 3")
+        expect(TextTables.news(from: a, to: other), "table with 1 row and 3 columns, row 1 column 3")
         // The tone setting: the sound on entering and leaving; the cell still said.
-        check(TextTables.newsWithTone(from: nil, to: a) == (true, "row 1, column 1"), "entering: sound and cell")
+        check(TextTables.newsWithTone(from: nil, to: a) == (true, "row 1 column 1"), "entering: sound and cell")
         check(TextTables.newsWithTone(from: a, to: TextTables.Place(table: t, rows: 2, columns: 2, row: 1, column: 0)) == (false, "row 2"), "moving: words only")
         check(TextTables.newsWithTone(from: a, to: nil) == (true, nil), "leaving: the sound only")
     }

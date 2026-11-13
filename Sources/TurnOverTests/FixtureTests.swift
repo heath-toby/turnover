@@ -111,6 +111,7 @@ func fixtureTests() {
     }
     test("VO-J: a split view's sidebar and content, judged by position, with a search pane in the way") {
         AXReplay.load(paneWindow(split: true))
+        API.setFocusObject(nil, ancestors: [])   // no page left in browse mode by a test before (its reading position would be the start)
         let saved = config, keep = Speech.sink
         config.general.focusFollowsCursor = "off"
         Speech.sink = { _ in }

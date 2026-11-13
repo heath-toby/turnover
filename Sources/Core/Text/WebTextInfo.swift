@@ -380,7 +380,16 @@ public final class WebTextInfo: TextInfo {
             var count: CFIndex = 0
             AXUIElementGetAttributeValueCount(el, kAXChildrenAttribute as CFString, &count)
             return forEntering ? (count == 1 ? String(localized: "list with 1 item", comment: "A list on a page, entered") : String(localized: "list with \(String(count)) items", comment: "A list on a page, entered: how many items")) : nil
-        case "AXTable": return forEntering ? Role.table.displayString : nil
+        case "AXTable":
+            guard forEntering else { return nil }
+            // NVDA's "table with 5 rows and 2 columns" (a tester, 13 Nov 2026).
+            var rows: CFIndex = 0, cols: CFIndex = 0
+            AXUIElementGetAttributeValueCount(el, kAXRowsAttribute as CFString, &rows)
+            AXUIElementGetAttributeValueCount(el, kAXColumnsAttribute as CFString, &cols)
+            guard rows > 0, cols > 0 else { return Role.table.displayString }
+            let r = rows == 1 ? String(localized: "1 row", comment: "A table's size") : String(localized: "\(rows) rows", comment: "A table's size")
+            let c = cols == 1 ? String(localized: "1 column", comment: "A table's size") : String(localized: "\(cols) columns", comment: "A table's size")
+            return String(localized: "table with \(r) and \(c)", comment: "A table on a page, entered: its rows and columns")
         case "AXGroup":
             switch sub {
             case "AXLandmarkNavigation": return String(localized: "navigation landmark", comment: "A web page's landmark")

@@ -26,7 +26,7 @@ public enum TextTables {
         case (nil, nil): return (false, nil)
         case (.some, nil): return (true, nil)
         case (let l, .some(let n)):
-            guard let l, l.table == n.table else { return (true, "\(Phrases.row(n.row + 1)), \(Phrases.column(n.column + 1))") }
+            guard let l, l.table == n.table else { return (true, Phrases.cell(row: n.row + 1, column: n.column + 1)) }
             return (false, news(from: l, to: n))
         }
     }
@@ -37,7 +37,7 @@ public enum TextTables {
         case (nil, nil): return nil
         case (.some, nil): return String(localized: "out of table", comment: "The caret left a table")
         case (let l, .some(let n)):
-            let cell = "\(Phrases.row(n.row + 1)), \(Phrases.column(n.column + 1))"
+            let cell = Phrases.cell(row: n.row + 1, column: n.column + 1)
             guard let l, l.table == n.table else {
                 let rows = n.rows == 1 ? String(localized: "1 row", comment: "A table's size") : String(localized: "\(n.rows) rows", comment: "A table's size")
                 let columns = n.columns == 1 ? String(localized: "1 column", comment: "A table's size") : String(localized: "\(n.columns) columns", comment: "A table's size")

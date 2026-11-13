@@ -221,11 +221,13 @@ public final class BrowseModeDocument: ScriptableObject {
 
     func speak(_ info: TextInfo, unit: TextUnit) {
         if let w = info as? WebTextInfo { w.previousChain = lastChain }
-        if let b = info as? BufferTextInfo { b.previousChain = lastChain }
+        if let b = info as? BufferTextInfo { b.previousChain = lastChain; b.previousOffset = lastSpokenOffset }
         Speech.speakTextInfo(info, unit: unit, reason: .caret)
         if let w = info as? WebTextInfo { lastChain = w.chain }
-        if let b = info as? BufferTextInfo { lastChain = b.chain; followProgress(in: b) }
+        if let b = info as? BufferTextInfo { lastChain = b.chain; lastSpokenOffset = b.start; followProgress(in: b) }
     }
+    /// Where the last reading began: the cell and containers the next move is measured from.
+    var lastSpokenOffset: Int?
 
     /// A progress bar read on the page is followed as it moves (ProgressWatch), as one the focus reads is. Known by its
     /// line's role, so the lines read ask the page nothing. (Say all reads by its own path, so a bar it passes isn't.)

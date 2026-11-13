@@ -88,7 +88,7 @@ extension VoiceOverKeysPlugin {
                 Speech.speakMessage("\(rowWords), \(columnWords)"); return
             }
             let r = Self.index(cell, "AXRowIndexRange").map { $0 + 1 }, c = Self.index(cell, "AXColumnIndexRange").map { $0 + 1 }
-            Speech.speakMessage([r.map(Phrases.row), c.map(Phrases.column)].compactMap { $0 }.joined(separator: ", "))
+            Speech.speakMessage([r.map(Phrases.row), c.map(Phrases.column)].compactMap { $0 }.joined(separator: " "))
         }
 
         // MARK: Orientation (F-keys)

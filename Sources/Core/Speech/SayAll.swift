@@ -38,6 +38,8 @@ public enum SayAll {
     /// Where each chunk read is reported: nil moves the caret (NVDA's CURSOR.CARET); the review cursor passes its own
     /// (NVDA's CURSOR.REVIEW, NVDA+Shift+A), so the caret stays put.
     private static var lineReached: ((TextInfo) -> Void)?
+    /// Where the chunk before began: say all's "out of list" and table cells are measured from it.
+    private static var lastChunkStart: Int?
 
     public static func readText(info: TextInfo, lineReached reached: ((TextInfo) -> Void)? = nil) {
         stop()
@@ -49,6 +51,7 @@ public enum SayAll {
         buffered = 0
         generation += 1
         firstChunk = true
+        lastChunkStart = nil
         hearing = nil
         Log.io("say all from \(info.start)")
         nextLine(generation)
@@ -62,6 +65,9 @@ public enum SayAll {
         let obj = r.obj
         let chunk = r.copy()
         r.collapse(toEnd: true)
+        // What the reading leaves and the table cells it goes through are said as the arrows say them.
+        if let b = chunk as? BufferTextInfo { b.previousOffset = lastChunkStart }
+        lastChunkStart = chunk.start
         var blank = false
         let text = Speech.textInfoSpeech(chunk, unit: .readingChunk, reason: .sayAll, onlyBlank: &blank)
         nonisolated(unsafe) let tones = Speech.takeSayAllTones()   // sounded as this chunk starts, below (run on main there)

@@ -38,6 +38,8 @@ nonisolated public enum Phrases {
     /// "row 3" and "column 2": a table cell's coordinates.
     public static func row(_ n: Int) -> String { String(localized: "row \(String(n))", comment: "A table cell's row number") }
     public static func column(_ n: Int) -> String { String(localized: "column \(String(n))", comment: "A table cell's column number") }
+    /// "row 1 column 1", without a pause between (a tester, 13 Nov 2026).
+    public static func cell(row r: Int, column c: Int) -> String { "\(row(r)) \(column(c))" }
 
     /// "1 character", "12 characters".
     public static func characters(_ count: Int) -> String {

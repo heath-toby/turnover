@@ -876,8 +876,71 @@ public final class BufferTextInfo: TextInfo {
     var buffer: WebBuffer { (obj as? WebArea)?.document?.buffer ?? WebBuffer(webArea: obj.element) }
     public var previousChain: [AXUIElement]?
     public private(set) var chain: [AXUIElement] = []
+    /// Where the reading was before this move (browse mode's last position): what was left, and the table cell moved from.
+    public var previousOffset: Int?
 
     public override func storyLength() -> Int { buffer.text.length }
+
+    /// A table cell at an offset: its table and its row and column, from 0 (WebKit's AXRowIndexRange, AXColumnIndexRange).
+    func cell(at offset: Int) -> (table: AXUIElement, row: Int, column: Int)? {
+        var p = element(at: offset), hops = 0
+        while let x = p, hops < 8 {
+            let r = x.role
+            if r == "AXCell", let row = Self.index(x, "AXRowIndexRange"), let col = Self.index(x, "AXColumnIndexRange") {
+                var t = x.element(kAXParentAttribute), up = 0
+                while let y = t, up < 4, !["AXTable", "AXGrid"].contains(y.role) { t = y.element(kAXParentAttribute); up += 1 }
+                return t.map { ($0, row, col) }
+            }
+            if ["AXTable", "AXWebArea"].contains(r) { return nil }
+            p = x.element(kAXParentAttribute); hops += 1
+        }
+        return nil
+    }
+    static func index(_ e: AXUIElement, _ attr: String) -> Int? {
+        guard let v = e.attr(attr), CFGetTypeID(v) == AXValueGetTypeID() else { return nil }
+        var r = CFRange()
+        guard AXValueGetValue(v as! AXValue, .cfRange, &r) else { return nil }
+        return r.location
+    }
+
+    /// Browse mode's arrows, as NVDA's: "out of list", "out of table" on leaving; in a table, the row and column as
+    /// they change ("table with 5 rows and 2 columns, row 1, column 1", then "column 2"). Only table navigation said
+    /// them (a tester, 13 Nov 2026, in the Lock Screen help page).
+    func movementNews(entering: [AXUIElement]) -> (leaving: [String], cell: String?, table: String?) {
+        guard let prev = previousOffset, prev != start else { return ([], nil, nil) }
+        let f = config.documentFormatting
+        var leaving: [String] = []
+        // Innermost first: "out of list, out of navigation landmark". Every kind said on the way in is said on the way
+        // out (a tester, 13 Nov 2026: regions, landmarks, navigation too, and in say all).
+        let left = buffer.containers.filter { $0.start <= prev && prev < $0.end && !($0.start <= start && start < $0.end) }
+        for c in left.sorted(by: { ($0.end - $0.start) < ($1.end - $1.start) }) {
+            let (mode, tone) = WebTextInfo.reporting(for: c.element)
+            switch mode {
+            case .off: continue
+            case .tone: if let tone { pendingTones.append(tone) }
+            case .speech:
+                let what: String?
+                switch c.element.role {
+                case "AXList": what = Role.list.displayString
+                case "AXTable": what = Role.table.displayString
+                default: what = WebTextInfo.describe(c.element, forEntering: true)
+                }
+                if let what, !what.isEmpty { leaving.append(String(localized: "out of \(what)", comment: "The reading left a list, table, landmark or other part of a page: %@ is what it was")) }
+            }
+        }
+        guard f.tables != .off, f.tableCellCoordinates, let now = cell(at: start) else { return (leaving, nil, nil) }
+        let before = cell(at: prev)
+        let here = Phrases.cell(row: now.row + 1, column: now.column + 1)
+        guard let before, before.table.isSame(now.table) else {
+            // Into the table part way down (Up Arrow from below it): its size, as entering at its top says.
+            let said = entering.contains { $0.isSame(now.table) }
+            return (leaving, here, said ? nil : WebTextInfo.describe(now.table, forEntering: true))
+        }
+        if before.row != now.row && before.column != now.column { return (leaving, here, nil) }
+        if before.row != now.row { return (leaving, Phrases.row(now.row + 1), nil) }
+        if before.column != now.column { return (leaving, Phrases.column(now.column + 1), nil) }
+        return (leaving, nil, nil)
+    }
     public override func characterOffsets(_ offset: Int) -> (Int, Int) {
         CharacterBoundaries.offsets(in: buffer.text, at: offset) ?? (offset, offset)
     }
@@ -963,6 +1026,8 @@ public final class BufferTextInfo: TextInfo {
             }
             Self.lastQuoteLevel = lvl
         }
+        let news = movementNews(entering: entering)
+        prefix = news.leaving + prefix + [news.table, news.cell].compactMap { $0 }
         if line.isControl {
             // "button Create", then its states and value (NVDA's control field, role first).
             let role = line.fields.first.map { [$0] } ?? []
