@@ -369,6 +369,14 @@ public final class SettingsPanePlugin: GlobalPlugin {
             if r != .success { g.send() } else { SystemPrompts.checkPress(of: b, name: ObjectFactory.make(b).name) }
         }.isAvailable = { Self.returnWouldMissFocus }
         script("settings_pressHeld", String(localized: "In a settings pane: presses the control TurnOver is holding", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:space", "kb:enter"], category: "Settings") { [weak self] g in self?.pressHeld(g) }.isAvailable = { Self.holdingVirtual }
+        // A grid's arrows (Chess's board): Up and Down a row, Left and Right a column.
+        let inGrid = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) }.map { Self.gridColumns($0.container) != nil } == true }
+        for (name, key, dir) in [("grid_up", "kb:upArrow", -1), ("grid_down", "kb:downArrow", 1), ("grid_left", "kb:leftArrow", -2), ("grid_right", "kb:rightArrow", 2)] {
+            script(name, String(localized: "In a grid TurnOver reads as one: the next square that way", comment: "A command, as the key list and keyboard help say it"), gestures: [key], category: "Settings") { [weak self] _ in
+                guard let v = Self.virtual, let c = Self.rowList(of: v)?.container, let cols = Self.gridColumns(c) else { return }
+                self?.rowListMove(abs(dir) == 1 ? dir * cols : dir / 2)
+            }.isAvailable = inGrid
+        }
         registerToolbarScripts()
     }
 
@@ -725,6 +733,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
     static var rowLists: [(rows: [AXUIElement], stop: AXUIElement, container: AXUIElement)] = []
     /// Row lists that run left to right (their containers): Left and Right move in them, not Up and Down.
     static var sidewaysLists: [AXUIElement] = []
+    /// Grids of same-size buttons taken as one stop (Chess's board), with how many columns: the arrows go both ways.
+    static var gridLists: [(container: AXUIElement, columns: Int)] = []
+    static func gridColumns(_ container: AXUIElement) -> Int? { gridLists.first { CFEqual($0.container, container) }?.columns }
     static func isSideways(_ container: AXUIElement) -> Bool { sidewaysLists.contains { CFEqual($0, container) } }
 
     /// How many rows lie above the rows in sight, counted as the list is scrolled (the list being read).
@@ -774,10 +785,26 @@ public final class SettingsPanePlugin: GlobalPlugin {
             // Or a picture holding places to press (Maps' map: forty-odd markers, a Tab each, 12 Nov 2026): one
             // stop, Up and Down through the places, top to bottom.
             let picture = c.role == "AXImage" && members.count >= 3
-            guard (column && wide && stacked) || sideways || picture else { continue }
+            // Or a grid of buttons, five or more rows of five or more, every row as long (Chess's board: 64 squares,
+            // a Tab each, 13 Nov 2026): one stop, all four arrows across it. Calculator's twenty keys stay keys.
+            var gridCols = 0
+            if !(column && wide && stacked), !sideways, !picture, members.count >= 25 {
+                // Rows by their middles, a few points apart at most: the board is drawn in perspective, its squares
+                // each a different size (13 Nov 2026).
+                var bands: [(y: CGFloat, n: Int)] = []
+                for m in members.sorted(by: { $0.1.midY < $1.1.midY }) {
+                    if let last = bands.last, m.1.midY - last.y < 6 { bands[bands.count - 1].n += 1 } else { bands.append((m.1.midY, 1)) }
+                }
+                if bands.count >= 5, let n = bands.first?.n, n >= 5, bands.allSatisfy({ $0.n == n }) { gridCols = n }
+            }
+            guard (column && wide && stacked) || sideways || picture || gridCols > 0 else { continue }
+            if gridCols > 0 {
+                gridLists.removeAll { CFEqual($0.container, c) }
+                gridLists.append((c, gridCols)); if gridLists.count > 6 { gridLists.removeFirst() }
+            }
             if sideways, !sidewaysLists.contains(where: { CFEqual($0, c) }) { sidewaysLists.append(c); if sidewaysLists.count > 12 { sidewaysLists.removeFirst() } }
             let members = sideways ? rowSet : members
-            let sorted = members.sorted { sideways ? $0.1.minX < $1.1.minX : abs($0.1.minY - $1.1.minY) > 3 ? $0.1.minY < $1.1.minY : $0.1.minX < $1.1.minX }
+            let sorted = members.sorted { sideways ? $0.1.minX < $1.1.minX : abs($0.1.midY - $1.1.midY) > 5 ? $0.1.midY < $1.1.midY : $0.1.minX < $1.1.minX }
             let rows = sorted.map { $0.0 }
             // The list's stop: its first row in sight (rows scrolled out above sit outside the window, and the list
             // was put in the wrong place in the order, Phone, 11 Nov 2026).
@@ -823,6 +850,12 @@ public final class SettingsPanePlugin: GlobalPlugin {
     /// Up and Down in a row list TurnOver is holding.
     private func rowListMove(_ delta: Int) {
         guard let v = Self.virtual, let (rows, i, _, container) = Self.rowList(of: v) else { return }
+        // A grid: Left and Right stay in the row; Up and Down (a row's width at a time) stay in the grid.
+        if let cols = Self.gridColumns(container) {
+            let j = i + delta
+            guard rows.indices.contains(j), abs(delta) != 1 || j / cols == i / cols else { Tones.edge(); return }
+            Self.landInRowList(rows, at: j, entering: false); return
+        }
         let j = i + delta
         if rows.indices.contains(j) { Self.landInRowList(rows, at: j, entering: false); return }
         // Past the rows in sight: the list is scrolled a page, read again, and the move goes on from the same row
@@ -876,9 +909,15 @@ public final class SettingsPanePlugin: GlobalPlugin {
         let offset = (container.flatMap { c in rowOffset.flatMap { $0.container.isSame(c) ? $0.n : nil } }) ?? 0
         var parts: [String] = []
         // A list that scrolls holds only the rows in sight: no count of them all is known.
-        if entering { parts.append(scrolling ? String(localized: "list", comment: "A list reached by Tab, its length unknown") : String(localized: "list, \(Phrases.items(rows.count))", comment: "A column of rows TurnOver reads as a list, reached by Tab: %@ is the count")) }
+        if entering, let c = container, let cols = gridColumns(c) {
+            parts.append(String(localized: "grid, \(rows.count / cols) by \(cols)", comment: "A grid of buttons reached by Tab: rows by columns"))
+        } else if entering { parts.append(scrolling ? String(localized: "list", comment: "A list reached by Tab, its length unknown") : String(localized: "list, \(Phrases.items(rows.count))", comment: "A column of rows TurnOver reads as a list, reached by Tab: %@ is the count")) }
         parts.append(Speech.joined(Speech.objectPropertiesSpeech(obj, reason: .query)))
-        parts.append(scrolling ? String(localized: "item \(offset + i + 1)", comment: "A row's place in a list whose length is unknown") : Phrases.position(i + 1, of: rows.count))
+        if let c = container, let cols = gridColumns(c) {
+            parts.append(String(localized: "row \(i / cols + 1), column \(i % cols + 1)", comment: "A square's place in a grid of buttons"))
+        } else {
+            parts.append(scrolling ? String(localized: "item \(offset + i + 1)", comment: "A row's place in a list whose length is unknown") : Phrases.position(i + 1, of: rows.count))
+        }
         Speech.speakItem(parts.joined(separator: ", "))
     }
 
