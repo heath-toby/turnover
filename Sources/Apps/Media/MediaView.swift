@@ -690,7 +690,8 @@ public final class MediaView {
                 let t = own ?? e.elements(kAXChildrenAttribute).compactMap { $0.string(kAXDescriptionAttribute) ?? $0.string(kAXTitleAttribute) }.first { !$0.isEmpty } ?? ElementMatcher.text(of: e)
                 startShelf(t, at: e)
                 // Pressed, the header opens the whole shelf: its See All.
-                seeAll = pressable(e) ? e : first(in: e, depth: 3) { $0.role == "AXButton" && pressable($0) }
+                // (Music's header is a button with no press of its own, only scroll-to-visible: clicked, see press.)
+                seeAll = pressable(e) || role == "AXButton" ? e : first(in: e, depth: 3) { $0.role == "AXButton" && pressable($0) }
                 return
             }
             if role == "AXList", sub == "AXSectionList" {
@@ -1392,8 +1393,22 @@ public final class MediaView {
             return
         } else if let target = item.press ?? (item.playAction == kAXPressAction as String ? item.play : nil) {
             guard acceptsWindow(window) else { return }
-            let r = AXUIElementPerformAction(target, kAXPressAction as CFString)
+            // No press of its own (Music's See All, a shelf's header button, which has only scroll-to-visible and
+            // answers a press with success and does nothing, 13 Nov 2026): brought into sight and clicked.
+            var acts: CFArray?
+            AXUIElementCopyActionNames(target, &acts)
+            let canPress = ((acts as? [String]) ?? []).contains(kAXPressAction as String)
+            var r: AXError = canPress ? AXUIElementPerformAction(target, kAXPressAction as CFString) : .actionUnsupported
             Log.io("media: press \(Log.words(String(item.label.prefix(50)))) → \(r.rawValue)")
+            if r != .success {
+                _ = AXUIElementPerformAction(target, "AXScrollToVisible" as CFString)
+                if let f = TurnOverObject.frame(target), f.width > 0, f.height > 0 {
+                    Mouse.click(at: CGPoint(x: f.midX, y: f.midY), button: .left, count: 1)
+                    Log.io("media: clicked it instead")
+                    Tones.press()
+                    r = .success
+                }
+            }
         } else {
             Speech.speakMessage(String(localized: "nothing to open", comment: "Spoken message")); return
         }
