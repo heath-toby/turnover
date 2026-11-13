@@ -806,7 +806,10 @@ public final class BrowseModeDocument: ScriptableObject {
         // A page that said it changed is read again even when its last read was slow, at most every 1.5 s: only cheap
         // pages were, so on real sites an accordion opened, results that came, a dialog closed never reached the
         // arrows (a review, 13 Nov 2026).
-        if buffer.isDirty, Self.mayRebuild(lastBuildMs: buffer.lastBuildMs, age: age, cheapAfter: 1) { rebuildKeepingPlace() }
+        if buffer.isDirty, Self.mayRebuild(lastBuildMs: buffer.lastBuildMs, age: age, cheapAfter: 1) { rebuildKeepingPlace(); return }
+        // A control pressed a moment ago and still watched (up to 3 s): what it showed may not have been said by the
+        // browser yet. "Show more" pressed, then Down, read past the text it added (13 Nov 2026).
+        if !Self.watches.isEmpty, buffer.lastBuildMs < 250, age > 0.2 { rebuildKeepingPlace() }
     }
 
     /// Whether a key may read the whole page again now: a page cheap to read (under 250 ms) after `cheapAfter`
