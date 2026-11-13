@@ -22,14 +22,52 @@ public final class SettingsPanePlugin: GlobalPlugin {
     /// Microsoft Office's ribbon (Word, Excel, PowerPoint, Outlook): a tab group described "ribbon"; each tab's
     /// commands sit in a scroll area described "<Tab> Tab Commands", there only while that tab is open.
     static func ribbon(of e: AXUIElement) -> AXUIElement? {
+        if let c = FocusChain.of(e) { return c.first(10) { c.roles[$0] == "AXTabGroup" && c.description($0)?.lowercased() == "ribbon" } }
         var p: AXUIElement? = e; var hops = 0
         while let x = p, hops < 10 { if x.role == "AXTabGroup", x.string(kAXDescriptionAttribute)?.lowercased() == "ribbon" { return x }; p = x.element(kAXParentAttribute); hops += 1 }
         return nil
     }
     static func ribbonCommands(of e: AXUIElement) -> AXUIElement? {
+        if let c = FocusChain.of(e) { return c.first(10) { c.roles[$0] == "AXScrollArea" && c.description($0)?.hasSuffix("Tab Commands") == true } }
         var p: AXUIElement? = e; var hops = 0
         while let x = p, hops < 10 { if x.role == "AXScrollArea", x.string(kAXDescriptionAttribute)?.hasSuffix("Tab Commands") == true { return x }; p = x.element(kAXParentAttribute); hops += 1 }
         return nil
+    }
+
+    /// The parent chain of the control the focus just moved to, read once while focusMoved works (a review, 13 Nov
+    /// 2026): the trap's state, the toolbar and the ribbon each walked it again, up to six walks of ten to twenty-five
+    /// levels per focus change, two questions a level. The questions below are answered from it as their own walks
+    /// would answer them, over the same number of levels. Only for the length of one focusMoved call (main thread).
+    final class FocusChain {
+        /// The element itself, then its parents, at most 25 (the longest of the walks answered from it).
+        let elements: [AXUIElement]
+        let roles: [String]
+        private var descriptions: [Int: String?] = [:]
+        static var current: FocusChain?   // set and cleared by focusMoved
+
+        init(_ e: AXUIElement) {
+            var els: [AXUIElement] = [], rs: [String] = []
+            var p: AXUIElement? = e
+            while let x = p, els.count < 25 { els.append(x); rs.append(x.role); p = x.element(kAXParentAttribute) }
+            elements = els; roles = rs
+        }
+        /// The chain being used, when it is `e`'s.
+        static func of(_ e: AXUIElement) -> FocusChain? {
+            guard let c = current, let first = c.elements.first, first === e || CFEqual(first, e) else { return nil }
+            return c
+        }
+        func description(_ i: Int) -> String? {
+            if let d = descriptions[i] { return d }
+            let d = elements[i].string(kAXDescriptionAttribute); descriptions[i] = d; return d
+        }
+        /// The first of the first `levels` elements (the element itself counted) that passes.
+        func first(_ levels: Int, where test: (Int) -> Bool) -> AXUIElement? {
+            (0..<min(levels, elements.count)).first(where: test).map { elements[$0] }
+        }
+        /// Whether any of elements[from..<to] has this role.
+        func has(_ role: String, from: Int = 0, to: Int) -> Bool {
+            from < min(to, roles.count) && roles[from..<min(to, roles.count)].contains(role)
+        }
     }
     static func commandsArea(in ribbon: AXUIElement) -> AXUIElement? {
         ribbon.elements(kAXChildrenAttribute).first { $0.role == "AXScrollArea" && $0.string(kAXDescriptionAttribute)?.hasSuffix("Tab Commands") == true }
@@ -338,18 +376,20 @@ public final class SettingsPanePlugin: GlobalPlugin {
             return
         }
         let e = obj.element
+        let chain = FocusChain(e), outer = FocusChain.current
+        FocusChain.current = chain
+        defer { FocusChain.current = outer }
         setTrapState(for: e)
         noteToolbar(e)
-        let onTab = e.role == "AXRadioButton" && ribbon(of: e) != nil && ribbonCommands(of: e) == nil
+        let commands = ribbonCommands(of: e)   // (once: it was walked twice per focus, a review, 13 Nov 2026)
+        let onTab = chain.roles[0] == "AXRadioButton" && ribbon(of: e) != nil && commands == nil
         lock.lock(); _onRibbonTab = onTab; lock.unlock()
-        if ribbonCommands(of: e) != nil { lock.lock(); _inPane = true; lock.unlock(); return }
+        if commands != nil { lock.lock(); _inPane = true; lock.unlock(); return }
         // A real focus change ends any held place.
         if let v = virtual, !obj.isSameElement(as: v) { virtual = nil; lock.lock(); _holding = false; _heldByTrap = false; lock.unlock() }
         var inside = false
         if let window = windowOf(e), PreferenceTab.selectedTab(in: window) != nil {
-            var p: AXUIElement? = e; var hops = 0; var inToolbar = false
-            while let x = p, hops < 12 { if x.role == "AXToolbar" { inToolbar = true; break }; p = x.element(kAXParentAttribute); hops += 1 }
-            inside = !inToolbar
+            inside = !chain.has("AXToolbar", to: 12)   // the element and eleven parents, as the walk here went
         }
         lock.lock(); _inPane = inside; lock.unlock()
     }
@@ -839,8 +879,12 @@ public final class SettingsPanePlugin: GlobalPlugin {
     /// Where Tab goes round: the sheet a control is in, else its window. Tab in a sheet stays in it, as the app's own
     /// does; TurnOver's went to the toolbar behind Journal's welcome sheet (11 Nov 2026).
     static func scopeOf(_ e: AXUIElement) -> AXUIElement? {
-        var p: AXUIElement? = e; var hops = 0
-        while let x = p, hops < 25 { let r = x.role; if r == "AXSheet" || r == "AXPopover" { return x }; if r == "AXWindow" { return x }; p = x.element(kAXParentAttribute); hops += 1 }
+        if let c = FocusChain.of(e) {
+            if let x = c.first(25, where: { ["AXSheet", "AXPopover", "AXWindow"].contains(c.roles[$0]) }) { return x }
+        } else {
+            var p: AXUIElement? = e; var hops = 0
+            while let x = p, hops < 25 { let r = x.role; if r == "AXSheet" || r == "AXPopover" { return x }; if r == "AXWindow" { return x }; p = x.element(kAXParentAttribute); hops += 1 }
+        }
         // Or the app's own front window, for a control that names neither (iMazing's sidebar: Tab there gave up in
         // silence, 13 Nov 2026).
         if let w = windowOf(e) { return w }

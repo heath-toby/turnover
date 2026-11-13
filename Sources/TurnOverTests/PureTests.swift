@@ -517,6 +517,26 @@ func pureTests() {
         expect(answer.value, .passed, "an unbound key goes to the application")
         if case .found(let found) = ScriptHandler.lookup(g) { expect(found.name, "test_mainkey") } else { Harness.fail("the main thread's own lookup") }
     }
+    // The Windows style's translation is decided in the same round trip as the key's handling (a review, 13 Nov 2026).
+    test("keys: one question to main hands the translated key on only where TurnOver has nothing for the key itself") {
+        let ran = Locked<String?>(nil)
+        let own = GlobalCommands.shared.script("test_ownkey", String(localized: "", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:control+option+shift+f17"]) { _ in ran.value = "own" }
+        let other = GlobalCommands.shared.script("test_translatedkey", String(localized: "", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:control+option+shift+f18"]) { _ in ran.value = "translated" }
+        defer { own.isAvailable = { false }; other.isAvailable = { false } }
+        let answer = Locked<(ScriptHandler.KeyDecision, Bool)?>(nil)
+        // TurnOver has the key itself: it keeps it, and the translation isn't used.
+        Thread { let a = ScriptHandler.askMain(KeyboardGesture(identifier: "kb:control+option+shift+f17")!, otherwise: KeyboardGesture(identifier: "kb:control+option+shift+f18")!); answer.value = (a.decision, a.usedAlternative) }.start()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        expect(answer.value?.0, .taken, "its own key taken")
+        expect(answer.value?.1, false, "not translated")
+        expect(ran.value, "own", "its own script ran")
+        // Nothing for the key: the translation is handled instead.
+        answer.value = nil; ran.value = nil
+        Thread { let a = ScriptHandler.askMain(KeyboardGesture(identifier: "kb:control+option+shift+f15")!, otherwise: KeyboardGesture(identifier: "kb:control+option+shift+f18")!); answer.value = (a.decision, a.usedAlternative) }.start()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        expect(answer.value?.1, true, "translated")
+        expect(ran.value, "translated", "the translated key's script ran")
+    }
     // While Chrome held secure input after a sign-in, Command Tab and Command A opened the menu bar, six times of six
     // (31 Oct 2026): the key tap got Command going down and coming up, and no key between.
     test("keys: a modifier is pressed alone only with secure input off, as it goes down and as it comes up") {

@@ -77,7 +77,8 @@ enum QtItemViews {
 
     /// The role an AXGroup has in a Qt app's item view, if it is one.
     static func role(of e: AXUIElement) -> Role? {
-        guard e.role == "AXGroup", isQt(e.pid) else { return nil }
+        // The app first (kept per process): every group made in every other app asked its role again (a review, 13 Nov 2026).
+        guard isQt(e.pid), e.role == "AXGroup" else { return nil }
         // (Or a subfolder: an item inside an item, KeePassXC's "Surf Shark" under "Shared".)
         if !(e.string(kAXTitleAttribute) ?? "").isEmpty, pressable(e), let p = e.element(kAXParentAttribute),
            isView(p) || (p.role == "AXGroup" && !(p.string(kAXTitleAttribute) ?? "").isEmpty && pressable(p) && p.element(kAXParentAttribute).map { isView($0) || $0.role == "AXGroup" } == true && isItemChain(p)) { return .listItem }

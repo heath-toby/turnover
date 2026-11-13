@@ -24,6 +24,10 @@ extension SettingsPanePlugin {
     /// Fields and web content keep their own Tab: a text field commits on Tab (Mail's To), a page's Tab goes from link
     /// to link in browse mode, a document's Tab types (a review, 11 Nov 2026).
     static func keepsOwnTab(_ e: AXUIElement) -> Bool {
+        // (From the focus's chain, read once per focus move: the same element and twenty parents. A review, 13 Nov 2026.)
+        if let c = FocusChain.of(e) {
+            return ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField", "AXWebArea"].contains(c.roles[0]) || c.has("AXWebArea", from: 1, to: 21)
+        }
         if ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField", "AXWebArea"].contains(e.role) { return true }
         var p = e.element(kAXParentAttribute); var hops = 0
         while let x = p, hops < 20 { if x.role == "AXWebArea" { return true }; p = x.element(kAXParentAttribute); hops += 1 }
@@ -101,6 +105,7 @@ extension SettingsPanePlugin {
     }
 
     static func isInWeb(_ e: AXUIElement) -> Bool {
+        if let c = FocusChain.of(e) { return c.has("AXWebArea", to: 20) }   // the element and nineteen parents, as below
         var p: AXUIElement? = e; var hops = 0
         while let x = p, hops < 20 { if x.role == "AXWebArea" { return true }; p = x.element(kAXParentAttribute); hops += 1 }
         return false

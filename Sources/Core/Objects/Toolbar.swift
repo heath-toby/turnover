@@ -40,20 +40,38 @@ extension SettingsPanePlugin {
     /// toolbar, 13 Nov 2026). Asked at most once a second per window.
     static var namedToolbars: [String: (AXUIElement) -> [(AXUIElement, CGRect)]] = [:]
     private static var namedFound: (window: AXUIElement, at: Date, list: [(AXUIElement, CGRect)])?
+    /// When `namedFound` was last asked for and still stood (isToolbar trusts it for five seconds after).
+    private static var namedConfirmedAt = Date.distantPast
+    /// Each named toolbar's container's frame when `namedFound` was made: unmoved, its strip still stands.
+    private static var namedContainerFrames: [CGRect?] = []
     static func named(in window: AXUIElement) -> [(AXUIElement, CGRect)] {
         guard let b = NSRunningApplication(processIdentifier: window.pid)?.bundleIdentifier, let f = namedToolbars[b] else { return [] }
-        if let c = namedFound, c.window.isSame(window), Date().timeIntervalSince(c.at) < 1 { return c.list }
+        // Kept a second, or up to half a minute while the app says nothing of its controls changing (as the Tab trap's
+        // list, listStillGood): it was asked again on every focus move (a review, 13 Nov 2026).
+        // (The strips are on-screen frames: a window moved or a header scrolled, which no structure news says, is
+        // asked again.)
+        if let c = namedFound, c.window.isSame(window) {
+            let age = Date().timeIntervalSince(c.at)
+            if age < 1 || age < 30 && AXHandler.shared.observers[window.pid] != nil && (AXHandler.shared.lastStructureAt[window.pid] ?? .distantPast) < c.at
+                && c.list.map({ TurnOverObject.frame($0.0) }) == namedContainerFrames {
+                namedConfirmedAt = Date()
+                return c.list
+            }
+        }
+        let at = Date()
         let list = f(window)
-        namedFound = (window, Date(), list)
+        namedContainerFrames = list.map { TurnOverObject.frame($0.0) }
+        namedFound = (window, at, list)
+        namedConfirmedAt = at
         return list
     }
 
     /// A toolbar: the window's own, or a group that calls itself one (Outlook's two groups titled "Toolbar", 13 Nov 2026),
     /// or one an app's module names.
-    static func isToolbar(_ e: AXUIElement) -> Bool {
-        let r = e.role
+    static func isToolbar(_ e: AXUIElement, role known: String? = nil) -> Bool {
+        let r = known ?? e.role
         if r == "AXToolbar" { return true }
-        if let c = namedFound, Date().timeIntervalSince(c.at) < 5, c.list.contains(where: { $0.0.isSame(e) }) { return true }
+        if let c = namedFound, Date().timeIntervalSince(namedConfirmedAt) < 5, c.list.contains(where: { $0.0.isSame(e) }) { return true }
         guard r == "AXGroup" else { return false }
         let name = ((e.string(kAXTitleAttribute) ?? "") + " " + (e.string(kAXDescriptionAttribute) ?? "")).lowercased()
         return name.trimmingCharacters(in: .whitespaces) == "toolbar" || name.hasSuffix(" toolbar") || name.hasSuffix("tool bar")
@@ -91,6 +109,15 @@ extension SettingsPanePlugin {
     /// In a list, a scroll area or a split pane, outside the toolbar itself: the window's content, which runs up under a
     /// see-through toolbar (Mail's sidebar header, Mailboxes and All Inboxes, sat in the toolbar's strip, 12 Nov 2026).
     static func inContent(_ e: AXUIElement) -> Bool {
+        // The focus's chain, read once per focus move, answers for the same twelve parents (a review, 13 Nov 2026).
+        if let c = FocusChain.of(e) {
+            for i in 1..<min(13, c.elements.count) {
+                let r = c.roles[i]
+                if r == "AXWindow" || isToolbar(c.elements[i], role: r) { return false }
+                if ["AXScrollArea", "AXOutline", "AXTable", "AXList", "AXSplitGroup", "AXRow", "AXWebArea"].contains(r) { return true }
+            }
+            return false
+        }
         var p = e.element(kAXParentAttribute); var hops = 0
         while let x = p, hops < 12 {
             let r = x.role
@@ -253,10 +280,21 @@ extension SettingsPanePlugin {
             let back = af.midY < bf.minY - 4 || af.midX < bf.minX - 4
             let on = af.midY > bf.maxY + 4 || af.midX > bf.maxX + 4
             guard forward ? back : on else { return }
-            let all = controls(in: window, toolbars: true, unfocusable: true)
+            // The Tab trap's list of the window's stops where it still stands (a walk of the whole window, on main, after
+            // every Tab the app had: a review, 13 Nov 2026); walked afresh when it can't place all three.
             guard let (tb, _) = toolbar(of: window), let items = toolbarItems(around: tb)?.items,
-                  let stop = toolbarStop(tb, items), let t = all.firstIndex(where: { $0.isSame(stop) }),
-                  let a = place(before, in: all), let b = place(after, in: all) else { Log.io("toolbar: Tab's way round not placed"); return }
+                  let stop = toolbarStop(tb, items) else { Log.io("toolbar: Tab's way round not placed"); return }
+            @MainActor func placed(_ all: [AXUIElement]) -> (t: Int, a: Int, b: Int)? {
+                guard let t = all.firstIndex(where: { $0.isSame(stop) }), let a = place(before, in: all), let b = place(after, in: all) else { return nil }
+                return (t, a, b)
+            }
+            var all: [AXUIElement] = []
+            var found: (t: Int, a: Int, b: Int)?
+            // (Stricter than the trap's own reuse: nothing said of the controls changing since, even in its first seconds.)
+            if let c = trapList, c.window.isSame(window), listStillGood(c.at, pid: window.pid), AXHandler.shared.observers[window.pid] != nil,
+               (AXHandler.shared.lastStructureAt[window.pid] ?? .distantPast) < c.at { all = c.controls; found = placed(all) }
+            if found == nil { all = controls(in: window, toolbars: true, unfocusable: true); found = placed(all) }
+            guard let (t, a, b) = found else { Log.io("toolbar: Tab's way round not placed"); return }
             // Within one stop (Calendar's events inside its grid, 13 Nov 2026) nothing was passed over.
             guard a != b else { return }
             // The places passed over on the way, going round as Tab does.

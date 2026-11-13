@@ -20,12 +20,23 @@ open class TurnOverObject: ScriptableObject {
 
     public required init(element: AXUIElement) {
         self.element = element
-        axRole = element.role
-        axSubrole = element.string(kAXSubroleAttribute)
+        // The role and subrole ObjectFactory already read for this element, if it did: each was asked twice per
+        // object, and the focus's ancestors are made on every focus change (a review, 13 Nov 2026).
+        if let known = TurnOverObject.knownRoles, known.element === element {
+            axRole = known.role; axSubrole = known.subrole
+        } else {
+            axRole = element.role
+            axSubrole = element.string(kAXSubroleAttribute)
+        }
+        TurnOverObject.knownRoles = nil
         pid = element.pid
         super.init()
         initOverlay()
     }
+
+    /// Set by ObjectFactory just before it makes an object of an element whose role and subrole it has read; taken
+    /// (and cleared) by that object's init (main thread).
+    static var knownRoles: (element: AXUIElement, role: String, subrole: String?)?
 
     /// Where subclasses declare their scripts (NVDA: initOverlayClass).
     open func initOverlay() {}
@@ -68,7 +79,14 @@ open class TurnOverObject: ScriptableObject {
               !l.isEmpty, l.count <= 60 else { return nil }
         return l
     }
-    private lazy var _name: String = { Self.oneLine(computedName) }()
+    private var _name: String {
+        if let n = nameWorkedOut { return n }
+        let n = Self.oneLine(computedName); nameWorkedOut = n; return n
+    }
+    private var nameWorkedOut: String?
+    /// The name, only if it has already been worked out for this object (the event log: working it out for every
+    /// caret move and every focus lost cost a title, a description and sometimes a walk; a review, 13 Nov 2026).
+    var nameIfKnown: String? { nameWorkedOut }
 
     /// A programming class name standing in for a title ("Avalonia.Controls.Grid": .NET's Avalonia titles controls
     /// it wasn't given a name for with their class): no name at all (parts request #5, Libation, 14 Oct 2026). Three
@@ -142,12 +160,9 @@ open class TurnOverObject: ScriptableObject {
     private func neighbourLabel() -> String? {
         guard [.popUpButton, .comboBox, .editableText, .slider, .spinButton, .menuButton, .checkBox, .radioButton].contains(role),
               let parent = element.element(kAXParentAttribute), let me = Self.frame(element) else { return nil }
-        let siblings = parent.elements(kAXChildrenAttribute)
-        guard siblings.count <= 80, !siblings.contains(where: { $0.role == "AXWebArea" }), parent.role != "AXWebArea" else { return nil }
+        guard let texts = Self.siblingTexts(in: parent) else { return nil }
         var left: (String, CGFloat)?, above: (String, CGFloat)?
-        for s in siblings where s.role == "AXStaticText" {
-            guard let t = s.string(kAXValueAttribute)?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty, t.count <= 60,
-                  let f = Self.frame(s) else { continue }
+        for (t, f) in texts {
             if abs(f.midY - me.midY) <= max(6, me.height / 2), f.maxX <= me.minX + 8 {
                 if left == nil || f.maxX > left!.1 { left = (t, f.maxX) }
             } else if f.maxY <= me.minY + 4, me.minY - f.maxY < 30, abs(f.minX - me.minX) < 80 {
@@ -155,6 +170,33 @@ open class TurnOverObject: ScriptableObject {
             }
         }
         return (left ?? above).map { $0.0.trimmingCharacters(in: CharacterSet(charactersIn: ": ")) }
+    }
+
+    /// A parent's short static texts and their frames, for neighbourLabel; nil where it isn't looked in (more than
+    /// 80 children, or web content). Every unnamed field asked all its siblings three questions each, up to 80 (a
+    /// review, 13 Nov 2026): kept for the next field in the same parent for two seconds, while the app says nothing of
+    /// its controls changing and the first text hasn't moved (a scroll moves the field and its labels together).
+    private static var siblingTextsKept: (parent: AXUIElement, at: Date, texts: [(text: String, frame: CGRect, element: AXUIElement)]?)?
+    private static func siblingTexts(in parent: AXUIElement) -> [(String, CGRect)]? {
+        if let k = siblingTextsKept, CFEqual(k.parent, parent), Date().timeIntervalSince(k.at) < 2,
+           AXHandler.shared.observers[parent.pid] != nil, (AXHandler.shared.lastStructureAt[parent.pid] ?? .distantPast) < k.at {
+            guard let texts = k.texts else { return nil }
+            if texts.first.map({ frame($0.element) == $0.frame }) ?? true { return texts.map { ($0.text, $0.frame) } }
+        }
+        let at = Date()
+        let siblings = parent.elements(kAXChildrenAttribute)
+        guard siblings.count <= 80, !siblings.contains(where: { $0.role == "AXWebArea" }), parent.role != "AXWebArea" else {
+            siblingTextsKept = (parent, at, nil)
+            return nil
+        }
+        var texts: [(text: String, frame: CGRect, element: AXUIElement)] = []
+        for s in siblings where s.role == "AXStaticText" {
+            guard let t = s.string(kAXValueAttribute)?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty, t.count <= 60,
+                  let f = frame(s) else { continue }
+            texts.append((t, f, s))
+        }
+        siblingTextsKept = (parent, at, texts)
+        return texts.map { ($0.text, $0.frame) }
     }
 
     /// The static text, values and descriptions inside this element, in order, bounded.
@@ -451,9 +493,16 @@ open class TurnOverObject: ScriptableObject {
         }
         if let parent = element.element(kAXParentAttribute) {
             var count: CFIndex = 0
-            let attr = parent.role == "AXTable" || parent.role == "AXOutline" ? "AXRows" : kAXChildrenAttribute
+            let parentRole = parent.role
+            let attr = parentRole == "AXTable" || parentRole == "AXOutline" ? "AXRows" : kAXChildrenAttribute
             if AXUIElementGetAttributeValueCount(parent, attr as CFString, &count) == .success, count > 0 {
-                if count <= 200, let siblings = parent.attr(attr) as? [AXUIElement] {
+                // A table's or outline's row by its own index, where the row at that index is this one: its rows are
+                // all rows, so the count is theirs. Every row read all its siblings and asked each its role, up to 200
+                // (a review, 13 Nov 2026).
+                if attr == "AXRows", axRole == "AXRow", let i = element.int(kAXIndexAttribute), i >= 0, i < Int(count),
+                   let at = (parent.attributeValuesResult("AXRows", index: i, maxValues: 1).value as? [AXUIElement])?.first, CFEqual(at, element) {
+                    p.index = i + 1; p.count = Int(count)
+                } else if count <= 200, let siblings = parent.attr(attr) as? [AXUIElement] {
                     // Only siblings of the same role count, and a menu's separators (untitled, disabled items) don't.
                     let same = siblings.filter { s in
                         guard s.role == axRole else { return false }
@@ -487,15 +536,44 @@ open class TurnOverObject: ScriptableObject {
     }
     /// Ancestors from the parent up to the application, bounded.
     open var ancestors: [TurnOverObject] {
+        let started = Date()
+        let kept = Self.keptChain()
         var out: [TurnOverObject] = []
+        var links: [AncestorLink] = []
         var e = element.element(kAXParentAttribute)
         while let p = e, out.count < 40 {
-            let o = ObjectFactory.make(p)
-            out.append(o)
-            if o.axRole == "AXApplication" { break }   // the role the object already read (one call per level less: code review, 16 Oct 2026)
+            // Where the walk meets the chain made last time, the rest of it is that chain: its elements, roles and
+            // subroles are not asked again. The objects are still made fresh.
+            if let kept, let k = kept.firstIndex(where: { CFEqual($0.element, p) }) {
+                for l in kept[k...] where out.count < 40 {
+                    out.append(ObjectFactory.make(l.element, known: (l.role, l.subrole))); links.append(l)
+                }
+                break
+            }
+            let (r, s) = ObjectFactory.roles(of: p)
+            out.append(ObjectFactory.make(p, known: (r, s))); links.append(AncestorLink(element: p, role: r, subrole: s))
+            if r == "AXApplication" { break }   // the role already read (one call per level less: code review, 16 Oct 2026)
             e = p.element(kAXParentAttribute)
         }
+        if links.last?.role == "AXApplication" { TurnOverObject.lastChain = (links, started) }
         return out
+    }
+
+    /// One ancestor as last read: the element, its role and subrole.
+    struct AncestorLink { let element: AXUIElement; let role: String; let subrole: String? }
+    /// The last ancestor chain made up to the application, nearest first, and when its reading began (main thread).
+    /// The whole chain was read again on every focus change, though a Tab between two controls of a pane shares all
+    /// of it (a review, 13 Nov 2026).
+    private static var lastChain: (links: [AncestorLink], at: Date)?
+    /// The last chain, while it can stand: under ten seconds old, every process in it watched, and none has said
+    /// its controls came or went (created, layout, rows, a window: AXHandler.lastStructureAt) since it was read.
+    private static func keptChain() -> [AncestorLink]? {
+        guard let c = lastChain, Date().timeIntervalSince(c.at) < 10 else { return nil }
+        let ax = AXHandler.shared
+        for pid in Set(c.links.map { $0.element.pid }) {
+            guard ax.observers[pid] != nil, (ax.lastStructureAt[pid] ?? .distantPast) < c.at else { return nil }
+        }
+        return c.links
     }
     open var window: TurnOverObject? { element.element(kAXWindowAttribute).map { ObjectFactory.make($0) } }
     open var appModule: AppModule { AppModuleHandler.shared.appModule(for: pid) }
@@ -798,27 +876,42 @@ open class TurnOverObject: ScriptableObject {
 
 /// Makes the right object for an element (NVDA: NVDAObject.__new__ with findOverlayClasses).
 public enum ObjectFactory {
-    public static func make(_ element: AXUIElement) -> TurnOverObject {
-        let axRole = element.role
-        let subrole = element.string(kAXSubroleAttribute)
+    /// `known`: the element's role and subrole, already read (the focus's ancestors kept from the last focus).
+    public static func make(_ element: AXUIElement, known: (role: String, subrole: String?)? = nil) -> TurnOverObject {
+        let (axRole, subrole) = known ?? roles(of: element)
         let role = axRole == "AXGroup" ? (QtItemViews.role(of: element) ?? Role.from(axRole: axRole, subrole: subrole)) : Role.from(axRole: axRole, subrole: subrole)
+        // The object's init takes the role and subrole read here rather than asking again (a review, 13 Nov 2026).
+        // Set just before each init: a module's objectClass hook may make other objects first.
+        func made(_ cls: TurnOverObject.Type) -> TurnOverObject {
+            TurnOverObject.knownRoles = (element, axRole, subrole)
+            return cls.init(element: element)
+        }
         let module = AppModuleHandler.shared.appModule(for: element.pid)
-        if let cls = module.objectClass(for: element, role: role, subrole: subrole) { return cls.init(element: element) }
+        if let cls = module.objectClass(for: element, role: role, subrole: subrole) { return made(cls) }
         for plugin in GlobalPluginHandler.shared.plugins {
-            if let cls = plugin.objectClass(for: element, role: role, subrole: subrole) { return cls.init(element: element) }
+            if let cls = plugin.objectClass(for: element, role: role, subrole: subrole) { return made(cls) }
         }
-        if role == .button, PreferenceTab.isPreferenceTab(element) { return PreferenceTab(element: element) }
+        if role == .button, PreferenceTab.isPreferenceTab(element) { return made(PreferenceTab.self) }
         switch role {
-        case .webArea: return EditableWebArea.isEditable(element) ? EditableWebArea(element: element) : WebArea(element: element)
-        case .editableText, .searchField, .passwordEdit, .document, .textFrame: return EditableText(element: element)
+        case .webArea: return EditableWebArea.isEditable(element) ? made(EditableWebArea.self) : made(WebArea.self)
+        case .editableText, .searchField, .passwordEdit, .document, .textFrame: return made(EditableText.self)
         // A combo box you type into (a web search box with suggestions: Wikipedia's) is edited like a text field.
-        case .comboBox where element.attr(kAXSelectedTextRangeAttribute) != nil: return EditableComboBox(element: element)
-        case .dialog, .sheet: return Dialog(element: element)
-        case .slider: return Slider(element: element)
+        case .comboBox where element.attr(kAXSelectedTextRangeAttribute) != nil: return made(EditableComboBox.self)
+        case .dialog, .sheet: return made(Dialog.self)
+        case .slider: return made(Slider.self)
         // (A Qt item view keeps its own arrows: its items say nothing of being chosen, and the app moves its focus.)
-        case .table, .list, .treeView, .outline, .browser: return axRole == "AXGroup" ? TurnOverObject(element: element) : SelectableList(element: element)
-        default: return TurnOverObject(element: element)
+        case .table, .list, .treeView, .outline, .browser: return axRole == "AXGroup" ? made(TurnOverObject.self) : made(SelectableList.self)
+        default: return made(TurnOverObject.self)
         }
+    }
+
+    /// An element's role and subrole in one question to the app, as `role` and `string(kAXSubroleAttribute)` give
+    /// them ("?" and nil when missing). One question rather than two, for every object made (a review, 13 Nov 2026).
+    /// An app that won't answer a question for several is asked for each.
+    static func roles(of element: AXUIElement) -> (String, String?) {
+        let a = element.attrs([kAXRoleAttribute, kAXSubroleAttribute])
+        if a.isEmpty { return (element.role, element.string(kAXSubroleAttribute)) }
+        return ((a[kAXRoleAttribute] as? String) ?? "?", a[kAXSubroleAttribute] as? String)
     }
 }
 
