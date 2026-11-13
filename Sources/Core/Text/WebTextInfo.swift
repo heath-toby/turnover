@@ -247,8 +247,23 @@ public final class WebTextInfo: TextInfo {
     }
 
     public override func misspelledWords() -> [String] {
-        guard end > start, end - start < 5000, let r = bridge.range(start, end), let a = bridge.attributedString(r) else { return [] }
+        guard let a = attributedText() else { return [] }
         return TextInfo.misspelled(in: a)
+    }
+    /// The marked words by offset, as AXTextInfo gives them: without these "spelling error" was placed by searching
+    /// for the word, so "cat" marked in "concatenate cat" was said inside "concatenate" (a review, 13 Nov 2026).
+    public override func misspelledRanges() -> [NSRange] {
+        guard let a = attributedText() else { return [] }
+        return TextInfo.misspelledRanges(in: a)
+    }
+    /// This range's text with its marks, fetched once for both questions (a line with no errors asks both).
+    private var attributed: (start: Int, end: Int, text: NSAttributedString?)?
+    private func attributedText() -> NSAttributedString? {
+        guard end > start, end - start < 5000 else { return nil }
+        if let c = attributed, c.start == start, c.end == end { return c.text }
+        let a = bridge.range(start, end).flatMap { bridge.attributedString($0) }
+        attributed = (start, end, a)
+        return a
     }
 
     /// The element containing the start, and its ancestors inside the web area, nearest first.

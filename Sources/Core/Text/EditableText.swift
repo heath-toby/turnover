@@ -44,11 +44,24 @@ open class EditableText: TurnOverObject {
         // Shift with the arrows (NVDA: caret_changeSelection): the key goes on and the selection is read as soon as
         // it changes, not when the app's notice comes (Word's came 300 ms after the key: "draggy", 17 Oct 2026).
         script("caret_changeSelection", String(localized: "Extends or shrinks the selection and reads what changed", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+leftArrow", "kb:shift+rightArrow", "kb:shift+upArrow", "kb:shift+downArrow", "kb:shift+home", "kb:shift+end", "kb:shift+pageUp", "kb:shift+pageDown", "kb:option+shift+leftArrow", "kb:option+shift+rightArrow", "kb:option+shift+upArrow", "kb:option+shift+downArrow", "kb:command+shift+leftArrow", "kb:command+shift+rightArrow", "kb:command+shift+upArrow", "kb:command+shift+downArrow"], category: cat) { [weak self] g in guard let self else { return }; selectionScript(g) }
+        // Deletions whose reach the app decides: Fn-Command-Delete (to the end of the line), and the Mac's Emacs keys in
+        // its text fields, Control-K (to the end of the paragraph) and Control-H (the character before). Each says
+        // what went, once the field is shorter; a key the app takes otherwise says nothing (a review, 13 Nov 2026).
+        // Control-D is the Mac's forward delete, so it is Delete's script. (Not Control-W: the Mac's text system has
+        // no binding for it, StandardKeyBinding.dict on macOS 27.2, and the Windows style makes it Command-W, close.)
+        script("caret_deleteToEnd", String(localized: "Deletes to the end of the line or paragraph and says what went", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:command+delete", "kb:control+k"], category: cat) { [weak self] g in guard let self else { return }; deletionKeyScript(g, forward: true) }
+        script("caret_deleteBackwardEmacs", String(localized: "Deletes the character before the caret and says it", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:control+h"], category: cat) { [weak self] g in guard let self else { return }; deletionKeyScript(g, forward: false) }
+        script("caret_deleteForwardEmacs", String(localized: "Deletes the character after the caret and reads the next", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:control+d"], category: cat) { [weak self] g in guard let self else { return }; deleteScript(g, .character) }
+        // Undo and Redo say what they undid ("Undo Typing", from the app's Edit menu), then the line or selection, as
+        // VoiceOver does; they were silent (a review, 13 Nov 2026).
+        script("caret_undo", String(localized: "Undoes, says what was undone and reads the line", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:command+z"], category: cat) { [weak self] g in guard let self else { return }; undoScript(g, redo: false) }
+        script("caret_redo", String(localized: "Redoes, says what was redone and reads the line", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:command+shift+z"], category: cat) { [weak self] g in guard let self else { return }; undoScript(g, redo: true) }
         // Only while this field still has the keyboard: with Word's "save changes?" sheet up, Command Delete ran
         // the delete-to-line-start script before reaching Don't Save (8 Oct 2026). A sheet or dialog in front of
         // the field's application means its keys are the sheet's.
         for name in ["caret_moveByLine", "caret_moveByCharacter", "caret_moveByWord", "caret_moveByParagraph", "caret_deleteCharacter",
-                     "caret_deleteWord", "caret_backspaceCharacter", "caret_backspaceWord", "caret_backspaceLine", "caret_changeSelection"] {
+                     "caret_deleteWord", "caret_backspaceCharacter", "caret_backspaceWord", "caret_backspaceLine", "caret_changeSelection",
+                     "caret_deleteToEnd", "caret_deleteBackwardEmacs", "caret_deleteForwardEmacs", "caret_undo", "caret_redo"] {
             script(named: name)?.isAvailable = { [weak self] in
                 guard let self else { return false }
                 if (element.attr(kAXFocusedAttribute) as? Bool) == false { return false }
@@ -59,7 +72,9 @@ open class EditableText: TurnOverObject {
         // 7 Oct 2026). Word's module has its own, which searches the whole document.
         script("nextSpellingError", String(localized: "Moves to the next spelling error", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:turnover+e"], category: cat) { [weak self] _ in self?.goToMisspelling(forward: true) }
         script("previousSpellingError", String(localized: "Moves to the previous spelling error", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:turnover+shift+e"], category: cat) { [weak self] _ in self?.goToMisspelling(forward: false) }
-        if announceNewLineText { script("caret_newLine", String(localized: "Starts a new line", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:enter", "kb:numpadEnter"], category: cat) { [weak self] g in guard let self else { return }; newLineScript(g) } }
+        if announceNewLineText { script("caret_newLine", String(localized: "Starts a new line", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:enter", "kb:numpadEnter", "kb:shift+enter"], category: cat) { [weak self] g in guard let self else { return }; newLineScript(g) } }
+        // (Shift-Return: a new line in a chat box whose Return sends, Discord's, Slack's, Messages'; it was silent,
+        // a review, 13 Nov 2026. App modules that use it, Safari's Find bar and Finder's rename, come first.)
     }
 
     /// The next or previous misspelled word: the app's marks (AXMarkedMisspelled, AXMisspelled), else macOS's checker.
@@ -239,6 +254,7 @@ open class EditableText: TurnOverObject {
     /// caret is for a plain arrow); if it hasn't changed within the caret's patience, the app's own notice reads it.
     func selectionScript(_ gesture: KeyboardGesture) {
         if GoogleDocs.isEditor(element) { gesture.send(); return }
+        settleAfterTyping()
         guard autoSelectDetection, let old = try? makeTextInfo(.selection) else {
             Log.io("selection: \(autoSelectDetection ? "the selection can't be read here" : "not watched here"); the key sent on")
             gesture.send(); return
@@ -252,7 +268,7 @@ open class EditableText: TurnOverObject {
             EventHandler.pumpPendingEvents()
             if let new = try? makeTextInfo(.selection), !new.isSame(old) {
                 Log.io("selection changed, seen after \(Int(Date().timeIntervalSince(began) * 1000)) ms")
-                detectPossibleSelectionChange()
+                detectPossibleSelectionChange(fromSelectionKey: true)
                 return
             }
             usleep(2000)
@@ -263,6 +279,7 @@ open class EditableText: TurnOverObject {
     func caretMovement(_ gesture: KeyboardGesture, _ unit: TextUnit) {
         // Google Docs, Sheets, Slides: the text box is a hidden typing target; Google says the move itself.
         if GoogleDocs.isEditor(element) { gesture.send(); return }
+        settleAfterTyping()   // (the bookmark from before the last letters typed made a real move look like none)
         guard let info = try? makeTextInfo(.caret) else { gesture.send(); return }
         let boundarySound = appModule.playsNativeCaretBoundarySound
         let bookmark = info.bookmark
@@ -421,7 +438,9 @@ open class EditableText: TurnOverObject {
         // to say ("new line" was heard as Claude's prompt sent, 7 Oct 2026).
         if lengthBefore > 0, line.storyLength() < lengthBefore { Log.io("Return sent the text; no new line"); return }
         // Say the new line was made (the owner asked, 4 Oct 2026), then anything already on it (a list number).
-        if config.keyboard.speakNewLine { Speech.speakOnly(String(localized: "new line", comment: "Spoken message")) }   // the display shows the new line itself
+        // (Private, as the echo of typing is: what is typed, Return too, stays out of the speech history a feedback
+        // report carries; a review, 13 Nov 2026.)
+        if config.keyboard.speakNewLine { Speech.asPrivate { Speech.speakOnly(String(localized: "new line", comment: "Spoken message")) } }   // the display shows the new line itself
         line.expand(.line)
         line.setEndPoint(newInfo, .endToStart)
         if line.isCollapsed { return }
@@ -431,21 +450,30 @@ open class EditableText: TurnOverObject {
     func backspaceScript(_ gesture: KeyboardGesture, _ unit: TextUnit) {
         if GoogleDocs.isEditor(element) { gesture.send(); return }   // Google says what was deleted
         if role == .passwordEdit { gesture.send(); return }   // SecureEcho hears the field get shorter
+        // A single character just typed is the last letter typed: the field may not hold it yet (below).
+        let typedLast = unit == .character
+            ? Self.typedCharacterBeforeCaret(typed: Speech.typedWordSoFar, edited: Speech.typedWordWasEdited,
+                                             waiting: TurnOverObject.waitingForField, sinceTyped: Date().timeIntervalSince(InputManager.lastTypedKeyAt))
+            : nil
+        if typedLast == nil { settleAfterTyping() }
         guard let old = try? makeTextInfo(.caret) else { gesture.send(); return }
         let bookmark = old.bookmark
         // A selection goes as a whole: say what went, not the character before the caret.
         if let sel = try? makeTextInfo(.selection), !sel.isCollapsed {
-            let gone = sel.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let gone = sel.text
             gesture.send()
             _ = hasCaretMoved(from: bookmark)
             lastSelection = try? makeTextInfo(.selection)
-            Speech.speakMessage(gone.isEmpty || gone.count > 80 ? String(localized: "selection deleted", comment: "Selected text deleted")
-                : Phrases.deleted(gone.count == 1 ? Symbols.name(of: gone.first!) : gone))
+            speakDeletedSelection(gone)
             return
         }
         let test = old.copy()
         var chunk = ""
-        if test.move(.character, -1) < 0 {
+        if let typedLast {
+            // Right after fast typing a web or Electron field had not yet taken the last letters, and Backspace said
+            // the letter before them (a review, 13 Nov 2026); the letter typed last is the one this key deletes.
+            chunk = typedLast
+        } else if test.move(.character, -1) < 0 {
             if unit == .line { let l = old.copy(); l.expand(.line); l.setEndPoint(old, .endToStart); chunk = l.text }
             else if unit == .word {
                 // The word before the caret, past any spaces: Option Backspace takes it and the spaces after it. The
@@ -465,12 +493,14 @@ open class EditableText: TurnOverObject {
         // Said at once, before the caret is waited for: with something before the caret the deletion is certain, and
         // the wait (up to 300 ms in web content, 100 to 160 accessibility calls) held back every repeated Backspace
         // in Mail's compose window (Oliver, 20 Oct 2026: "not reading so well").
-        if !c.isEmpty {
+        // What was deleted is typed text: private, as the echo of typing is, so the speech history a feedback report
+        // carries never holds it (a review, 13 Nov 2026).
+        if !c.isEmpty { Speech.asPrivate {
             // A line break has nothing to spell: say what it was ("new line"), as for any character named on its own.
             if let only = c.first, c.count == 1, only.isNewline { Speech.speakMessage(Symbols.name(of: only)) }
             // A word or a line deleted says so ("deleted more"); a single character is just the character, as in NVDA.
             else if c.count > 1 { Speech.speakText(unit == .character ? c : Phrases.deleted(c.trimmingCharacters(in: .whitespaces))) } else { Speech.speakSpelling(c) }
-        }
+        } }
         let (moved, newInfo) = hasCaretMoved(from: bookmark)
         guard moved else { return }
         caretMoved(speak: nil, gesture: gesture, info: newInfo)
@@ -481,12 +511,151 @@ open class EditableText: TurnOverObject {
 
     func deleteScript(_ gesture: KeyboardGesture, _ unit: TextUnit) {
         if role == .passwordEdit { gesture.send(); return }   // SecureEcho hears the field get shorter
+        settleAfterTyping()
         guard let info = try? makeTextInfo(.caret) else { gesture.send(); return }
         let bookmark = info.bookmark
+        // A selection goes as a whole, as with Backspace: what went, not the character after it (it read the next
+        // character as if one had been deleted: a review, 13 Nov 2026).
+        if let sel = try? makeTextInfo(.selection), !sel.isCollapsed {
+            let gone = sel.text
+            gesture.send()
+            _ = hasCaretMoved(from: bookmark)
+            lastSelection = try? makeTextInfo(.selection)
+            speakDeletedSelection(gone)
+            return
+        }
+        // Nothing after the caret: the edge at once, not after the caret's patience (300 ms in a web field) and a
+        // reading of nothing (a review, 13 Nov 2026). The key still goes, unwaited, for the app's own sound.
+        if Self.atTextEnd(caret: info.start, length: info.storyLength()) {
+            Log.io("edge: nothing after the caret to delete; sent unwaited")
+            gesture.send()
+            Tones.edge(keySent: true, sound: appModule.playsNativeCaretBoundarySound)
+            return
+        }
         let w = info.copy(); w.expand(.word)
         gesture.send()
         let (_, newInfo) = hasCaretMoved(from: bookmark, originalWord: w.text)
         caretMoved(speak: unit, gesture: gesture, info: newInfo)
+    }
+    nonisolated public static func atTextEnd(caret: Int, length: Int) -> Bool { caret >= 0 && caret >= length }
+
+    /// A selection deleted (Backspace, Delete, or a key the app deletes with): what went, up to 80 characters, else
+    /// "selection deleted". Private: it is typed text.
+    func speakDeletedSelection(_ text: String) {
+        let gone = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        Speech.asPrivate {
+            Speech.speakMessage(gone.isEmpty || gone.count > 80 ? String(localized: "selection deleted", comment: "Selected text deleted")
+                : Phrases.deleted(gone.count == 1 ? Symbols.name(of: gone.first!) : gone))
+        }
+    }
+
+    /// A deletion key whose reach the app decides (Fn-Command-Delete, Control-K, Control-H). The text it can take is
+    /// kept, the key goes on, and once the field is shorter what went is said, worked out from how much shorter it
+    /// is. A key the app takes as something else changes nothing, and nothing is said.
+    func deletionKeyScript(_ gesture: KeyboardGesture, forward: Bool) {
+        if GoogleDocs.isEditor(element) || role == .passwordEdit { gesture.send(); return }
+        settleAfterTyping()
+        guard let info = try? makeTextInfo(.caret) else { gesture.send(); return }
+        let before = info.storyLength()
+        let selected = (try? makeTextInfo(.selection)).flatMap { $0.isCollapsed ? nil : $0.text }
+        if forward, selected == nil, Self.atTextEnd(caret: info.start, length: before) {
+            Log.io("edge: nothing after the caret to delete; sent unwaited")
+            gesture.send()
+            Tones.edge(keySent: true, sound: appModule.playsNativeCaretBoundarySound)
+            return
+        }
+        // At most 4,000 characters after the caret (Control-K takes a paragraph), 200 before it (Control-H one).
+        let context = selected ?? (forward ? info.textRange(info.start, min(before, info.start + 4000)) : info.textRange(max(0, info.start - 200), info.start))
+        gesture.send()
+        let began = Date()
+        let patience = caretMoveTimeout * (isInWebContent ? 3 : 1)
+        let keys = ScriptHandler.keysArrivedCount
+        var after = before
+        while Date().timeIntervalSince(began) < patience {
+            if ScriptHandler.isScriptWaiting || ScriptHandler.keysArrivedCount != keys { break }
+            EventHandler.pumpPendingEvents()
+            if let now = try? makeTextInfo(.caret) { after = now.storyLength(); if after != before { break } }
+            usleep(2000)
+        }
+        guard after < before else { Log.io("deletion key: the field is not shorter; nothing said"); return }
+        caretMoved(speak: nil, gesture: gesture, info: nil)
+        if !forward { Speech.noteBackspace() }   // the word being typed changed (as after Backspace)
+        if let selected { speakDeletedSelection(selected); return }
+        let gone = Self.deletedText(context: context, count: before - after, forward: forward)
+        Speech.asPrivate {
+            guard let gone else { Speech.speakMessage(Phrases.deleted(Phrases.characters(before - after))); return }
+            if gone.count == 1, let c = gone.first { if c.isNewline || c.isWhitespace { Speech.speakMessage(Symbols.name(of: c)) } else { Speech.speakSpelling(gone) }; return }
+            let words = gone.trimmingCharacters(in: .whitespacesAndNewlines)
+            Speech.speakMessage(Phrases.deleted(words.isEmpty ? Phrases.characters(gone.count) : words))
+        }
+    }
+    /// What a deletion of `count` UTF-16 units took from `context` (the text after the caret, or before it): its start,
+    /// or its end. Nil if more went than was kept.
+    nonisolated public static func deletedText(context: String, count: Int, forward: Bool) -> String? {
+        let u = Array(context.utf16)
+        guard count > 0, count <= u.count else { return nil }
+        let slice = forward ? u[..<count] : u[(u.count - count)...]
+        return String(decoding: slice, as: UTF16.self)
+    }
+
+    /// Command-Z and Command-Shift-Z: the Edit menu item's title is read before the key goes ("Undo Typing"), said
+    /// once the key has gone, and then the selection the undo left, or the line (VoiceOver's reading). The title is
+    /// one accessibility call on an item found in the background when the field got the focus (UndoMenu); without
+    /// it, only the line is read.
+    func undoScript(_ gesture: KeyboardGesture, redo: Bool) {
+        if GoogleDocs.isEditor(element) || role == .passwordEdit { gesture.send(); return }
+        let title = UndoMenu.title(pid: pid, redo: redo)
+        let old = try? makeTextInfo(.caret)
+        let length = old?.storyLength()
+        gesture.send()
+        if let title { Speech.speakMessage(title.text) }
+        guard let old, title?.enabled != false else { return }
+        var (moved, newInfo) = hasCaretMoved(from: old.bookmark)
+        if !moved, let now = try? makeTextInfo(.caret), now.storyLength() != length { moved = true; newInfo = now }
+        guard moved else { return }
+        caretMoved(speak: nil, gesture: gesture, info: newInfo)
+        if let sel = try? makeTextInfo(.selection), !sel.isCollapsed {
+            let t = sel.text
+            Speech.speakMessage(String(localized: "selected \(t.count > 1000 ? Phrases.characters(t.count) : Speech.processed(t))", comment: "Selected text, read: %@ is the text"))
+            return
+        }
+        guard let line = newInfo ?? (try? makeTextInfo(.caret)) else { return }
+        line.expand(.line)
+        Speech.speakTextInfo(line, unit: .line, reason: .caret)
+    }
+
+    // MARK: Typing still arriving
+
+    /// Letters typed a moment ago may not be in the field yet: a web or Electron field applies a key some milliseconds
+    /// after it passes, and a Backspace or an arrow right after fast typing read the caret from before the last
+    /// letters (a review, 13 Nov 2026). Within 150 ms of a typed key: wait, at most 60 ms, until the caret and the
+    /// length hold still across two looks at least 50 ms after that key. A new key gives way at once.
+    func settleAfterTyping() {
+        guard Self.typingMaySettle(sinceTyped: Date().timeIntervalSince(InputManager.lastTypedKeyAt)) else { return }
+        let keys = ScriptHandler.keysArrivedCount
+        func look() -> Bookmark? { (try? makeTextInfo(.caret)).map { Bookmark(start: $0.start, end: $0.storyLength()) } }
+        var last = look()
+        let began = Date()
+        while Date().timeIntervalSince(began) < 0.06 {
+            if ScriptHandler.keysArrivedCount != keys || ScriptHandler.isScriptWaiting { return }
+            usleep(5000)
+            EventHandler.pumpPendingEvents()
+            let now = look()
+            if Self.typingSettled(sinceTyped: Date().timeIntervalSince(InputManager.lastTypedKeyAt), unchanged: now == last) {
+                Log.debug("typing settled after \(Int(Date().timeIntervalSince(began) * 1000)) ms")
+                return
+            }
+            last = now
+        }
+        Log.debug("typing: the field still changing after 60 ms; read as it is")
+    }
+    nonisolated public static func typingMaySettle(sinceTyped: TimeInterval) -> Bool { sinceTyped >= 0 && sinceTyped < 0.15 }
+    nonisolated public static func typingSettled(sinceTyped: TimeInterval, unchanged: Bool) -> Bool { unchanged && sinceTyped >= 0.05 }
+    /// The character a Backspace takes, from the letters just typed: only within 150 ms of the typed key, with the
+    /// word typed straight (no Backspace in it) and no word's end waiting for the field.
+    nonisolated public static func typedCharacterBeforeCaret(typed: String, edited: Bool, waiting: Bool, sinceTyped: TimeInterval) -> String? {
+        guard !edited, !waiting, typingMaySettle(sinceTyped: sinceTyped), let c = typed.last else { return nil }
+        return String(c)
     }
 
     // MARK: Selection detection (NVDA: initAutoSelectDetection / detectPossibleSelectionChange)
@@ -501,14 +670,17 @@ open class EditableText: TurnOverObject {
     private var lastTypedAt = Date.distantPast
     private var completionWork: DispatchWorkItem?
 
-    public func detectPossibleSelectionChange() {
+    /// `fromSelectionKey`: a Shift key's own script saw the change, so it is the user's selection, never a completion.
+    public func detectPossibleSelectionChange(fromSelectionKey: Bool = false) {
         guard autoSelectDetection, let new = try? makeTextInfo(.selection) else { return }
         let old = lastSelection
         lastSelection = new.copy()
         guard let old else { return }
         let changed = hasContentChangedSinceLastSelection
         hasContentChangedSinceLastSelection = false
-        if Date().timeIntervalSince(lastTypedAt) < 0.3 {
+        // (Only when typing was the last thing done: Shift-Left or Command-A within 0.3 s of a letter was taken for a
+        // completion, and said late, as "selected" and the whole selection, or not at all: a review, 13 Nov 2026.)
+        if Self.isTypingCompletion(sinceTyped: Date().timeIntervalSince(lastTypedAt), lastKeyWasTyped: InputManager.lastKeyWasTyped, fromSelectionKey: fromSelectionKey) {
             // An address bar completing what is typed: say the completion, not what was unselected (NVDA's generalized
             // form) — once typing pauses. Safari completes again on every letter; each one read was a stutter
             // ("selected kipedia.org", "selected ipedia.org"… 2 Oct 2026).
@@ -527,11 +699,15 @@ open class EditableText: TurnOverObject {
         }
         Speech.speakSelectionChange(old: old, new: new, generalize: changed)
     }
+    nonisolated public static func isTypingCompletion(sinceTyped: TimeInterval, lastKeyWasTyped: Bool, fromSelectionKey: Bool) -> Bool {
+        !fromSelectionKey && lastKeyWasTyped && sinceTyped < 0.3
+    }
     open override func event_typedCharacter(_ ch: Character) { lastTypedAt = Date(); super.event_typedCharacter(ch) }
 
     open override func event_gainFocus() {
         if isParagraphHop() { readParagraphHop() } else { super.event_gainFocus() }
         initAutoSelectDetection()
+        UndoMenu.prepare(pid: pid)   // (found in the background, so Command-Z only reads a title)
     }
     open override func event_loseFocus() {
         if let p = element.element(kAXParentAttribute) { Self.lastLeft = (element, p, Date()) }

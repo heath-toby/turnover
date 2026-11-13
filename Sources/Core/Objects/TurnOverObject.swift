@@ -714,12 +714,18 @@ open class TurnOverObject: ScriptableObject {
         if role == .passwordEdit || Speech.typingIntoSecretField { Speech.speakSecureCharacter(); return }
         let inWord = ch.isLetter || ch.isNumber || ch == "'" || ch == "’"
         let editable = hasNavigableText && !states.contains(.readOnly)
-        if inWord, hasNavigableText, Speech.typedWordSoFar.isEmpty, !Speech.typedWordWasEdited {
+        if inWord, hasNavigableText, Speech.typedWordSoFar.isEmpty, !Speech.typedWordWasEdited, Speech.echoesTypedWords(editable: editable) {
             // (A key held back starts its word where the field put it, not at the caret, which is past it by now.)
             Self.wordStart = Self.replayWordStart ?? (try? makeTextInfo(.caret))?.start
             Self.replayWordStart = nil   // only for the first word after the word that waited
         }
         guard !inWord, ch != "\u{8}", hasNavigableText, !Speech.typedWordSoFar.isEmpty || Speech.typedWordWasEdited else {
+            Speech.speakTypedCharacter(ch, inEditable: editable)
+            return
+        }
+        // With word echo off for this field (the default) nothing needs the field's own word: every space and
+        // punctuation mark waited up to 100 ms for the field and held back the keys after it (a review, 13 Nov 2026).
+        guard Speech.echoesTypedWords(editable: editable) else {
             Speech.speakTypedCharacter(ch, inEditable: editable)
             return
         }
