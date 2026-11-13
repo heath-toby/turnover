@@ -367,11 +367,27 @@ public final class BrowseModeDocument: ScriptableObject {
         buffer.build()
         guard !buffer.lines.isEmpty else { return false }
         let saved = historySaved()
-        position = resumeOffset(saved)
+        let kept = restorePlaceBeforeEmpty()
+        if !kept { position = resumeOffset(saved) }
         placeOnArrival()   // entered from below before it had loaded (Mail's Shift Tab): its last control, not its top
         VoiceOverSounds.play("WebAreaLoaded.aiff")   // VoiceOver's "web area loaded", the sound its list has for a page
-        Log.io("browse mode: page arrived — resuming at \(position)\(saved == nil ? "" : " (saved \(saved!.offset))")")
+        Log.io("browse mode: page arrived — resuming at \(position)\(kept ? " (where it was before it emptied)" : saved == nil ? "" : " (saved \(saved!.offset))")")
         if announce, url != announcedURL { announcePage() }
+        else if kept, announce, Date().timeIntervalSince(pageGoneAt) < 30 { sayReloaded() }   // a reload read mid-way: said, not silent
+        return true
+    }
+
+    /// The place the reading had when a read of the page came back empty (read in the middle of a reload), at the
+    /// address it was on: kept for the page coming back, rather than the top. The empty read put the reading at 0 and
+    /// the page came back at its top, silently (a review, 13 Nov 2026).
+    var placeBeforeEmpty: (url: String, line: String, into: Int, offset: Int)?
+    /// The page has content again at the same address: the reading back where it was before it emptied. True if so.
+    @discardableResult
+    func restorePlaceBeforeEmpty() -> Bool {
+        guard let k = placeBeforeEmpty, !buffer.lines.isEmpty else { return false }
+        placeBeforeEmpty = nil
+        guard k.url == url else { return false }
+        position = Self.placeAfterRebuild(oldLine: k.line, into: k.into, oldPosition: k.offset, in: buffer.text)
         return true
     }
 
@@ -725,7 +741,7 @@ public final class BrowseModeDocument: ScriptableObject {
         // and every key said "no next heading").
         guard buffer.lines.isEmpty, url != "about:blank" else { return true }
         buffer.build()
-        guard buffer.lines.isEmpty else { Log.io("browse mode: the page has arrived"); return true }
+        guard buffer.lines.isEmpty else { restorePlaceBeforeEmpty(); Log.io("browse mode: the page has arrived"); return true }
         // Safari can swap in a new web area on a reload (6 Oct 2026, fast.com: after Command R the copy was
         // of the old one, one element and no address, while the page was there and Tab reached it). The window's
         // web area now, if it is another one, is the page: move there, as Tab did.
@@ -765,10 +781,11 @@ public final class BrowseModeDocument: ScriptableObject {
                 }
                 if !buffer.lines.isEmpty {
                     watchingFor = ""
+                    let kept = restorePlaceBeforeEmpty()
                     // Once: AXLoadComplete may have announced it already (the title was said twice, 12 Oct 2026).
                     guard url != announcedURL else { Log.io("browse mode: the page arrived after \(n + 1) s (already announced)"); return }
                     Log.io("browse mode: the page arrived after \(n + 1) s")
-                    if API.focusTreeInterceptor === self, !passThrough { position = resumeOffset(historySaved()); announcePage() }
+                    if API.focusTreeInterceptor === self, !passThrough { if !kept { position = resumeOffset(historySaved()) }; announcePage() }
                     return
                 }
                 if n < 29 { look(n + 1) } else { watchingFor = ""; Log.io("browse mode: still nothing on the page after 30 s") }

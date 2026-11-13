@@ -353,6 +353,10 @@ extension BrowseModeDocument {
         let into = max(0, oldPosition - lineStart - lead)
         if !buffer.lines.isEmpty, pageIsGone() { pageGoneAt = Date() }   // a reload, noticed for pageLoadCompleted
         buffer.build(until: deadline)
+        // Read in the middle of a reload, nothing yet: the place is kept for the page coming back (loadedAfterBlank).
+        if buffer.lines.isEmpty, !oldLine.isEmpty || oldPosition > 0 {
+            placeBeforeEmpty = (url, oldLine, into, oldPosition)
+        }
         if let a = anchor, let o = buffer.offset(of: a) { position = o; return }
         position = Self.placeAfterRebuild(oldLine: oldLine, into: into, oldPosition: oldPosition, in: buffer.text)
     }
