@@ -291,7 +291,26 @@ public final class SettingsPanePlugin: GlobalPlugin {
         }
         guard var i = here, !all.isEmpty else {
             Log.io("tab trap: \(current.role) \"\(Log.words(ObjectFactory.make(current).name.prefix(30).description))\" not among the window's \(all.count) controls; Tab sent on")
-            g.send(); return
+            g.send()
+            // And if the app's own Tab went nowhere, the window's control after it by place on the screen (Weather,
+            // left open with TurnOver's place on a tab its window no longer listed: ten Tabs went nowhere, a sweep,
+            // 13 Nov 2026).
+            guard !all.isEmpty else { return }
+            let keyAt = InputManager.lastKeyDownAt, from = current
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                guard InputManager.lastKeyDownAt == keyAt, let f = API.focusObject?.element, f.isSame(from) else { return }
+                let cf = TurnOverObject.frame(from)
+                func after(_ e: AXUIElement) -> Bool {
+                    guard let c = cf, let ef = TurnOverObject.frame(e) else { return false }
+                    return ef.minY > c.midY || (abs(ef.midY - c.midY) < 4 && ef.minX > c.maxX)
+                }
+                let target = forward ? (all.first(where: after) ?? all.first) : (all.last(where: { !after($0) && !$0.isSame(from) }) ?? all.last)
+                guard let target else { return }
+                Log.io("tab trap: the app's Tab went nowhere; by place to \(target.role)")
+                Self.focus(target, byTrap: true)
+                Self.setTrapState(for: target)
+            }
+            return
         }
         var n = ((forward ? i + 1 : i - 1) + all.count) % all.count   // round, as the app's own Tab goes
         // The list kept from a moment ago can name controls the app has since thrown away: TurnOver Settings rebuilds
