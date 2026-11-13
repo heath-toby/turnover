@@ -13,6 +13,8 @@ public enum AppWake {
     /// Until when activations are TurnOver's own nudge, not the user's (main thread).
     public static var nudgingUntil = Date.distantPast
     private static var lastNudge: [pid_t: Date] = [:]
+    /// The app quit (a review, 13 Nov 2026: per-process answers went to whichever process got the number next).
+    static func forget(pid: pid_t) { lastNudge[pid] = nil }
 
     /// Once per application every 30 s at most (`minimumGap`: Steam's menu asks more often, 14 Oct 2026).
     public static func nudge(pid: pid_t, reason: String, minimumGap: TimeInterval = 30, then: (@MainActor () -> Void)? = nil) {

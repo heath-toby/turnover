@@ -9,6 +9,8 @@ import ApplicationServices
 enum AppMenuKeys {
     private static var keys: [pid_t: (at: Date, set: Set<String>)] = [:]
     private static var scanning: Set<pid_t> = []
+    /// The app quit: another process given its number has menus of its own (a review, 13 Nov 2026).
+    static func forget(pid: pid_t) { keys[pid] = nil }
 
     /// The app's menus have this key ("kb:option+b"). False while they are still being read.
     static func owns(_ gesture: String, pid: pid_t) -> Bool {

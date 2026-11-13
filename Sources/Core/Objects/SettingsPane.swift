@@ -41,6 +41,65 @@ public final class SettingsPanePlugin: GlobalPlugin {
 
     /// Groups where an app was seen to ignore Tab (main thread), and whether the focus is in one now (any thread).
     static var trapZones: [AXUIElement] = []
+    /// Groups where the app ignored Tab once, not yet remembered. One 0.4 s with no focus news was enough before, and a
+    /// busy app gave that: the place took Tab from the app for the rest of the run, even once the app moved its own
+    /// focus there again (a review, 13 Nov 2026). Remembered at the second miss with no success between.
+    static var trapZoneMisses: [AXUIElement] = []
+
+    /// A miss in `zone`: true when it is now remembered (seen twice). A success in it (`missed: false`) forgets it,
+    /// as a candidate and as a remembered place. Generic so the rule can be tested without an app.
+    package static func noteTabOutcome<T>(_ zone: T, missed: Bool, candidates: inout [T], zones: inout [T], same: (T, T) -> Bool) -> Bool {
+        if !missed {
+            candidates.removeAll { same($0, zone) }
+            zones.removeAll { same($0, zone) }
+            return false
+        }
+        if zones.contains(where: { same($0, zone) }) { return false }
+        if candidates.contains(where: { same($0, zone) }) {
+            candidates.removeAll { same($0, zone) }
+            zones.append(zone)
+            if zones.count > 20 { zones.removeFirst() }
+            return true
+        }
+        candidates.append(zone)
+        if candidates.count > 20 { candidates.removeFirst() }
+        return false
+    }
+    /// The app ignored Tab in this group: remembered at the second time (see trapZoneMisses).
+    static func trapZoneMissed(_ zone: AXUIElement) -> Bool {
+        pruneTrapZones()
+        return noteTabOutcome(zone, missed: true, candidates: &trapZoneMisses, zones: &trapZones) { $0.isSame($1) }
+    }
+    /// The app moved its own focus on a Tab from `e`: any remembered group around it is forgotten.
+    static func trapZoneAnswered(around e: AXUIElement) {
+        guard !trapZones.isEmpty || !trapZoneMisses.isEmpty else { return }
+        var p: AXUIElement? = e; var hops = 0
+        while let x = p, hops < 7 {
+            if trapZones.contains(where: { $0.isSame(x) }) || trapZoneMisses.contains(where: { $0.isSame(x) }) {
+                Log.io("tab trap: the app moved its own focus on Tab in \(x.role); no longer a place where Tab is TurnOver's")
+                _ = noteTabOutcome(x, missed: false, candidates: &trapZoneMisses, zones: &trapZones) { $0.isSame($1) }
+            }
+            p = x.element(kAXParentAttribute); hops += 1
+        }
+    }
+    /// Groups gone with their window (or the app's view rebuilt) are dropped: kept, they held their place among the 20
+    /// for ever (a review, 13 Nov 2026). Asked at Tab time only, not on every focus move.
+    static func pruneTrapZones() {
+        trapZones.removeAll { $0.role == "?" }
+        trapZoneMisses.removeAll { $0.role == "?" }
+    }
+    /// The app quit: its remembered places, loop windows, per-process answers and the window list kept go with it, so a
+    /// new process given the same number doesn't inherit them (a review, 13 Nov 2026).
+    static func forget(pid: pid_t) {
+        trapZones.removeAll { $0.pid == pid }
+        trapZoneMisses.removeAll { $0.pid == pid }
+        loopWindows.removeAll { $0.pid == pid }
+        loopKinds = loopKinds.filter { !$0.hasPrefix("\(pid)|") }
+        moduleTab[pid] = nil
+        catalyst[pid] = nil
+        if let t = trapList, t.window.pid == pid { trapList = nil }
+        if let t = tabLandings, t.window.pid == pid { tabLandings = nil }
+    }
     private static var _inTrapZone = false
     /// The focus is a button, and Return would press the window's default button instead.
     static var returnWouldMissFocus: Bool {
@@ -68,12 +127,33 @@ public final class SettingsPanePlugin: GlobalPlugin {
     private static var _heldByTrap = false
     /// The last window's controls in screen order, reused for a few seconds (walking the window costs 60 ms), or up to
     /// a minute while the app says nothing of its controls changing.
+    /// Not when the window's own children changed in number, or the control Tab last landed on has moved: controls an
+    /// app reveals without saying it created them (a disclosure's options) were skipped by Tab for up to a minute (a
+    /// review, 13 Nov 2026). Both are one question to the app.
     static func listStillGood(_ at: Date, pid: pid_t) -> Bool {
-        let age = Date().timeIntervalSince(at)
-        return age < 5 || age < 60 && (AXHandler.shared.lastStructureAt[pid] ?? .distantPast) < at
+        let structure = (AXHandler.shared.lastStructureAt[pid] ?? .distantPast) >= at
+        return listStillGood(age: Date().timeIntervalSince(at), structureNewsSince: structure, shapeChanged: trapListShapeChanged())
+    }
+    package static func listStillGood(age: TimeInterval, structureNewsSince: Bool, shapeChanged: Bool) -> Bool {
+        !shapeChanged && (age < 5 || age < 60 && !structureNewsSince)
     }
     /// The last window's controls in screen order, reused for a few seconds (walking the window costs 60 ms).
-    static var trapList: (window: AXUIElement, controls: [AXUIElement], at: Date)?
+    static var trapList: (window: AXUIElement, controls: [AXUIElement], at: Date)? {
+        didSet { trapListChildren = trapList.map { childCount($0.window) } ?? -1 }
+    }
+    /// The window's number of children when its list was walked, and where the trap's Tab last landed, with its frame.
+    private static var trapListChildren = -1
+    static var trapLanding: (element: AXUIElement, frame: CGRect?)?
+    static func childCount(_ e: AXUIElement) -> Int {
+        var n: CFIndex = 0
+        return AXUIElementGetAttributeValueCount(e, kAXChildrenAttribute as CFString, &n) == .success ? n : -1
+    }
+    private static func trapListShapeChanged() -> Bool {
+        guard let t = trapList else { return true }
+        if childCount(t.window) != trapListChildren { return true }
+        if let l = trapLanding, l.element.role != "?", let was = l.frame, let now = TurnOverObject.frame(l.element), now != was { return true }
+        return false
+    }
 
     /// The named section around a control (Mail's "Formatting" bar): each button sits in a little group of its own.
     static func zone(of e: AXUIElement) -> AXUIElement? {
@@ -84,7 +164,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
             if x.role == "AXWindow" { break }
             p = x.element(kAXParentAttribute); hops += 1
         }
-        return e.element(kAXParentAttribute)
+        // No named section: no place to remember. The plain parent it fell back to could be a whole pane, and Tab
+        // there was TurnOver's for every control in it (a review, 13 Nov 2026).
+        return nil
     }
 
     func trapMove(_ g: KeyboardGesture, forward: Bool) {
@@ -343,6 +425,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 guard unmoved,
                       (AXHandler.shared.lastMoveNewsAt[pid] ?? .distantPast) < at else {
                     if unmoved { Log.io("tab trap: the focus stayed, but the app had news of a move; left to it") }
+                    // The app moved its own focus on this Tab: a place around it remembered (or half remembered) as
+                    // one where the app ignores Tab is forgotten (a review, 13 Nov 2026).
+                    else if !nowhere, detached == nil { Self.trapZoneAnswered(around: before) }
                     return
                 }
                 // The focus stayed, but Tab chose something inside it, with no news of it: Calendar's Tab selects the
@@ -386,9 +471,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
                     // the settings panes' Tab and did nothing).
                     // A nameless group only (Catalyst's content group), not a document's scroll area, whose links and
                     // form fields keep the app's Tab (a review, 11 Nov 2026).
-                    if before.role == "AXGroup", !Self.trapZones.contains(where: { $0.isSame(before) }) {
-                        Self.trapZones.append(before)
-                        if Self.trapZones.count > 20 { Self.trapZones.removeFirst() }
+                    // (At the second miss: one slow answer from a busy app is no proof, a review, 13 Nov 2026.)
+                    if before.role == "AXGroup", Self.trapZoneMissed(before) {
+                        Log.io("tab trap: remembering the \(before.role) as a place where Tab is TurnOver's")
                     }
                     Self.trapList = (window, all, Date())
                     Self.focus(target, byTrap: true)
@@ -401,10 +486,10 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 // TurnOver's at once, with no wait (each step took 300 ms, "draggy", 5 Oct 2026).
                 // Not a whole window: Calendar's welcome screen sat in its main window, and the window kept as such a
                 // place took Tab from Calendar's own event to event Tab once the screen was gone (11 Nov 2026).
-                if let zone = Self.zone(of: before), zone.role != "AXWindow", !Self.trapZones.contains(where: { $0.isSame(zone) }) {
+                // At the second miss in the same place with no success between: one 0.4 s without news is what a busy
+                // app gives too (a review, 13 Nov 2026).
+                if let zone = Self.zone(of: before), zone.role != "AXWindow", Self.trapZoneMissed(zone) {
                     Log.io("tab trap: remembering \(zone.role) \"\(Log.words(zone.string(kAXDescriptionAttribute) ?? ""))\" as a place where Tab is TurnOver's")
-                    Self.trapZones.append(zone)
-                    if Self.trapZones.count > 20 { Self.trapZones.removeFirst() }
                 }
                 Self.trapList = (window, all, Date())
                 // Round to the same control (a window with one): said again, as Tab on Windows does.
@@ -456,6 +541,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
     /// `byTrap`: moved by the Tab trap, which keeps Tab if the place must be held (not the settings panes' Tab).
     public static func focus(_ target: AXUIElement, byTrap: Bool = false) {
         scrollIntoView(target)
+        // Where the trap's Tab landed, and how it lay: if it has moved by the next Tab, the window's list is walked
+        // again (listStillGood).
+        if byTrap { trapLanding = (target, TurnOverObject.frame(target)) }
         // TurnOver's own Tab moves count towards a loop as the app's do (TabLoop.noteLanding).
         if byTrap, ["kb:tab", "kb:shift+tab"].contains(InputManager.lastKeyIdentifier) {
             noteLanding(target, forward: InputManager.lastKeyIdentifier == "kb:tab")
@@ -735,6 +823,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // The pane, trap and ribbon flags are the app's that left: reset whether or not a place was held, so Tab in
         // the new app isn't taken by the old one's mode (a review, 13 Nov 2026).
         lock.lock(); _inPane = false; _inTrapZone = false; _onRibbonTab = false; lock.unlock()
+        pruneTrapZones()   // (places gone with their windows)
         // (A place in a helper drawing for the app now in front stays: System Settings' pane extensions.)
         guard let v = virtual, v.pid != pid,
               NSRunningApplication(processIdentifier: v.pid).map({ AXHandler.shared.isHelperOfActiveApp($0) }) != true else { return }

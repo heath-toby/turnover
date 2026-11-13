@@ -28,6 +28,8 @@ public enum EmptyWindowNotice {
     private static var told: [AXUIElement] = []
     private static var pending: [AXUIElement] = []
     private static var toldApps: [pid_t] = []
+    /// The app quit: a new process given its number is told afresh (a review, 13 Nov 2026).
+    static func forget(pid: pid_t) { toldApps.removeAll { $0 == pid } }
 
     nonisolated enum Look: Equatable { case readable(String), empty, inconclusive }
 

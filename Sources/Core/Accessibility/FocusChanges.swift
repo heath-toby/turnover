@@ -747,6 +747,11 @@ extension AXHandler {
         return w.elements(kAXChildrenAttribute).contains { $0.role == "AXSheet" }
     }
 
+    /// Whether a foreground window change repeats the last: the same window with the same title, and no app switch.
+    package static func sameForeground(title: String, lastTitle: String, sameWindow: Bool, appName: String?) -> Bool {
+        appName == nil && sameWindow && title == lastTitle
+    }
+
     func foregroundChanged(_ window: AXUIElement, appName: String?) {
         let obj = ObjectFactory.make(window)
         let subrole = obj.axSubrole ?? ""
@@ -754,7 +759,10 @@ extension AXHandler {
         let title = obj.name
         // Before the repeat check: a page titled Notification Center beneath the panel must not hide the transition.
         NotificationCentrePanel.noteForeground(window)
-        if title == lastForegroundTitle, appName == nil { return }
+        // The same window again is no news; another window with the same title is (two "Untitled" documents, two
+        // Finder windows on one folder: Command ` between them said nothing, a review, 13 Nov 2026). Compared as
+        // elements, not by title.
+        if Self.sameForeground(title: title, lastTitle: lastForegroundTitle, sameWindow: focusWindow.map { CFEqual($0, window) } ?? false, appName: appName) { return }
         lastForegroundTitle = title
         lastForegroundAt = Date()
         focusWindow = window

@@ -66,6 +66,13 @@ final class MediaAppModule: AppModule {
             self?.view.afterSearch(term: term)
         }.isAvailable = { [weak self] in API.focusObject?.role == .searchField && API.focusPid == self?.pid }
         script("media_nowPlaying", String(localized: "Says what is playing", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:turnover+shift+n"], category: cat) { [weak self] _ in self?.view.nowPlaying() }
+        // The focus gone to another process with the app still in front (Spotlight, Notification Centre, a status
+        // menu): the suggestions' list lets go of the arrows, which kept them on coming back to the search field
+        // (a review, 13 Nov 2026). Switching apps already stops the view (event_appModuleLoseFocus).
+        API.focusChangeHandlers.append { [weak self] _, new in
+            guard let self, !self.terminated, let n = new, n.pid != self.pid, self.view.catalogDrives else { return }
+            self.view.letCatalogGo()
+        }
     }
 
     override func event_appModuleGainFocus() {

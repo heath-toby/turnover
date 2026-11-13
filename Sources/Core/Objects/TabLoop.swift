@@ -44,15 +44,21 @@ extension SettingsPanePlugin {
         if let id = w.string(kAXIdentifierAttribute), ["open-panel", "save-panel"].contains(id) { loopWindows.append(w); return true }
         // The same kind of window seen looping before (each Save sheet is a new window: four Tabs each time before
         // TurnOver took over): the app and the window's title.
-        if let k = loopKind(w), loopKinds.contains(k) { loopWindows.append(w); return true }
+        if !loopKinds.isEmpty, let k = loopKind(w), loopKinds.contains(k) { loopWindows.append(w); return true }
         return false
     }
-    /// Kinds of window seen to loop: "bundle|title" (main thread; this run only).
+    /// Kinds of window seen to loop: "pid|title" (main thread), forgotten when the app quits (SettingsPanePlugin.forget).
     static var loopKinds: Set<String> = []
+    /// Only a sheet's or a dialog's: a new one comes each time (each Save sheet). A document window stays until it
+    /// closes and is remembered as itself; by kind, one "Untitled" window that looped took Tab from every other window
+    /// of that title for the whole run (a review, 13 Nov 2026).
     static func loopKind(_ w: AXUIElement) -> String? {
         let title = w.string(kAXTitleAttribute) ?? ""
-        guard !title.isEmpty, let id = NSRunningApplication(processIdentifier: w.pid)?.bundleIdentifier else { return nil }
-        return id + "|" + title
+        guard !title.isEmpty, loopKindApplies(role: w.role, subrole: w.string(kAXSubroleAttribute)) else { return nil }
+        return "\(w.pid)|" + title
+    }
+    package static func loopKindApplies(role: String, subrole: String?) -> Bool {
+        role == "AXSheet" || ["AXDialog", "AXSystemDialog"].contains(subrole ?? "")
     }
 
     /// A Tab or Shift Tab the app had: where it landed, and whether the landings show a short loop.

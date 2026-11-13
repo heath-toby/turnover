@@ -1620,6 +1620,8 @@ public final class MediaView {
     }
     /// Escape from an opened entry lands on the results page again: the catalog's list is back.
     private func catalogBack() { if catalog != nil { catalogDrives = true } }
+    /// The focus left the app: the list lets go of the keys (kept, for Back to bring it again).
+    public func letCatalogGo() { Log.io("catalog: the focus left the app; the list lets go of the keys"); catalogDrives = false }
 
     /// Escape: back a page.
     public func back() {

@@ -342,6 +342,32 @@ extension AXHandler {
         }
     }
 
+    /// Any key: if TurnOver's focus has died (its window closed, a view rebuilt) or come loose from any window, with no
+    /// news of the app's new focus, the app's real focus is read, as after Command W. Only Command W checked this, and
+    /// a window closed by Escape, a button or the app itself left the arrows reading the dead element (a review, 13 Nov
+    /// 2026). Once a second at most, after the key, so the key itself is never held up.
+    public func checkFocusAtKey() {
+        guard running, activePid > 0, Date().timeIntervalSince(lastFocusCheckAt) > 1 else { return }
+        guard let f = API.focusObject, !isMenuOpen, MenuNavigationPlugin.heldBar == nil, MenuNavigationPlugin.heldStatus == nil else { return }
+        lastFocusCheckAt = Date()
+        // A focus with no window of its own by nature: the app itself (no window left), the menus, the Dock's items.
+        let windowless: Set<String> = ["AXApplication", "AXMenuBar", "AXMenuBarItem", "AXMenu", "AXMenuItem", "AXDockItem", "AXWindow", "AXSheet"]
+        let role = f.element.role
+        let dead = role == "?"
+        // Loose from its window: only in the app in front (a control TurnOver holds or made keeps its place: the app
+        // must name another focus, below).
+        let loose = !dead && f.pid == activePid && !windowless.contains(role) && f.element.element(kAXWindowAttribute) == nil
+        guard dead || loose else { return }
+        // Only when the app names a live focus of its own elsewhere: else there is nothing better to read, and reading
+        // the same again at every key would be noise.
+        let app = AXUIElementCreateApplication(activePid)
+        AXUIElementSetMessagingTimeout(app, 0.25)
+        guard let real = app.element(kAXFocusedUIElementAttribute), !real.isSame(f.element), real.role != "?" else { return }
+        if loose, real.element(kAXWindowAttribute) == nil, real.role != "AXWindow" { return }
+        Log.io("key: TurnOver's focus is \(dead ? "gone" : "out of any window"); the app's focus read again")
+        refocus(pid: activePid)
+    }
+
     public func refocus(pid: pid_t) {
         guard pid != 0, running else { return }
         // While TurnOver holds the menu bar or the status menus (Mac style, VO M), the application's focus is not

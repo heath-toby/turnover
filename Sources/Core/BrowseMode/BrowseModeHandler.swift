@@ -150,5 +150,7 @@ public final class BrowseModeHandler {
 
     public func forget(pid: pid_t) {
         lock.lock(); documents.removeAll { $0.webArea.pid == pid }; lock.unlock()
+        // A new process given the quit one's number isn't taken for Chromium on its say-so (a review, 13 Nov 2026).
+        Self.chromiumLock.lock(); Self.chromiumCache[pid] = nil; Self.chromiumLock.unlock()
     }
 }
