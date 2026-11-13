@@ -113,6 +113,14 @@ package final class MailAppModule: AppModule {
         case .body(let web):
             Log.io("mail: Tab into the message")
             Self.messageFocusWasIn = nil
+            // Tab in starts at its top, Shift Tab in at its last link or control: the reading was left where it last
+            // was (the last slider), and the next Tab went straight out again (13 Nov 2026).
+            if let d = BrowseModeHandler.shared.documents.first(where: { $0.webArea.isSame(web) }) {
+                let roles: Set<String> = ["AXLink", "AXButton", "AXTextField", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXSlider", "AXMenuButton"]
+                d.position = forward ? 0 : (d.buffer.find(from: d.buffer.text.length, forward: false, roles: roles)?.0 ?? 0)
+                // Back in from below: its last control is said, not the message read out from the top.
+                if !forward { BrowseModeHandler.noteAnnounced(web, url: d.url) }
+            }
             // (A quick Tab from the buttons: the moment their landing sets other focus news aside must not swallow
             // this one; the message took the keys and nothing was said, a tester, 13 Nov 2026.)
             SettingsPanePlugin.expected = nil; SettingsPanePlugin.ignoreOthersUntil = .distantPast
@@ -285,6 +293,9 @@ package final class MailAppModule: AppModule {
         let f = fields[index]
         Self.headerAt = (area, index, Date())
         Self.messageFocusWasIn = nil
+        // A control TurnOver put the place on a moment ago (Summarise) is no longer waited for: its check, 0.3 s on,
+        // took the place back and said it after the field (a quick Tab, 13 Nov 2026).
+        SettingsPanePlugin.expected = nil; SettingsPanePlugin.ignoreOthersUntil = .distantPast
         _ = area.set(kAXFocusedAttribute, kCFBooleanTrue)
         var r = CFRange(location: f.start, length: 0)
         if let v = AXValueCreate(.cfRange, &r) { _ = area.set(kAXSelectedTextRangeAttribute, v) }
@@ -343,7 +354,7 @@ package final class MailAppModule: AppModule {
         script("mail_toMailboxes", String(localized: "From the message list: the mailbox list (Shift Tab)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Mail") { [weak self] g in
             guard let self, let f = API.focusObject?.element else { g.send(); return }
             self.focusList("mailboxes", from: f)
-        }.isAvailable = { Self.place == "messages" }
+        }.isAvailable = { Self.focusInMessageList() }
         // Return in the search field: Mail searches and says nothing; the keys stayed in the field and Tab went to the
         // toolbar (8 Oct 2026). Say how many results, and go to them.
         script("mail_submitSearch", String(localized: "Searching: Return searches, says how many results, and goes to them", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:enter"], category: "Mail") { [weak self] g in
@@ -395,17 +406,39 @@ package final class MailAppModule: AppModule {
                 }
             }.isAvailable = { Self.place.hasPrefix("compose:") }
         }
+        // Tab from the window's search field: the mailboxes, or the messages with the sidebar hidden. Mail's own Tab
+        // went into the message shown (13 Nov 2026).
+        // Shift Tab, the forward round backwards: from the window's toolbar to the last message's last part (its last
+        // link or control, not a say all from the top); from the search field to the toolbar.
+        script("mail_toolbarBack", String(localized: "From the toolbar: back into the message (Shift Tab)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Mail") { [weak self] g in
+            guard let self, let f = API.focusObject?.element else { g.send(); return }
+            if Self.inWindowToolbar(f), Self.isSearch(f) { self.toWindowToolbar(from: f, last: true, notSearch: true); return }
+            guard let last = Self.shownMessages(from: f).last, let stop = Self.messageStops(last).last else { self.focusList("messages", from: f); return }
+            self.go(stop, forward: false, in: last)
+        }.isAvailable = {
+            guard let f = API.focusObject?.element, Self.inWindowToolbar(f), !Self.place.hasPrefix("compose:") else { return false }
+            return true
+        }
+        script("mail_fromSearch", String(localized: "From the search field: the mailboxes, or the messages (Tab)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Mail") { [weak self] g in
+            guard let self, let f = API.focusObject?.element else { g.send(); return }
+            self.focusList(Self.hasMailboxes(f) ? "mailboxes" : "messages", from: f)
+        }.isAvailable = {
+            guard let f = API.focusObject?.element, ["AXTextField", "AXSearchField"].contains(f.role) || f.string(kAXSubroleAttribute) == "AXSearchField" else { return false }
+            var x = f.element(kAXParentAttribute), hops = 0
+            while let y = x, hops < 4 { if y.role == "AXToolbar" { return !Self.place.hasPrefix("compose:") }; x = y.element(kAXParentAttribute); hops += 1 }
+            return false
+        }
         script("mail_toMessages", String(localized: "From the mailbox list: the message list (Tab)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Mail") { [weak self] g in
             guard let self, let f = API.focusObject?.element else { g.send(); return }
             self.focusList("messages", from: f)
-        }.isAvailable = { Self.place == "mailboxes" }
+        }.isAvailable = { Self.focusInMailboxes() }
         // Tab through a message, top to bottom, every control in it (a tester, 13 Nov 2026: "we can't filter the stuff
         // that some might call important and others not"): a summary button, a mailing list's banner (Unsubscribe,
         // close), the header's fields one by one, its Details, the message's buttons as one toolbar stop, then the
         // message itself. Shift Tab back the same way; from the first stop, the message list.
         script("mail_messageNext", String(localized: "Reading a message: the next of its parts (banners, header fields, buttons, the message)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Mail") { [weak self] g in
             guard let self, let f = API.focusObject?.element else { g.send(); return }
-            if Self.place == "messages", !Self.isHeaderArea(f), Self.contentGroup(of: f) == nil {
+            if Self.focusInMessageList() {
                 guard let content = Self.headerAreaFromList(f)?.element(kAXParentAttribute)?.element(kAXParentAttribute),
                       let first = Self.messageStops(content).first else { g.send(); return }
                 self.go(first, forward: true, in: content); return
@@ -421,7 +454,7 @@ package final class MailAppModule: AppModule {
             self.step(from: i, of: stops, in: content, forward: true, from: f)
         }.isAvailable = {
             guard let f = API.focusObject?.element else { return false }
-            if Self.place == "messages", !Self.isHeaderArea(f), Self.contentGroup(of: f) == nil { return Self.headerAreaFromList(f) != nil }
+            if Self.focusInMessageList() { return Self.headerAreaFromList(f) != nil }
             guard !SettingsPanePlugin.isInWeb(f), f.role != "AXWebArea", let content = Self.contentGroup(of: f) else { return false }
             return Self.stopIndex(of: f, in: Self.messageStops(content)) != nil
         }
@@ -480,7 +513,7 @@ package final class MailAppModule: AppModule {
                category: "Mail") { [weak self] g in
             guard let self, let f = API.focusObject?.element, let table = Self.listOf(f) else { g.send(); return }
             self.actOnMessage(table, g)
-        }.isAvailable = { Self.place == "messages" && !AXHandler.shared.isMenuOpen && !TurnOverMenu.shared.isOpen }
+        }.isAvailable = { Self.focusInMessageList() && !AXHandler.shared.isMenuOpen && !TurnOverMenu.shared.isOpen }
 
         // MARK: Address suggestions (a tester, 13 Nov 2026: Mail's list of addresses under To was never read, and Tab
         // went to the next field without taking the suggestion). Declared last, so they come first for Tab and Return.
@@ -904,16 +937,66 @@ package final class MailAppModule: AppModule {
         return true
     }
 
-    /// To the window's toolbar: the item last used there, else its first (or, `last`, its last).
+    /// To the window's toolbar: the item last used there, else its first. `last` (Shift Tab from the messages): its
+    /// search field, which comes last on the way round, unless `notSearch`.
     @discardableResult
-    func toWindowToolbar(from e: AXUIElement, last: Bool) -> Bool {
+    func toWindowToolbar(from e: AXUIElement, last: Bool, notSearch: Bool = false) -> Bool {
         guard let w = SettingsPanePlugin.windowOf(e), let tb = w.elements(kAXChildrenAttribute).first(where: { $0.role == "AXToolbar" }),
-              let (_, items) = SettingsPanePlugin.toolbarItems(around: tb), !items.isEmpty else { return false }
-        let used = SettingsPanePlugin.toolbarStop(tb, items)
-        Log.io("mail: on to the window's toolbar")
+              let (_, all) = SettingsPanePlugin.toolbarItems(around: tb), !all.isEmpty else { return false }
         Self.headerAt = nil
-        SettingsPanePlugin.focus((last && used.map { $0.isSame(items[0]) } != false ? items.last : used) ?? items[0])
+        if last, !notSearch, let search = Self.searchField(in: tb) { Log.io("mail: back to the search field"); SettingsPanePlugin.focus(search); return true }
+        let items = all.filter { !Self.isSearch($0) }
+        guard !items.isEmpty else { return false }
+        Log.io("mail: on to the window's toolbar")
+        SettingsPanePlugin.focus(SettingsPanePlugin.toolbarStop(tb, items) ?? items[0])
         return true
+    }
+    static func isSearch(_ e: AXUIElement) -> Bool {
+        ["AXTextField", "AXSearchField"].contains(e.role) || e.string(kAXSubroleAttribute) == "AXSearchField"
+    }
+    static func searchField(in tb: AXUIElement) -> AXUIElement? {
+        var queue = [tb], seen = 0
+        while !queue.isEmpty, seen < 60 { let e = queue.removeFirst(); seen += 1; if isSearch(e) { return e }; queue += e.elements(kAXChildrenAttribute) }
+        return nil
+    }
+    static func inWindowToolbar(_ e: AXUIElement) -> Bool {
+        var x: AXUIElement? = e, hops = 0
+        while let y = x, hops < 5 { if y.role == "AXToolbar" { return true }; x = y.element(kAXParentAttribute); hops += 1 }
+        return false
+    }
+    /// The messages the window shows, top to bottom.
+    static func shownMessages(from e: AXUIElement) -> [AXUIElement] {
+        guard let w = SettingsPanePlugin.windowOf(e) else { return [] }
+        return SettingsPanePlugin.named(in: w).map(\.0).filter { isContentGroup($0) }
+            .sorted { (TurnOverObject.frame($0)?.minY ?? 0) < (TurnOverObject.frame($1)?.minY ?? 0) }
+    }
+
+    /// The focus itself is in the message list, or the mailboxes: not only the place last noted, which a toolbar item
+    /// or a held place leaves as it was (Tab and Shift Tab on the toolbar were taken for the list's, 13 Nov 2026).
+    static func focusInMessageList() -> Bool {
+        guard place == "messages", let f = API.focusObject?.element else { return false }
+        var x: AXUIElement? = f, hops = 0
+        while let y = x, hops < 4 { if y.role == "AXTable" { return y.string(kAXDescriptionAttribute) == "messages" }; x = y.element(kAXParentAttribute); hops += 1 }
+        return false
+    }
+    static func focusInMailboxes() -> Bool {
+        guard place == "mailboxes", let f = API.focusObject?.element else { return false }
+        var x: AXUIElement? = f, hops = 0
+        while let y = x, hops < 4 { if y.role == "AXOutline" { return true }; x = y.element(kAXParentAttribute); hops += 1 }
+        return false
+    }
+
+    /// The viewer window shows its mailboxes (the sidebar isn't hidden).
+    static func hasMailboxes(_ from: AXUIElement) -> Bool {
+        guard let w = SettingsPanePlugin.windowOf(from) else { return false }
+        var queue = [w], seen = 0
+        while !queue.isEmpty, seen < 120 {
+            let e = queue.removeFirst(); seen += 1
+            if e.role == "AXOutline" { return true }
+            if ["AXToolbar", "AXTable", "AXWebArea", "AXScrollBar"].contains(e.role) { continue }
+            queue += e.elements(kAXChildrenAttribute)
+        }
+        return false
     }
 
     private func focusList(_ wanted: String, from: AXUIElement) {
@@ -923,7 +1006,7 @@ package final class MailAppModule: AppModule {
             let e = queue.removeFirst(); seen += 1
             if wanted == "mailboxes", e.role == "AXOutline" { target = e }
             if wanted == "messages", e.role == "AXTable", e.string(kAXDescriptionAttribute) == "messages" { target = e }
-            if e.role == "AXToolbar" { continue }
+            if ["AXToolbar", "AXWebArea", "AXScrollBar"].contains(e.role) { continue }   // (not the message: 1,200 questions a key)
             queue.append(contentsOf: e.elements(kAXChildrenAttribute))
         }
         // No mailboxes (the sidebar hidden): Shift Tab from the messages goes round to the toolbar, as the window's
