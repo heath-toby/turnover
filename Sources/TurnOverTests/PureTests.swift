@@ -1574,4 +1574,9 @@ func browseTextNavTests() {
         expect(place(group: "Gone", index: 1, words: "x"), [1, 0], "the app gone: the default app's first")
         expect(place(hit: (5, 0), group: nil, index: nil, words: nil), [1, 0], "a hit outside the groups is ignored")
     }
+    test("desktop: another key between the navigator's ends desktop mode") {
+        check(DesktopNavigator.keysOnlyOwn(arrived: 5, own: 4), "the next key after the navigator's is asked about")
+        check(DesktopNavigator.keysOnlyOwn(arrived: 4, own: 4), "the same key asked again")
+        check(!DesktopNavigator.keysOnlyOwn(arrived: 6, own: 4), "a key typed in the app in between")
+    }
 }
