@@ -143,10 +143,19 @@ enum NewDialogs {
     /// which has its own Tab again once the sheet goes.
     static func land(on e: AXUIElement, interrupt: Bool, ownWindow: AXUIElement? = nil) {
         _ = e.set(kAXFocusedAttribute, kCFBooleanTrue)
-        let pid = e.pid
+        let pid = e.pid, keyAt = InputManager.lastKeyDownAt, scope = SettingsPanePlugin.scopeOf(e)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             let real = AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute)
             if let real, real.isSame(e) { return }   // the app took it: its own focus news says it
+            // A key since (the user's Tab), or a focus the app put elsewhere in the same sheet or window (its own
+            // choice of first control), or TurnOver already there by the app's news: theirs stands. Held over them, the
+            // place went back to `e` and was said twice (a review, 13 Nov 2026). The scope itself (a window focused as
+            // a whole, Finder's copy window) is no choice.
+            guard InputManager.lastKeyDownAt == keyAt else { return }
+            if let scope {
+                let elsewhere = [real, API.focusObject?.element].compactMap { $0 }
+                if elsewhere.contains(where: { !$0.isSame(scope) && !$0.isSame(e) && isInside($0, scope) }) { return }
+            }
             // ownTab false: the settings panes' Tab would go round the window behind the sheet (a review, 11 Nov 2026).
             SettingsPanePlugin.holdVirtual(e, speak: interrupt, ownTab: false)
             if !interrupt { Speech.speakObject(ObjectFactory.make(e), reason: .focus) }
