@@ -170,7 +170,7 @@ public final class GlobalCommands: ScriptableObject {
         }
         // Command Control M, one key for the menu in every style, as NVDA N is (Oliver, 21 Oct 2026); Command Control Comma
         // then M is still the layer's way.
-        script("turnOverMenu", String(localized: "Opens the TurnOver menu: settings, keys, tools, help, quit", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:turnover+n", "kb:command+control+m"], category: sys) { _ in
+        script("turnOverMenu", String(localized: "Opens the TurnOver menu: settings, keys, tools, help, quit", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:turnover+n"], category: sys) { _ in   // (not Control Command M: Pages' Merge Cells and other apps' own, a tester, 13 Nov 2026)
             TurnOverMenu.shared.open()
         }
         // Mac style (VoiceOver's keys, key for key) or Windows style (a Mac that feels like a Windows machine with NVDA).

@@ -1,6 +1,6 @@
 # NVDA keys: every key
 
-This page is made from TurnOver's own command tables (`turnover-coretest --keys-reference`, 3 Nov 2026), so it matches the build it came with. Don't edit it by hand.
+This page is made from TurnOver's own command tables (`turnover-coretest --keys-reference`, 13 Nov 2026), so it matches the build it came with. Don't edit it by hand.
 
 The NVDA keys style (the Windows style): NVDA's own keys, doing what they do in NVDA. **TurnOver** in a key means the NVDA key: Caps Lock, or Control and Option together. NVDA's Alt is the Mac's Command key, by position. Keyboard help (the TurnOver menu, Keys) says what any key does without doing it; Command Control Comma, then Slash, lists the keys that work where you are.
 
@@ -121,7 +121,6 @@ Switch styles with Command Control Comma, then K. TurnOver's own commands behind
 | TurnOver Slash | Shortcuts list; lists the shortcuts that work here, the application's own first; Enter runs one |
 | TurnOver T | Reports the title of the current window. Pressed twice, spells it |
 | TurnOver Tab | Reports the object with focus |
-| Control Command M | Opens the TurnOver menu: settings, keys, tools, help, quit |
 | TurnOver Shift B | Reports the battery level |
 
 ## Browse mode
@@ -177,10 +176,12 @@ Switch styles with Command Control Comma, then K. TurnOver's own commands behind
 | Command F4 | Quits the application (Windows: Alt+F4) |
 | Control F4 | Closes the window or tab (Windows: Control+F4) |
 | Option B | Status menus; lists the status menus at the right of the menu bar, TurnOver's own item last (Windows: Windows+B) |
-| Option D | Opens the Desktop folder in Finder, its items under the arrows (Windows: Windows+D) |
+| Option D | The desktop: its icons and widgets under the arrows, Return opens or goes in (Windows: Windows+D) |
 | Option Tab | Application chooser; lists every application with a window, system alerts too, to switch to (Windows: Windows+Tab, Task View) |
 | Shift F10 | Opens the context menu, as Control+Return does (Windows: the Applications key, Shift+F10). Also right Option on its own |
+| TurnOver F7 | Elements list for the window: its buttons, fields, lists and links, by kind; Enter goes there (NVDA+F7 outside a page) |
 | Control Shift Escape | Force quit, as Task Manager's key (Windows: Control+Shift+Escape) |
+| Option Shift D | Opens the Desktop folder in Finder, its items under the arrows (Option Shift D) |
 
 # In the apps
 
@@ -262,6 +263,15 @@ Keys an app's own support adds at the app level, in that app only; the keys abov
 |---|---|
 | TurnOver Shift R | Reads Claude's latest reply |
 
+## Client
+
+| Key | What it does |
+|---|---|
+| Command Down arrow | Sends Spotify's volume down shortcut and says quieter |
+| Command Left arrow | Sends Spotify's previous track shortcut and says previous track |
+| Command Right arrow | Sends Spotify's next track shortcut and says next track |
+| Command Up arrow | Sends Spotify's volume up shortcut and says louder |
+
 ## Contacts
 
 | Key | What it does |
@@ -340,7 +350,7 @@ Keys an app's own support adds at the app level, in that app only; the keys abov
 | Space | While playing: the next or previous slide, read |
 | Up arrow | The previous or next slide, read (Keynote says nothing as it moves) |
 
-## Kindle
+## Lassen
 
 | Key | What it does |
 |---|---|
@@ -579,6 +589,8 @@ Keys an app's own support adds at the app level, in that app only; the keys abov
 | Control Command 1 | Moves to the sidebar; uses the review cursor if keyboard focus is unavailable |
 | Control Command 2 | Moves to the settings pane; uses the review cursor if keyboard focus is unavailable |
 | Control Command 3 | Moves to the search; uses the review cursor if keyboard focus is unavailable |
+| Shift Tab | The previous control: the sidebar, the search field, then each control in the pane |
+| Tab | The next control: the sidebar, the search field, then each control in the pane |
 
 ## TV
 

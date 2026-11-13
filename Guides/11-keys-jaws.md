@@ -1,6 +1,6 @@
 # JAWS keys: every key
 
-This page is made from TurnOver's own command tables (`turnover-coretest --keys-reference`, 3 Nov 2026), so it matches the build it came with. Don't edit it by hand.
+This page is made from TurnOver's own command tables (`turnover-coretest --keys-reference`, 13 Nov 2026), so it matches the build it came with. Don't edit it by hand.
 
 The JAWS keys style: JAWS's laptop layout. **TurnOver** in a key means the JAWS key: Caps Lock, or Control and Option together. Only the keys that differ from NVDA's are JAWS's own; every other key is NVDA's, so the [NVDA keys page](keys-nvda.html) lists the rest. Keyboard help (the TurnOver menu, Keys) says what any key does without doing it; Command Control Comma, then Slash, lists the keys that work where you are.
 
@@ -22,12 +22,12 @@ Switch styles with Command Control Comma, then K. TurnOver's own commands behind
 | TurnOver F10 | Application chooser; lists every application with a window, system alerts too, to switch to (Windows: Windows+Tab, Task View) |
 | TurnOver F11 | Status menus; lists the status menus at the right of the menu bar, TurnOver's own item last (Windows: Windows+B) |
 | TurnOver F2 | Opens TurnOver's settings in its menu (JAWS: Insert+F2, Insert+6) |
-| TurnOver F3 | Finds the next match of the last search (VO-G; NVDA+F3) |
+| TurnOver F3 | Elements list for the window: its buttons, fields, lists and links, by kind; Enter goes there (NVDA+F7 outside a page) |
 | TurnOver F4 | Quits TurnOver |
 | TurnOver F5 | Form fields list; lists the page's form fields and buttons; Enter goes there. In Word and Excel, their elements list (JAWS: Insert+F5) |
 | TurnOver F6 | Headings list; lists the page's headings; Enter goes there. In Word and Excel, their elements list (JAWS: Insert+F6) |
 | TurnOver F7 | Links list; lists the page's links; Enter goes there. In Word and Excel, their elements list (JAWS: Insert+F7) |
-| TurnOver F9 | Marks the review cursor as the start of text to copy (NVDA+F9) |
+| TurnOver F9 | Elements list for the window: its buttons, fields, lists and links, by kind; Enter goes there (NVDA+F7 outside a page) |
 | TurnOver H | Reports the current sentence |
 | TurnOver I | Reports the current line. Pressed twice, spells it |
 | TurnOver J | Moves to the previous word and reads it, as Option Left Arrow does (JAWS: Insert+Left Arrow, Caps Lock J) |
@@ -163,7 +163,6 @@ Switch styles with Command Control Comma, then K. TurnOver's own commands behind
 | TurnOver Slash | Shortcuts list; lists the shortcuts that work here, the application's own first; Enter runs one |
 | TurnOver T | Reports the title of the current window. Pressed twice, spells it |
 | TurnOver Tab | Reports the object with focus |
-| Control Command M | Opens the TurnOver menu: settings, keys, tools, help, quit |
 | TurnOver Shift B | Reports the battery level |
 
 ## Browse mode
@@ -214,10 +213,11 @@ Switch styles with Command Control Comma, then K. TurnOver's own commands behind
 | Command F4 | Quits the application (Windows: Alt+F4) |
 | Control F4 | Closes the window or tab (Windows: Control+F4) |
 | Option B | Status menus; lists the status menus at the right of the menu bar, TurnOver's own item last (Windows: Windows+B) |
-| Option D | Opens the Desktop folder in Finder, its items under the arrows (Windows: Windows+D) |
+| Option D | The desktop: its icons and widgets under the arrows, Return opens or goes in (Windows: Windows+D) |
 | Option Tab | Application chooser; lists every application with a window, system alerts too, to switch to (Windows: Windows+Tab, Task View) |
 | Shift F10 | Opens the context menu, as Control+Return does (Windows: the Applications key, Shift+F10). Also right Option on its own |
 | Control Shift Escape | Force quit, as Task Manager's key (Windows: Control+Shift+Escape) |
+| Option Shift D | Opens the Desktop folder in Finder, its items under the arrows (Option Shift D) |
 
 ## During say all
 
@@ -310,6 +310,15 @@ Keys an app's own support adds at the app level, in that app only; the keys abov
 |---|---|
 | TurnOver Shift R | Reads Claude's latest reply |
 
+## Client
+
+| Key | What it does |
+|---|---|
+| Command Down arrow | Sends Spotify's volume down shortcut and says quieter |
+| Command Left arrow | Sends Spotify's previous track shortcut and says previous track |
+| Command Right arrow | Sends Spotify's next track shortcut and says next track |
+| Command Up arrow | Sends Spotify's volume up shortcut and says louder |
+
 ## Contacts
 
 | Key | What it does |
@@ -387,7 +396,7 @@ Keys an app's own support adds at the app level, in that app only; the keys abov
 | Space | While playing: the next or previous slide, read |
 | Up arrow | The previous or next slide, read (Keynote says nothing as it moves) |
 
-## Kindle
+## Lassen
 
 | Key | What it does |
 |---|---|
@@ -624,6 +633,8 @@ Keys an app's own support adds at the app level, in that app only; the keys abov
 | Control Command 1 | Moves to the sidebar; uses the review cursor if keyboard focus is unavailable |
 | Control Command 2 | Moves to the settings pane; uses the review cursor if keyboard focus is unavailable |
 | Control Command 3 | Moves to the search; uses the review cursor if keyboard focus is unavailable |
+| Shift Tab | The previous control: the sidebar, the search field, then each control in the pane |
+| Tab | The next control: the sidebar, the search field, then each control in the pane |
 
 ## TV
 
@@ -709,6 +720,4 @@ Keys an app's own support adds at the app level, in that app only; the keys abov
 | Shift Tab | In a sheet: the previous control, its buttons included |
 | Tab | In a sheet: the next control, its buttons included |
 | TurnOver Down arrow | In a table: the cell below, the caret at its start (NVDA's table keys; TurnOver plus the arrows) |
-| TurnOver Left arrow | In a table: the previous cell in the row, the caret at its start (NVDA's table keys; TurnOver plus the arrows) |
-| TurnOver Right arrow | In a table: the next cell in the row, the caret at its start (NVDA's table keys; TurnOver plus the arrows) |
 | TurnOver Up arrow | In a table: the cell above, the caret at its start (NVDA's table keys; TurnOver plus the arrows) |

@@ -1,6 +1,6 @@
 # VoiceOver keys: every key
 
-This page is made from TurnOver's own command tables (`turnover-coretest --keys-reference`, 3 Nov 2026), so it matches the build it came with. Don't edit it by hand.
+This page is made from TurnOver's own command tables (`turnover-coretest --keys-reference`, 13 Nov 2026), so it matches the build it came with. Don't edit it by hand.
 
 The VoiceOver keys style (the Mac style): VoiceOver's own keys, doing what they do in VoiceOver. **TurnOver** in a key means the TurnOver key: Control and Option together (VO), or Caps Lock. Keys VoiceOver has that aren't listed here go to VoiceOver as usual where VoiceOver reads, and do nothing special where TurnOver reads. Keyboard help (the TurnOver menu, Keys) says what any key does without doing it; Command Control Comma, then Slash, lists the keys that work where you are.
 
@@ -237,7 +237,6 @@ Switch styles with Command Control Comma, then K. TurnOver's own commands behind
 | Key | What it does |
 |---|---|
 | TurnOver F12 | Reports the time. Pressed twice, reports the date |
-| Control Command M | Opens the TurnOver menu: settings, keys, tools, help, quit |
 | TurnOver Shift B | Reports the battery level |
 
 ## Menus
@@ -347,6 +346,15 @@ Keys an app's own support adds at the app level, in that app only; the keys abov
 |---|---|
 | TurnOver Shift R | Reads Claude's latest reply |
 
+## Client
+
+| Key | What it does |
+|---|---|
+| Command Down arrow | Sends Spotify's volume down shortcut and says quieter |
+| Command Left arrow | Sends Spotify's previous track shortcut and says previous track |
+| Command Right arrow | Sends Spotify's next track shortcut and says next track |
+| Command Up arrow | Sends Spotify's volume up shortcut and says louder |
+
 ## Contacts
 
 | Key | What it does |
@@ -422,7 +430,7 @@ Keys an app's own support adds at the app level, in that app only; the keys abov
 | Space | While playing: the next or previous slide, read |
 | Up arrow | The previous or next slide, read (Keynote says nothing as it moves) |
 
-## Kindle
+## Lassen
 
 | Key | What it does |
 |---|---|
@@ -659,6 +667,8 @@ Keys an app's own support adds at the app level, in that app only; the keys abov
 | Control Command 1 | Moves to the sidebar; uses the review cursor if keyboard focus is unavailable |
 | Control Command 2 | Moves to the settings pane; uses the review cursor if keyboard focus is unavailable |
 | Control Command 3 | Moves to the search; uses the review cursor if keyboard focus is unavailable |
+| Shift Tab | The previous control: the sidebar, the search field, then each control in the pane |
+| Tab | The next control: the sidebar, the search field, then each control in the pane |
 
 ## TV
 
