@@ -256,6 +256,15 @@ open class SelectableList: TurnOverObject {
            let sel = element.elements(kAXSelectedRowsAttribute).first, let i = sel.int(kAXIndexAttribute) {
             return top ? i == 0 : i == n - 1
         }
+        // A plain list (AXList: no rows, no index): only the child at that end fetched, not every child on every arrow
+        // (a review, 13 Nov 2026). Not a collection, whose items sit in section lists, nor a table's columns.
+        if !["AXOutline", "AXTable"].contains(element.role), axSubrole != "AXCollectionList",
+           AXUIElementGetAttributeValueCount(element, kAXChildrenAttribute as CFString, &n) == .success, n > 0,
+           let selected = element.elements(kAXSelectedChildrenAttribute).first {
+            var values: CFArray?
+            if AXUIElementCopyAttributeValues(element, kAXChildrenAttribute as CFString, top ? 0 : n - 1, 1, &values) == .success,
+               let end = (values as? [AXUIElement])?.first { return selected.isSame(end) }
+        }
         let (rows, key) = rowsAndKey
         guard let end = top ? rows.first : rows.last, let selected = element.elements(key).first else { return false }
         return selected.isSame(end)
@@ -268,10 +277,15 @@ open class SelectableList: TurnOverObject {
         // (The rows fetched only for a row TurnOver walked to: every Space in a list fetched them all, a review.)
         let walked = virtualRow.flatMap { i -> AXUIElement? in let rows = rowsAndKey.0; return rows.indices.contains(i) ? rows[i] : nil }
         guard let row = walked ?? element.elements(selectionKey).first else { return nil }
-        var queue = row.elements(kAXChildrenAttribute); var n = 0
-        while !queue.isEmpty, n < 20 { let e = queue.removeFirst(); n += 1; if e.role == "AXCheckBox" { return e }; queue.append(contentsOf: e.elements(kAXChildrenAttribute)) }
-        return nil
+        // Asked twice per Space (whether the command is available, then to press): the walk (up to forty calls) is
+        // kept for the row until the selection moves (a review, 13 Nov 2026).
+        if let c = checkBoxForRow, c.row.isSame(row), c.box.map({ $0.role != "?" }) ?? true { return c.box }
+        var queue = row.elements(kAXChildrenAttribute); var n = 0, found: AXUIElement?
+        while !queue.isEmpty, n < 20 { let e = queue.removeFirst(); n += 1; if e.role == "AXCheckBox" { found = e; break }; queue.append(contentsOf: e.elements(kAXChildrenAttribute)) }
+        checkBoxForRow = (row, found)
+        return found
     }
+    private var checkBoxForRow: (row: AXUIElement, box: AXUIElement?)?
 
     private func toggleRowCheckBox(_ g: KeyboardGesture) {
         guard let box = selectedRowCheckBox() else { g.send(); return }
