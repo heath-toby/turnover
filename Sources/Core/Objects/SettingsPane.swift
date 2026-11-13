@@ -635,8 +635,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
             expected = nil
             let trap = byTrap || inLoopWindow(target) || inTrapZone
             Log.io("settings: an iPad app; TurnOver's cursor moves, the app's focus is left alone")
-            holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true, ownTab: !trap && paneOwnsTab(target))
-            lock.lock(); _heldByTrap = trap && target.role != "AXWebArea" && !isInWeb(target); lock.unlock()   // a page keeps its own Tab (BT Cloud Work, 13 Nov 2026)
+            holdWithTabOwner(target, trap: trap)
             return
         }
         _ = target.set(kAXFocusedAttribute, kCFBooleanTrue)
@@ -696,10 +695,19 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 // In a window whose Tab is the trap's (TabLoop, NewDialogs), the settings panes' Tab must not take
                 // over from the held place: Shift Tab went to it and did nothing (11 Nov 2026).
                 let trap = byTrap || inLoopWindow(target) || inTrapZone
-                holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true, ownTab: !trap && paneOwnsTab(target))
-                lock.lock(); _heldByTrap = trap && target.role != "AXWebArea" && !isInWeb(target); lock.unlock()   // a page keeps its own Tab (BT Cloud Work, 13 Nov 2026)
+                holdWithTabOwner(target, trap: trap)
             }
         }
+    }
+
+    /// The place held, and whose Tab goes on from it: the settings panes' in a pane (paneOwnsTab), else the trap's,
+    /// which starts from the held place. A hold made outside the trap in an ordinary window (toolbarLeave, an iPad
+    /// app's) had neither once the panes' Tab was kept to panes, and the next Tab went to the app, from its own focus
+    /// elsewhere (a review, 13 Nov 2026). A page keeps its own Tab (BT Cloud Work, 13 Nov 2026).
+    private static func holdWithTabOwner(_ target: AXUIElement, trap: Bool) {
+        let pane = !trap && paneOwnsTab(target)
+        holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true, ownTab: pane)
+        lock.lock(); _heldByTrap = !pane && target.role != "AXWebArea" && !isInWeb(target); lock.unlock()
     }
 
     /// Whether the settings panes' own Tab (settings_next) belongs where `target` is held: a window with a tab bar of
