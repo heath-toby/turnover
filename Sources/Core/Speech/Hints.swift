@@ -39,7 +39,17 @@ public enum Hints {
         if obj.states.contains(.unavailable) { return "" }
         if let hint = obj.appModule.hint(for: obj) { return hint }
         if let own = ownWords(obj) { return own }
+        // A toolbar's item: how to get along it (toolbars are one Tab stop, 12 Nov 2026).
+        if SettingsPanePlugin.inToolbar, SettingsPanePlugin.lastToolbarItem.first.map({ obj.isSameElement(as: $0.item) }) == true {
+            let own = basic(obj)
+            return [own, String(localized: "Left and Right move along the toolbar.", comment: "A hint on a toolbar's item")].filter { !$0.isEmpty }.joined(separator: " ")
+        }
         if let b = NSRunningApplication(processIdentifier: obj.pid)?.bundleIdentifier, let h = forApp(b, obj) { return h }
+        return basic(obj)
+    }
+
+    /// The keys that work a control of its kind.
+    static func basic(_ obj: TurnOverObject) -> String {
         switch obj.role {
         case .button, .toggleButton: return String(localized: "Space presses it.", comment: "A hint, said after a pause on an item")
         case .switchControl: return String(localized: "Space turns it on or off.", comment: "A hint, said after a pause on an item")
