@@ -148,7 +148,11 @@ public final class BrowseModeDocument: ScriptableObject {
             }
             if let at = anchorOffset(frag) {
                 // Gone to and read already as the link was pressed (followSamePageLink), its address spelt otherwise.
-                if let m = samePageLinkMove, m.offset == at, Date().timeIntervalSince(m.at) < 5 { position = at; return false }
+                if let m = samePageLinkMove, m.offset == at, Date().timeIntervalSince(m.at) < 5 {
+                    // Already gone to as the link was pressed: the address catching up later must not put the reading
+                    // back there (Command Up between: T said "wrapped to the top", 13 Nov 2026).
+                    samePageLinkMove = nil; return false
+                }
                 position = at
                 Log.io("browse mode: to the page's anchor")
                 speakUnit(.line)
