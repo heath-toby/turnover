@@ -31,6 +31,12 @@ public enum SayAll {
     private static var sayAllRate: Float?
     private static var continuing = false
 
+    /// Whether say all is reading this browse mode document's copy (whose offsets a read of the page again changes).
+    public static func isReading(_ d: BrowseModeDocument) -> Bool {
+        guard let obj = reader?.obj as? WebArea else { return false }
+        return obj.document === d
+    }
+
     /// NVDA: readText with CURSOR.CARET.
     public static func readText(from obj: TurnOverObject) {
         guard let info = try? obj.makeTextInfo(.caret) else { stop(); Speech.speakMessage(String(localized: "no text", comment: "Spoken message")); return }

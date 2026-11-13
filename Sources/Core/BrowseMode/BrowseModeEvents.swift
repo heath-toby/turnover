@@ -19,7 +19,7 @@ extension BrowseModeDocument {
     public func handleEvent(_ event: Event, next: () -> Void) {
         switch event.kind {
         case .gainFocus:
-            let navigated = refreshIfNavigated()
+            let navigated = refreshIfNavigated(byKey: false)   // a new page is announced below
             // Back from outside the document (another app) onto the control that had the focus when it left: the reading
             // position and the mode stay as they were, and the line there is read (NVDA: entering from outside onto its
             // last focus object, browseMode.py, #3145). Command-Tab gives that control the focus again; followed, it took

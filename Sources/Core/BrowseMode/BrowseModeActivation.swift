@@ -92,8 +92,10 @@ extension BrowseModeDocument {
 
     /// A link to a place on this page (a contents link, "Jump to content"): the reading goes to its target now and
     /// reads it. Pressed with its address already the page's (the second "Jump to content"), no new address comes, so
-    /// refreshIfNavigated never moved and nothing happened (a review, 13 Nov 2026). The address it leads to is taken as
-    /// this page's, so its arrival doesn't move and read again.
+    /// refreshIfNavigated never moved and nothing happened (a review, 13 Nov 2026). Its address is not taken as the
+    /// page's ahead of time: a link the page's script answers never changes the address, and the next look took the
+    /// unchanged one for a new page, back to the top and announced (a review, 13 Nov 2026). The move noted here keeps
+    /// the address's arrival, if it comes, from moving and reading again.
     func followSamePageLink(_ e: AXUIElement) {
         var x: AXUIElement? = e, hops = 0, link: String?
         while let y = x, hops < 4, link == nil {
@@ -102,8 +104,6 @@ extension BrowseModeDocument {
             x = y.element(kAXParentAttribute); hops += 1
         }
         guard let link, let frag = Self.samePageFragment(link: link, page: url), let at = anchorOffset(frag) else { return }
-        lastURL = link
-        if Self.urlBase(announcedURL) == Self.urlBase(link) { announcedURL = link }
         samePageLinkMove = (at, Date())
         position = at
         Log.io("browse mode: a link to this page's anchor; to it")
