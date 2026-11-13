@@ -375,7 +375,9 @@ public enum Speech {
         // Any focus Tab just reached says at least what it is (Compressor's viewer, a nameless group with things in
         // it: the sound and nothing else, 13 Nov 2026). Only after Tab: an app passes its focus through such groups
         // on its own.
-        if reason == .focus, words.isEmpty, ["kb:tab", "kb:shift+tab"].contains(InputManager.lastKeyIdentifier),
+        // (Not a radio group: its buttons take the focus, and AppKit passes it through the group on the way, 3 ms, so
+        // "radio group" was said between two controls in TextEdit's Settings, 13 Nov 2026.)
+        if reason == .focus, words.isEmpty, obj.element.role != "AXRadioGroup", ["kb:tab", "kb:shift+tab"].contains(InputManager.lastKeyIdentifier),
            Date().timeIntervalSince(InputManager.lastKeyDownAt) < 1 {
             words = obj.element.string(kAXRoleDescriptionAttribute) ?? obj.role.displayString
         }
