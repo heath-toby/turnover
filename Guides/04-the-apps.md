@@ -5,12 +5,17 @@ What TurnOver adds in each app it reads. To give an app to TurnOver or back to V
 ## Mail
 
 Up and Down move through the messages; Home and End go to the first and last. The message is read as a document.
-Tab goes from the list to the message, Shift Tab to the mailboxes. Command Shift D sends, and TurnOver says "sent".
+Tab goes from the list to the message, Shift Tab to the mailboxes. Delete, Archive (Control Command A), Junk (Shift
+Command J) and Flag (Shift Command L) read the message selected afterwards. Return in the search field searches and
+says how many messages were found. Command Shift D sends, and TurnOver says "sent".
+
+Writing an address in To, Cc or Bcc: when Mail suggests addresses, the highlighted one is read once you pause; Up and
+Down move through the suggestions; Tab or Return takes one, and the name added is read; Escape closes them.
 
 ## Messages and WhatsApp
 
 The keyboard stays in the message box. Shift Tab goes up to the messages, newest first; Up and Down move; the
-shortcut menu (VO Shift M) lists a message's actions; Escape goes back to the box. **Command Control 1 to 9** read the
+shortcut menu (VO Shift M) lists a message's actions; Escape goes back to the box. **TurnOver Command 1 to 9** read the
 latest messages from anywhere, 1 the newest. New messages are read as they arrive.
 
 ## Music, Podcasts and TV
