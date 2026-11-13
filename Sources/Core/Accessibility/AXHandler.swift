@@ -38,6 +38,8 @@ public final class AXHandler {
     var lastGainFocus: (AXUIElement, Date)?
     var lastWebAreaFocus = Date.distantPast
     var webAreaFocusSkipped = 0
+    /// A check after a burst of web-area focus news is waiting (main thread): one per burst.
+    var webAreaTrailing = false
     var running = false
 
     static let notifications = [

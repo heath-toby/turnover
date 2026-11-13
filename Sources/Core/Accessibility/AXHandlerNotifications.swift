@@ -47,7 +47,24 @@ extension AXHandler {
         switch name {
         case kAXFocusedUIElementChangedNotification:
             if API.focusTreeInterceptor != nil, element.role == "AXWebArea" {
-                if Date().timeIntervalSince(lastWebAreaFocus) < 0.2 { webAreaFocusSkipped += 1; return }
+                if Date().timeIntervalSince(lastWebAreaFocus) < 0.2 {
+                    webAreaFocusSkipped += 1
+                    // The last of a burst can be the one that matters: Control Tab twice in Safari left TurnOver on the
+                    // first tab's page, the second's news set aside with nothing after it (a review, 13 Nov 2026). Once
+                    // the burst has settled, the app's focused page is read if it is not the one TurnOver has.
+                    if !webAreaTrailing {
+                        webAreaTrailing = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                            guard let self else { return }
+                            self.webAreaTrailing = false
+                            guard pid == self.activePid, let f = AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute),
+                                  f.role == "AXWebArea", !(API.focusTreeInterceptor?.webArea.isSame(f) ?? false) else { return }
+                            Log.io("web area focus: the last of a burst was set aside; the app's page read again")
+                            self.refocus(pid: pid)
+                        }
+                    }
+                    return
+                }
                 if webAreaFocusSkipped > 0 { Log.io("skipped \(webAreaFocusSkipped) web area focus events in a burst"); webAreaFocusSkipped = 0 }
                 lastWebAreaFocus = Date()
             }
