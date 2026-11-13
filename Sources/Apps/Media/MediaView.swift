@@ -1146,6 +1146,7 @@ public final class MediaView {
         guard rebuildOrQueue(waitForLoading: true, retry: { [weak self] in self?.jumpShelf(delta) }) else { return }
         navigationIntent &+= 1
         if pane != .page { move(delta * 5); return }
+        catalogDrives = false   // the page's own shelves now: Up and Down follow them, not the suggestions
         let flat = flatPage
         guard !flat.isEmpty else { return }
         let cur = max(0, min(flat.count - 1, index[.page] ?? 0))
@@ -1235,6 +1236,9 @@ public final class MediaView {
             if !items(of: Pane(rawValue: p)!).isEmpty { break }
         }
         pane = Pane(rawValue: p)!
+        // Into the page by Tab: its shelves have the arrows, not the search's list of suggestions (a tester, 13 Nov
+        // 2026: Down after Tab to the results went through the suggestions until Command Tab out and back).
+        if pane == .page { catalogDrives = false }
         if pane == .sidebar, index[.sidebar] == nil, let sel = sidebar.firstIndex(where: { $0.selected }) { index[.sidebar] = sel }
         if index[pane] == nil { index[pane] = 0 }
         let name: String
