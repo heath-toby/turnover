@@ -53,16 +53,22 @@ package enum DesktopNavigator {
         // A key since the navigator's last that wasn't the navigator's (typing in the app in front, Command-Tab
         // within it, a click's keys): the user is back in the app, and Space and Return there opened a desktop item
         // instead (a review, 13 Nov 2026). The key being asked about now is the one after the navigator's last.
-        if !keysOnlyOwn(arrived: ScriptHandler.keysArrivedCount, own: ownKeys) {
+        // TurnOver's own commands (TO or VO chords) in between don't count: they never reach the app, and ending
+        // desktop mode on them sent the next arrow, Return or Space to Finder's desktop (a review, 13 Nov 2026).
+        if !keysOnlyOwn(arrived: ScriptHandler.keysArrivedCount, own: ownKeys,
+                        readerKeys: ScriptHandler.turnOverScriptsRun &- ownReaderKeys) {
             active = false; lines = nil; Log.io("desktop: another key in between; left"); return false
         }
         return true
     }
     /// The count of keys that had arrived when the navigator (or Option D) last took one.
     private static var ownKeys = 0
-    static func ownKey() { ownKeys = ScriptHandler.keysArrivedCount }
-    /// No key between the navigator's last and the one being asked about (pure, for the tests).
-    package nonisolated static func keysOnlyOwn(arrived: Int, own: Int) -> Bool { arrived &- own <= 1 }
+    /// The count of TurnOver-key commands run then.
+    private static var ownReaderKeys = 0
+    static func ownKey() { ownKeys = ScriptHandler.keysArrivedCount; ownReaderKeys = ScriptHandler.turnOverScriptsRun }
+    /// No key between the navigator's last and the one being asked about but TurnOver's own commands (`readerKeys`
+    /// of them run since): pure, for the tests.
+    package nonisolated static func keysOnlyOwn(arrived: Int, own: Int, readerKeys: Int = 0) -> Bool { arrived &- own &- readerKeys <= 1 }
     private static var current: AXUIElement?
     /// Inside a widget: its lines and where TurnOver is among them.
     private static var lines: [Line]?

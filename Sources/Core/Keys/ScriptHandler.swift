@@ -18,6 +18,11 @@ public enum ScriptHandler {
     private static var lastScript: Script?
     private static var lastScriptTime = Date.distantPast
     private static var lastScriptCount = 0
+    /// Commands run from TurnOver-key chords (TO or VO with a key): such a key is the reader's, never the app's. A
+    /// mode that ends when the user goes back to the app's own keys tells the two apart by it (DesktopNavigator: a
+    /// TO command in between ended desktop mode, and the arrows, Return and Space then went to Finder's desktop; a
+    /// review, 13 Nov 2026). Main thread.
+    public private(set) static var turnOverScriptsRun = 0
 
     /// Find the script for a gesture (NVDA: findScript). Any thread.
     public static func findScript(for gesture: KeyboardGesture, styleTable: Bool = true) -> Script? {
@@ -203,6 +208,7 @@ public enum ScriptHandler {
         BrailleInput.flushForKey()   // a word half typed on the display goes in before any command runs
         if _running, lastScript === script { gesture.send(); return }
         _running = true
+        if gesture.modifiers.contains(.turnover) { turnOverScriptsRun &+= 1 }
         let now = Date()
         if now.timeIntervalSince(lastScriptTime) * 1000 <= Double(config.keyboard.multiPressTimeoutMs), lastScript === script { lastScriptCount += 1 } else { lastScriptCount = 0 }
         lastScript = script

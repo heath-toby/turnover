@@ -1648,6 +1648,8 @@ func browseTextNavTests() {
         check(DesktopNavigator.keysOnlyOwn(arrived: 5, own: 4), "the next key after the navigator's is asked about")
         check(DesktopNavigator.keysOnlyOwn(arrived: 4, own: 4), "the same key asked again")
         check(!DesktopNavigator.keysOnlyOwn(arrived: 6, own: 4), "a key typed in the app in between")
+        check(DesktopNavigator.keysOnlyOwn(arrived: 7, own: 4, readerKeys: 2), "TurnOver commands in between keep it")
+        check(!DesktopNavigator.keysOnlyOwn(arrived: 8, own: 4, readerKeys: 2), "a TurnOver command and an app key in between")
     }
     test("media: what plays, from the player's items") {
         let e = AXUIElementCreateApplication(1)
