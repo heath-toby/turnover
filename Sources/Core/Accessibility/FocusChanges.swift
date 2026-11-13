@@ -53,6 +53,7 @@ extension AXHandler {
         ("nameless container", ruleNamelessContainer),
         ("menu gap", ruleMenuGap),
         ("menu open", ruleMenuOpen),
+        ("the application itself after a menu", ruleApplicationKeepsPlace),
         ("window while a control has the keys", ruleWindowWhileControlHasKeys),
         ("window already presented", ruleWindowAlreadyPresented),
         ("owned by another process", ruleOwnedByAnotherProcess),
@@ -580,6 +581,24 @@ extension AXHandler {
             }
             Log.io("focus to \(target.role) while a menu is open in its application; ignored")
             return .ignore
+        }
+        return .go(target)
+    }
+
+    /// The application itself reported as the focus (Mail, a shortcut menu closed with Escape over a message's audio
+    /// attachment): nothing in a window had it, "Mail" was said twice, and every Tab after found no window and went
+    /// nowhere (a tester, 13 Nov 2026). The control TurnOver was on keeps the place if it is still there, and the app
+    /// is given it back; otherwise the app's focused window.
+    func ruleApplicationKeepsPlace(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
+        guard target.role == "AXApplication" else { return .go(target) }
+        if let f = API.focusObject, f.pid == pid, f.element.role != "?", f.element.role != "AXApplication", f.element.element(kAXWindowAttribute) != nil {
+            Log.io("focus on the application itself; \(f.axRole) keeps the place")
+            if f.element.role != "AXWebArea", !SettingsPanePlugin.isInWeb(f.element) { _ = f.element.set(kAXFocusedAttribute, kCFBooleanTrue) }
+            return .ignore
+        }
+        if let w = target.element(kAXFocusedWindowAttribute) ?? target.element(kAXMainWindowAttribute) {
+            Log.io("focus on the application itself; to its window")
+            return .follow(w)
         }
         return .go(target)
     }

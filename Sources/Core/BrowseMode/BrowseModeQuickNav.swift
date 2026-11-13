@@ -204,8 +204,18 @@ extension BrowseModeDocument {
         guard position != positionAtFocus || safari else { return false }
         let roles: Set<String> = ["AXLink", "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXComboBox", "AXSlider", "AXMenuButton", "AXDisclosureTriangle"]
         var from = position
+        // Mail's message: the reading position only. Its audio attachments' Play buttons and sliders, given the focus,
+        // sent it elsewhere (the slider's, then the Delete button's, and Shift Tab landed in the header, a tester,
+        // 13 Nov 2026); Space and Return press what the reading is on.
+        let positionOnly = bundle == "com.apple.mail"
         for _ in 0..<30 {
             guard let (at, el) = buffer.find(from: from, forward: forward, roles: roles) else { return false }
+            if positionOnly {
+                Log.io("browse mode: Tab to \(el.role) at \(at); the reading position goes there")
+                position = at
+                speakUnit(.line)
+                return true
+            }
             // A link's text is found by its words: the link itself is a parent.
             var x: AXUIElement? = el; var hops = 0
             while let y = x, hops < 5 {
