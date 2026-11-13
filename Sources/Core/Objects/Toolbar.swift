@@ -237,6 +237,8 @@ extension SettingsPanePlugin {
             guard let (tb, _) = toolbar(of: window), let items = toolbarItems(around: tb)?.items,
                   let stop = toolbarStop(tb, items), let t = all.firstIndex(where: { $0.isSame(stop) }),
                   let a = place(before, in: all), let b = place(after, in: all) else { Log.io("toolbar: Tab's way round not placed"); return }
+            // Within one stop (Calendar's events inside its grid, 13 Nov 2026) nothing was passed over.
+            guard a != b else { return }
             // The places passed over on the way, going round as Tab does.
             let n = all.count
             var k = a, passed = false

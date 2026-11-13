@@ -86,7 +86,8 @@ open class Dialog: TurnOverObject {
                 // Not a collection of items (the Apps launcher's icons, each with its name: every app was read as the
                 // dialog's message, 13 Nov 2026): more than ten children, most of them not text.
                 let kids = e.elements(kAXChildrenAttribute)
-                if kids.count > 10, kids.filter({ $0.role == "AXStaticText" }).count * 2 < kids.count { continue }
+                // (Items: buttons, cells, pictures. Groups that each hold a line of text are still the message.)
+                if kids.count > 10, kids.filter({ ["AXButton", "AXCell", "AXImage", "AXCheckBox", "AXRadioButton", "AXLink", "AXMenuButton"].contains($0.role) }).count * 2 > kids.count { continue }
                 queue.append(contentsOf: kids)
             } else if let l = e.element(kAXTitleUIElementAttribute)?.string(kAXValueAttribute) { labels.insert(l.trimmingCharacters(in: .whitespacesAndNewlines)) }
         }

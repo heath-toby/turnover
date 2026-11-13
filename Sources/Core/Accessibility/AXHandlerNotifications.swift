@@ -27,8 +27,11 @@ extension AXHandler {
             kAXFocusedWindowChangedNotification, kAXMenuOpenedNotification, kAXSheetCreatedNotification].contains(name) {
             lastMoveNewsAt[element.pid] = Date()
         }
+        // (A view switched with no controls created says so by its title or a selection: those count too, a review.)
         if [kAXCreatedNotification, kAXLayoutChangedNotification, kAXRowCountChangedNotification, kAXWindowCreatedNotification,
-            kAXSheetCreatedNotification, kAXUIElementDestroyedNotification].contains(name) {
+            kAXSheetCreatedNotification, kAXTitleChangedNotification, kAXSelectedChildrenChangedNotification, kAXSelectedRowsChangedNotification,
+            kAXFocusedWindowChangedNotification].contains(name)
+            || name == kAXValueChangedNotification as String && ["AXTabGroup", "AXRadioGroup", "AXRadioButton"].contains(element.role) {
             lastStructureAt[element.pid] = Date()
         }
         guard running else { return }

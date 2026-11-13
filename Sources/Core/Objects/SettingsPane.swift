@@ -173,7 +173,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // The list kept from a moment ago can name controls the app has since thrown away: TurnOver Settings rebuilds
         // its pane on a new section, and Tab from the sidebar went to a dead check box, held it, and was silent from
         // then on (21 Oct 2026). Walk the window again.
-        if all[n].role == "?" {
+        if all[n].role == "?" || (TurnOverObject.frame(all[n]).map { $0.width <= 0 || $0.height <= 0 } ?? true) || all[n].element(kAXParentAttribute) == nil {
             all = Self.controls(in: window, toolbars: true, unfocusable: true); Self.trapList = (window, all, Date())
             guard let j = all.firstIndex(where: { $0.isSame(current) }), !all.isEmpty else { g.send(); return }
             i = j; n = ((forward ? i + 1 : i - 1) + all.count) % all.count
@@ -448,7 +448,11 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 if let v = virtual, !v.isSame(target) { virtual = nil; lock.lock(); _holding = false; lock.unlock() }
                 // A page's own focus inside it is browse mode's to read. A control's (Surfshark's buttons put theirs on
                 // a nameless part inside, and nothing was said, 13 Nov 2026) is read as the control.
-                if let f = API.focusObject?.element, f.isSame(target) || target.role == "AXWebArea" && (within(f, target) || f.isSame(now) || holdsPage(f, target)) { return }
+                // Not when the app's news already put TurnOver there or inside (a list's row): read once, not twice
+                // (a review, 13 Nov 2026).
+                // (Surfshark's inner part is nameless and said nothing: then the control is read after all.)
+                if let f = API.focusObject?.element, f.isSame(target) || holdsPage(f, target)
+                    || (f.isSame(now) || within(f, target)) && !ObjectFactory.make(f).name.isEmpty { return }
                 Log.io("settings: the app took the focus inside the \(target.role) without saying; read")
                 virtual = nil; lock.lock(); _holding = false; lock.unlock()
                 let obj = ObjectFactory.make(target)
@@ -660,7 +664,11 @@ public final class SettingsPanePlugin: GlobalPlugin {
         while let x = p, hops < 25 { let r = x.role; if r == "AXSheet" || r == "AXPopover" { return x }; if r == "AXWindow" { return x }; p = x.element(kAXParentAttribute); hops += 1 }
         // Or the app's own front window, for a control that names neither (iMazing's sidebar: Tab there gave up in
         // silence, 13 Nov 2026).
-        return windowOf(e) ?? AXUIElementCreateApplication(e.pid).element(kAXFocusedWindowAttribute)
+        if let w = windowOf(e) { return w }
+        // Only a window the control sits inside on screen: another window's Tab is no place to jump to (a review).
+        guard let w = AXUIElementCreateApplication(e.pid).element(kAXFocusedWindowAttribute), let wf = TurnOverObject.frame(w),
+              let f = TurnOverObject.frame(e), f.width > 0, wf.insetBy(dx: -2, dy: -2).contains(f) else { return nil }
+        return w
     }
 
     public static func windowOf(_ e: AXUIElement) -> AXUIElement? {
@@ -842,7 +850,8 @@ public final class SettingsPanePlugin: GlobalPlugin {
             // Or a grid of buttons, five or more rows of five or more, every row as long (Chess's board: 64 squares,
             // a Tab each, 13 Nov 2026): one stop, all four arrows across it. Calculator's twenty keys stay keys.
             var gridCols = 0
-            if !(column && wide && stacked), !sideways, !picture { gridCols = gridColumns(of: members.map { $0.1 }) }
+            // (One kind of control, and not a collection that scrolls: its rows go on past the window, a review.)
+            if !(column && wide && stacked), !sideways, !picture, Set(members.map { $0.0.role }).count == 1, !scrolls(c) { gridCols = gridColumns(of: members.map { $0.1 }) }
             guard (column && wide && stacked) || sideways || picture || gridCols > 0 else { continue }
             if gridCols > 0 {
                 gridLists.removeAll { CFEqual($0.container, c) }

@@ -41,7 +41,7 @@ public enum Hints {
         if let own = ownWords(obj) { return own }
         // A toolbar's item: how to get along it (toolbars are one Tab stop, 12 Nov 2026).
         if SettingsPanePlugin.inToolbar, SettingsPanePlugin.lastToolbarItem.first.map({ obj.isSameElement(as: $0.item) }) == true {
-            let own = basic(obj)
+            let own = NSRunningApplication(processIdentifier: obj.pid)?.bundleIdentifier.flatMap { forApp($0, obj) } ?? basic(obj)
             return [own, String(localized: "Left and Right move along the toolbar.", comment: "A hint on a toolbar's item")].filter { !$0.isEmpty }.joined(separator: " ")
         }
         if let b = NSRunningApplication(processIdentifier: obj.pid)?.bundleIdentifier, let h = forApp(b, obj) { return h }
