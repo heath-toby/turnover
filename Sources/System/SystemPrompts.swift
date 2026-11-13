@@ -111,7 +111,11 @@ public final class SystemPrompts {
             // The agent TurnOver brought forward for the prompt stays the active application when its window goes:
             // "focus back to CoreLocationAgent", a window gone and nothing to read until Command Tab (a tester, after
             // allowing News the location, 12 Nov 2026). The application that was in front before comes back.
-            if let b = front.bundleIdentifier, Self.agents.contains(b), let back = returnTo, !back.isTerminated {
+            // Nothing kept when the prompt already had the keys as TurnOver started (a restart while News asked for
+            // the location: "focus back to CoreLocationAgent" again, 13 Nov 2026): the application whose window is
+            // frontmost behind it.
+            if let b = front.bundleIdentifier, Self.agents.contains(b),
+               let back = (returnTo.flatMap { $0.isTerminated ? nil : $0 }) ?? Self.appBehind() {
                 Log.io("system prompt closed; focus back to \(back.localizedName ?? "?"), in front before it")
                 back.activate()
                 let pid = back.processIdentifier
@@ -134,6 +138,18 @@ public final class SystemPrompts {
             }
             announce(w, pid: pid, fromTimer: true)
         }
+    }
+
+    /// The ordinary application with the frontmost window on screen, the prompts' agents left out.
+    static func appBehind() -> NSRunningApplication? {
+        guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
+        for w in info where (w[kCGWindowLayer as String] as? Int) == 0 {
+            guard let pid = w[kCGWindowOwnerPID as String] as? pid_t, pid != getpid(),
+                  let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular,
+                  !agents.contains(app.bundleIdentifier ?? "") else { continue }
+            return app
+        }
+        return nil
     }
 
     /// The agent came to the front: read its window now (the regular look comes every half second, after the focus

@@ -610,6 +610,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
     private func pressHeld(_ g: KeyboardGesture) {
         guard let v = Self.virtual, API.focusObject?.isSameElement(as: v) == true,
               v.pid == NSWorkspace.shared.frontmostApplication?.processIdentifier else { g.send(); return }
+        if RowControl.pressToggle(in: v) { return }
         let window = Self.windowOf(v), titleBefore = window?.string(kAXTitleAttribute)
         let r = AXUIElementPerformAction(v, kAXPressAction as CFString)
         Log.io("settings: pressed the held \(v.role) → \(describeError(r))")

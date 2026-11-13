@@ -1432,6 +1432,8 @@ public final class ObjectNavigator {
             }
         } else if actions.contains("AXConfirm") {
             _ = AXUIElementPerformAction(e, kAXConfirmAction as CFString)
+        } else if RowControl.pressToggle(in: e) {
+            // A row with its one switch inside (System Settings' privacy lists): the switch is pressed.
         } else {
             moveFocusHere()
         }
