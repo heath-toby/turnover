@@ -815,6 +815,42 @@ public final class ScreenRecognition {
 // MARK: The mouse
 
 public enum Mouse {
+    /// Clicks the middle of `target` only where it really is on screen: brought into view, its frame read again after
+    /// that, and the system's hit test at the point naming the target, something inside it, or a near parent (a
+    /// widget's text line answers the hit test with its group). Otherwise no click, and false. Clicks at a frame
+    /// read before scrolling, or under another window, landed on whatever was there (a review, 13 Nov 2026).
+    @discardableResult
+    public static func clickIfOver(_ target: AXUIElement) -> Bool {
+        _ = AXUIElementPerformAction(target, "AXScrollToVisible" as CFString)
+        guard let f = TurnOverObject.frame(target), f.width > 0, f.height > 0 else {
+            Log.io("mouse: no frame to click on; not clicking"); return false
+        }
+        let p = CGPoint(x: f.midX, y: f.midY)
+        guard pointHits(p, target) else { Log.io("mouse: something else is under the click point; not clicking"); return false }
+        click(at: p, button: .left, count: 1)
+        return true
+    }
+
+    /// The topmost element at `p` is `target`, inside it, or one of its three nearest ancestors.
+    public static func pointHits(_ p: CGPoint, _ target: AXUIElement) -> Bool {
+        let sys = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(sys, 0.5)
+        var hit: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(sys, Float(p.x), Float(p.y), &hit) == .success, let hit else { return false }
+        var x: AXUIElement? = hit, hops = 0
+        while let y = x, hops < 12 {
+            if CFEqual(y, target) { return true }
+            x = y.element(kAXParentAttribute); hops += 1
+        }
+        var up = target.element(kAXParentAttribute); hops = 0
+        while let y = up, hops < 3 {
+            if ["AXWindow", "AXApplication"].contains(y.role) { break }
+            if CFEqual(y, hit) { return true }
+            up = y.element(kAXParentAttribute); hops += 1
+        }
+        return false
+    }
+
     public static func move(to p: CGPoint) {
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .left)?.post(tap: .cghidEventTap)
     }

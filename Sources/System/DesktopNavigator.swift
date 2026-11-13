@@ -30,12 +30,12 @@ final class DesktopNavigatorPlugin: GlobalPlugin {
             ("desktop_out", String(localized: "On the desktop: out of the widget; at the desktop, back to the application", comment: "A command, as the key list and keyboard help say it"), ["escape"], { DesktopNavigator.out() }),
         ]
         for (name, desc, gestures, run) in keys {
-            script(name, desc, gestures: gestures.map { "kb:" + $0 }, category: cat) { _ in run() }.isAvailable = { DesktopNavigator.stillActive }
+            script(name, desc, gestures: gestures.map { "kb:" + $0 }, category: cat) { _ in DesktopNavigator.ownKey(); run() }.isAvailable = { DesktopNavigator.stillActive }
         }
     }
 }
 
-enum DesktopNavigator {
+package enum DesktopNavigator {
     enum Direction { case left, right, up, down }
     struct Item { let element: AXUIElement; let frame: CGRect; let name: String; let isWidget: Bool }
     struct Line { let element: AXUIElement; let words: String; let heading: Bool }
@@ -50,8 +50,19 @@ enum DesktopNavigator {
         if let p = enteredOver, NSWorkspace.shared.frontmostApplication?.processIdentifier != p {
             active = false; lines = nil; Log.io("desktop: another app in front; left"); return false
         }
+        // A key since the navigator's last that wasn't the navigator's (typing in the app in front, Command-Tab
+        // within it, a click's keys): the user is back in the app, and Space and Return there opened a desktop item
+        // instead (a review, 13 Nov 2026). The key being asked about now is the one after the navigator's last.
+        if !keysOnlyOwn(arrived: ScriptHandler.keysArrivedCount, own: ownKeys) {
+            active = false; lines = nil; Log.io("desktop: another key in between; left"); return false
+        }
         return true
     }
+    /// The count of keys that had arrived when the navigator (or Option D) last took one.
+    private static var ownKeys = 0
+    static func ownKey() { ownKeys = ScriptHandler.keysArrivedCount }
+    /// No key between the navigator's last and the one being asked about (pure, for the tests).
+    package nonisolated static func keysOnlyOwn(arrived: Int, own: Int) -> Bool { arrived &- own <= 1 }
     private static var current: AXUIElement?
     /// Inside a widget: its lines and where TurnOver is among them.
     private static var lines: [Line]?
@@ -96,6 +107,7 @@ enum DesktopNavigator {
         let all = items()
         guard !all.isEmpty else { Speech.speakMessage(String(localized: "Desktop, empty", comment: "Spoken message")); return }
         active = true; lines = nil
+        ownKey()
         enteredOver = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let i = current.flatMap { c in all.firstIndex { $0.element.isSame(c) } } ?? 0
         Log.io("desktop: in, \(all.count) items")
@@ -219,10 +231,10 @@ enum DesktopNavigator {
             }
             x = y.element(kAXParentAttribute); hops += 1
         }
-        guard let f = TurnOverObject.frame(e), f.width > 0, f.height > 0 else { return false }
+        // Only where the line really is (Mouse.clickIfOver: a window over the widget took the click, a review, 13 Nov 2026).
+        guard Mouse.clickIfOver(e) else { Log.io("widget: the line isn't under its frame; not clicked"); return false }
         Log.io("widget: clicked a line (\(e.role))")
         Tones.press()
-        Mouse.click(at: CGPoint(x: f.midX, y: f.midY), button: .left, count: 1)
         return true
     }
 

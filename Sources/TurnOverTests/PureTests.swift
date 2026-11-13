@@ -1586,4 +1586,37 @@ func browseTextNavTests() {
         check(!AXHandler.isSettingsExtension("com.apple.TextInputUI.xpc.CursorUIViewService", front: ss), "other services stay ignored")
         check(!AXHandler.isSettingsExtension("com.example.settings.extension", front: ss), "not Apple's")
     }
+    test("notification centre: the place is the cursor's item, else the remembered place, not the first with its words") {
+        let names = ["Notification Centre", "Messages", "Mail"]
+        let words = [["Clear All"], ["Messages, Hi", "Messages, Hi", "Messages, Bye"], ["Mail, News"]]
+        func place(hit: (Int, Int)? = nil, group: String?, index: Int?, words w: String?) -> [Int] {
+            let r = NotificationCentreNavigator.resolvePlace(groupNames: names, itemWords: words, hit: hit, group: group, index: index, words: w,
+                                                            defaultGroup: 1, firstNotifications: [0, 0, 0])
+            return [r.0, r.1]
+        }
+        expect(place(hit: (2, 0), group: "Messages", index: 1, words: "Messages, Hi"), [2, 0], "the cursor moved by Tab wins over the arrows' place")
+        expect(place(group: "Messages", index: 1, words: "Messages, Hi"), [1, 1], "the second of two alike stays the second")
+        expect(place(group: "Messages", index: 2, words: "Messages, Hi"), [1, 1], "moved up: the same words nearest the place")
+        expect(place(group: "Messages", index: 1, words: nil), [1, 1], "closed: what moved into its place")
+        expect(place(group: "Messages", index: 7, words: nil), [1, 2], "closed at the end: the last")
+        expect(place(group: "Gone", index: 1, words: "x"), [1, 0], "the app gone: the default app's first")
+        expect(place(hit: (5, 0), group: nil, index: nil, words: nil), [1, 0], "a hit outside the groups is ignored")
+    }
+    test("desktop: another key between the navigator's ends desktop mode") {
+        check(DesktopNavigator.keysOnlyOwn(arrived: 5, own: 4), "the next key after the navigator's is asked about")
+        check(DesktopNavigator.keysOnlyOwn(arrived: 4, own: 4), "the same key asked again")
+        check(!DesktopNavigator.keysOnlyOwn(arrived: 6, own: 4), "a key typed in the app in between")
+    }
+    test("media: what plays, from the player's items") {
+        let e = AXUIElementCreateApplication(1)
+        expect(MediaView.playingText(of: [MediaView.Item(label: "Song, Artist", element: e)]), "Song, Artist", "the information area")
+        expect(MediaView.playingText(of: [MediaView.Item(label: "Nothing playing", element: e)]), "", "nothing playing is nothing")
+        expect(MediaView.playingText(of: []), "", "no player")
+    }
+    test("system settings: Tab's round is kept a second, until the structure changes") {
+        check(SystemSettingsPaneFocus.keepRing(age: 0.3, observed: true, structureSince: false), "kept")
+        check(!SystemSettingsPaneFocus.keepRing(age: 1.2, observed: true, structureSince: false), "too old")
+        check(!SystemSettingsPaneFocus.keepRing(age: 0.3, observed: true, structureSince: true), "the pane changed")
+        check(!SystemSettingsPaneFocus.keepRing(age: 0.3, observed: false, structureSince: false), "news not watched")
+    }
 }

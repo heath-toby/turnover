@@ -43,7 +43,7 @@ final class NotificationCentreNavigatorPlugin: GlobalPlugin {
     }
 }
 
-enum NotificationCentreNavigator {
+package enum NotificationCentreNavigator {
     enum Kind { case notification, stack, button, widget }
     struct Item { let element: AXUIElement; let kind: Kind; let words: String }
     struct Group { let name: String; var items: [Item]; var collapsed: Bool }
@@ -52,6 +52,9 @@ enum NotificationCentreNavigator {
     /// panel changes as notifications come and go) finds them again.
     private static var groupName: String?
     private static var itemWords: String?
+    /// The item's place in its app, so one of two notifications with the same words is told apart (both used to
+    /// resolve to the first, and Down stuck there: a review, 13 Nov 2026), and a closed one's neighbour is next.
+    private static var itemIndex: Int?
     /// Inside a widget (Return or Space on it): its lines, read with Up and Down, as on the desktop; Return or Space
     /// opens its app at the line, Escape comes back out (a tester, 13 Nov 2026).
     private static var widget: (name: String, lines: [DesktopNavigator.Line], index: Int)?
@@ -103,8 +106,29 @@ enum NotificationCentreNavigator {
     /// (a tester, 13 Nov 2026: "pushing Dismiss does nothing").
     static var active: Bool {
         guard NotificationCentrePanel.isOpen, !AXHandler.shared.isMenuOpen else { return false }
-        return ObjectNavigator.shared.reviewElement?.pid == NotificationCentrePanel.centrePid()
-            || API.focusObject?.pid == NotificationCentrePanel.centrePid()
+        guard ObjectNavigator.shared.reviewElement?.pid == NotificationCentrePanel.centrePid()
+            || API.focusObject?.pid == NotificationCentrePanel.centrePid() else { return false }
+        return listShowing()
+    }
+
+    /// The list is on a screen with a size: the open flag is set by foreground news, and a closing that was missed left
+    /// the arrows, Return, Space and Delete taken in every app (a review, 13 Nov 2026). The list stays in the tree when
+    /// the panel is closed (NotificationCentrePanel.list), so its frame is what's asked. Kept half a second: this is
+    /// asked for every key (only a yes is kept: a panel still opening is asked again).
+    private static var shownCheck: (at: Date, shown: Bool)?
+    private static func listShowing() -> Bool {
+        if let c = shownCheck, c.shown, Date().timeIntervalSince(c.at) < 0.5 { return true }
+        let shown = NotificationCentrePanel.list().flatMap { TurnOverObject.frame($0) }.map(Self.onScreen) ?? false
+        if !shown { Log.io("notification centre: the open flag is set but the list isn't on screen; keys left to the app") }
+        shownCheck = (Date(), shown)
+        return shown
+    }
+    private static func onScreen(_ r: CGRect) -> Bool {
+        guard r.width >= 1, r.height >= 1 else { return false }
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        var n: UInt32 = 0
+        guard CGGetActiveDisplayList(16, &ids, &n) == .success, n > 0 else { return true }   // (displays unknown: as before)
+        return ids.prefix(Int(n)).contains { CGDisplayBounds($0).intersects(r) }
     }
 
     /// The panel as groups: its own buttons, each app's notifications (an opened app's own buttons, Show Less and
@@ -177,20 +201,56 @@ enum NotificationCentreNavigator {
         return out.joined(separator: ", ")
     }
 
-    /// Where TurnOver is in the groups now: by the remembered names, else the first notification's app.
-    private static func place(in gs: [Group]) -> (Int, Int) {
-        let g = groupName.flatMap { n in gs.firstIndex { $0.name == n } } ?? min(gs.count - 1, gs.count > 1 && gs[0].items.first?.kind == .button ? 1 : 0)
-        let i = itemWords.flatMap { w in gs[g].items.firstIndex { $0.words == w } } ?? firstNotification(gs[g])
-        return (g, i)
+    /// Where TurnOver is in the groups now: the item TurnOver's review cursor or the focus is on (Tab and object
+    /// navigation move them, not the remembered place: Delete closed, and Command-Delete cleared, the app last arrowed
+    /// to, a review, 13 Nov 2026), else the remembered app and place, else the first notification's app.
+    private static func place(in gs: [Group], useCursor: Bool = true) -> (Int, Int) {
+        var hit: (Int, Int)?
+        if useCursor {
+            let centre = NotificationCentrePanel.centrePid()
+            let candidates = [ObjectNavigator.shared.reviewElement, API.focusObject?.element].compactMap { $0 }.filter { $0.pid == centre }
+            search: for start in candidates {
+                var e: AXUIElement? = start; var hops = 0
+                while let x = e, hops < 4 {
+                    for (g, group) in gs.enumerated() {
+                        if let i = group.items.firstIndex(where: { $0.element.isSame(x) }) { hit = (g, i); break search }
+                    }
+                    e = x.element(kAXParentAttribute); hops += 1
+                }
+            }
+        }
+        return resolvePlace(groupNames: gs.map(\.name), itemWords: gs.map { $0.items.map(\.words) }, hit: hit,
+                            group: groupName, index: itemIndex, words: itemWords,
+                            defaultGroup: min(gs.count - 1, gs.count > 1 && gs[0].items.first?.kind == .button ? 1 : 0),
+                            firstNotifications: gs.map { firstNotification($0) })
+    }
+
+    /// The place from what's known (pure, for the tests): the cursor's item; else in the remembered app, the remembered
+    /// place if its words still match, the same words nearest it, or (no words: the one there was closed) the place
+    /// itself; else the app's first notification.
+    package nonisolated static func resolvePlace(groupNames: [String], itemWords words: [[String]], hit: (Int, Int)?, group: String?, index: Int?,
+                                                 words remembered: String?, defaultGroup: Int, firstNotifications: [Int]) -> (Int, Int) {
+        func firstNotification(_ g: Int) -> Int { firstNotifications.indices.contains(g) ? firstNotifications[g] : 0 }
+        if let hit, words.indices.contains(hit.0), words[hit.0].indices.contains(hit.1) { return hit }
+        guard let name = group, let g = groupNames.firstIndex(of: name), !words[g].isEmpty else { return (defaultGroup, firstNotification(defaultGroup)) }
+        let items = words[g]
+        if let i = index, items.indices.contains(i), remembered == nil || items[i] == remembered { return (g, i) }
+        if let w = remembered {
+            let at = index ?? 0
+            if let j = items.indices.filter({ items[$0] == w }).min(by: { abs($0 - at) < abs($1 - at) }) { return (g, j) }
+            return (g, firstNotification(g))
+        }
+        if let i = index { return (g, min(max(0, i), items.count - 1)) }
+        return (g, firstNotification(g))
     }
 
     /// The panel has opened: its summary, and TurnOver on the first app's newest notification.
     static func enter() {
         let gs = groups()
-        groupName = nil; itemWords = nil
+        groupName = nil; itemWords = nil; itemIndex = nil
         let apps = gs.filter { $0.items.first?.kind == .notification || $0.items.first?.kind == .stack }.count
         guard !gs.isEmpty else { return }
-        let (g, i) = place(in: gs)
+        let (g, i) = place(in: gs, useCursor: false)
         Speech.cancel()
         let head = apps == 0 ? String(localized: "Notification Centre, no notifications", comment: "Spoken message")
             : String(localized: "Notification Centre, \(apps) apps. Left and Right go between apps, Up and Down through their notifications.", comment: "Notification Centre opened: %lld is how many apps have notifications")
@@ -246,7 +306,7 @@ enum NotificationCentreNavigator {
                 Speech.speakMessage(String(localized: "\(gs[g].name) collapsed", comment: "An app's notifications closed up in Notification Centre"))
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     let now = groups()
-                    if let ng = now.firstIndex(where: { $0.name == gs[g].name }) { itemWords = nil; land(now, ng, 0, announceGroup: false, interrupt: false) }
+                    if let ng = now.firstIndex(where: { $0.name == gs[g].name }) { itemWords = nil; itemIndex = nil; land(now, ng, 0, announceGroup: false, interrupt: false) }
                 }
             } else { press(item) }
         }
@@ -274,7 +334,8 @@ enum NotificationCentreNavigator {
         guard r == .success else { Speech.speakMessage(String(localized: "could not close it", comment: "Spoken message")); return }
         Tones.press()
         Speech.speakMessage(item.kind == .stack ? String(localized: "\(gs[g].name) cleared", comment: "An app's notifications cleared: %@ is the app") : String(localized: "closed", comment: "A notification closed"))
-        itemWords = nil
+        // The closed one's place: what moved up into it is next. The cursor's element has gone, so it isn't found.
+        groupName = gs[g].name; itemIndex = i; itemWords = nil
         // On to what is there now, once the panel has settled.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             let now = groups()
@@ -303,7 +364,7 @@ enum NotificationCentreNavigator {
         guard done else { Speech.speakMessage(String(localized: "could not clear it", comment: "Spoken message")); return }
         Tones.press()
         Speech.speakMessage(String(localized: "\(group.name) cleared", comment: "An app's notifications cleared: %@ is the app"))
-        groupName = nil; itemWords = nil
+        groupName = nil; itemWords = nil; itemIndex = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             let now = groups()
             guard !now.isEmpty else { return }
@@ -320,7 +381,7 @@ enum NotificationCentreNavigator {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             let gs = groups()
             guard let g = gs.firstIndex(where: { $0.name == app }) else { return }
-            itemWords = nil
+            itemWords = nil; itemIndex = nil
             land(gs, g, firstNotification(gs[g]), announceGroup: true, interrupt: false)
         }
     }
@@ -343,7 +404,7 @@ enum NotificationCentreNavigator {
         widget = nil   // (an item landed on: out of any widget)
         let group = gs[g]
         let item = group.items[i]
-        groupName = group.name; itemWords = item.words
+        groupName = group.name; itemWords = item.words; itemIndex = i
         ObjectNavigator.shared.place(item.element)   // without a word: said below
         Tones.focusTick()
         if interrupt { Speech.cancel() }

@@ -460,6 +460,12 @@ final class CalendarAppModule: AppModule {
             return
         }
         if [.gainFocus, .focusEntered].contains(event.kind), event.obj.pid == pid, inArea(event.obj.element) {
+            // Calendar's own keys (Tab, a click) moved its focus to a day or an event: TurnOver's reading follows, so the
+            // next Up, Down or Return starts there and not from an event the user has left (a review, 13 Nov 2026).
+            // Not the echo of TurnOver's own move: an event that refused the focus left it on its day, and the event read
+            // stays the reading's.
+            let echo = Date().timeIntervalSince(lastOwnMove) < 1.0 && InputManager.lastKeyDownAt <= lastOwnMove
+            if event.kind == .gainFocus, !echo { track(event.obj.element) }
             if opened == .showing {
                 opened = .no
                 lastOwnMove = Date()
@@ -468,7 +474,7 @@ final class CalendarAppModule: AppModule {
             }
             // The echo of TurnOver's own move, but not a later key's: a second Tab within the second, from the day to
             // its first event, was swallowed whole (a sweep, 13 Nov 2026: a tick and nothing said).
-            if Date().timeIntervalSince(lastOwnMove) < 1.0, InputManager.lastKeyDownAt <= lastOwnMove { return }
+            if echo { return }
             // Arriving in the area (Command-1, 2 or 3, Tab from the sidebar, the app coming forward): the view and the
             // day in a line ("Week, Wednesday 30 September, 1 event") instead of "Week Calendar Area, grouping,
             // September 2026, group, Wednesday, list" and an event's whole sentence (17 Oct 2026).
@@ -484,6 +490,30 @@ final class CalendarAppModule: AppModule {
         }
         if opened == .waiting, [.gainFocus, .focusEntered].contains(event.kind), inPopover(event.obj.element) { opened = .showing }
         next()
+    }
+
+    /// The reading put on the day or event Calendar focused (nothing changed for anything else in the area).
+    private func track(_ element: AXUIElement) {
+        let all = days()
+        if let day = all.first(where: { $0.element.isSame(element) }) { current = day.date; eventIndex = nil; return }
+        guard let parent = element.element(kAXParentAttribute), let day = all.first(where: { $0.element.isSame(parent) }),
+              let i = events(day).firstIndex(where: { $0.isSame(element) }) else { return }
+        current = day.date; eventIndex = i
+    }
+
+    /// Calendar's focus put on the day or event TurnOver reads, as goTo does. Calendar's Delete, Command-N and Return act
+    /// on its own selection: left behind, Delete removed an event the user had arrowed away from (a review, 13 Nov 2026).
+    private func followWithCalendarFocus() {
+        guard let day = dayShowing(current) else { return }
+        let list = events(day)
+        let target = eventIndex.flatMap { list.indices.contains($0) ? list[$0] : nil } ?? day.element
+        lastOwnMove = Date()
+        if target.set(kAXFocusedAttribute, kCFBooleanTrue) != .success {
+            // The event refused it: the day at least, so Calendar's selection isn't left on another day's event.
+            _ = day.element.set(kAXFocusedAttribute, kCFBooleanTrue)
+            Log.io("calendar: the event refused the focus; the day has it")
+        }
+        AXHandler.shared.focusChanged(target, pid: pid)
     }
 
     private func inArea(_ element: AXUIElement) -> Bool {
@@ -524,6 +554,7 @@ final class CalendarAppModule: AppModule {
         guard dayShowing(target) != nil else { Tones.edge(); Log.io("calendar: \(target) not reached"); return }
         current = target; eventIndex = nil
         lastOwnMove = Date()
+        followWithCalendarFocus()
         sayDay()
     }
 
@@ -542,9 +573,10 @@ final class CalendarAppModule: AppModule {
         guard !list.isEmpty else { Tones.edge(); Speech.speakMessage(String(localized: "no events", comment: "Spoken message")); return }
         let next: Int
         if let i = eventIndex { next = i + step } else { next = step > 0 ? 0 : -1 }
-        if next < 0 { eventIndex = nil; Tones.edge(); sayDay(); return }   // above the first: the day again
+        if next < 0 { eventIndex = nil; Tones.edge(); followWithCalendarFocus(); sayDay(); return }   // above the first: the day again
         guard next < list.count else { Tones.edge(); return }
         eventIndex = next
+        followWithCalendarFocus()
         sayEvent()
     }
 

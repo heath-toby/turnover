@@ -935,24 +935,25 @@ package final class MailAppModule: AppModule {
     }
 
     private func leaveMessage(from: AXUIElement, _ g: KeyboardGesture) {
-        guard let w = SettingsPanePlugin.windowOf(from) else { g.send(); return }
+        guard SettingsPanePlugin.windowOf(from) != nil else { g.send(); return }
         // The main viewer has the message list; a message opened on its own (Return with the preview hidden) does not.
-        var queue = [w]; var seen = 0; var hasList = false
-        while !queue.isEmpty, seen < 400, !hasList {
-            let e = queue.removeFirst(); seen += 1
-            if e.role == "AXTable", e.string(kAXDescriptionAttribute) == "messages" { hasList = true }
-            if e.role == "AXToolbar" || e.role == "AXWebArea" { continue }
-            queue.append(contentsOf: e.elements(kAXChildrenAttribute))
-        }
-        if hasList {
+        // The list is looked for as Tab does (hasMessageList: past the mailboxes' outline); the walk here went through
+        // the outline's rows, could run out at 400 before the list, and then closed the main viewer with Command-W.
+        // So Command-W only for a window with no list that does show a message (a review, 13 Nov 2026).
+        if Self.hasMessageList(from) {
             Log.io("mail: Escape from the message to the list")
             focusList("messages", from: from)
+        } else if Self.shownMessages(from: from).isEmpty || Self.hasMailboxes(from) {
+            // (The mailboxes showing: the viewer, whatever the list walk found. A message window has none.)
+            Log.io("mail: Escape in a window with no list found and no message, or with mailboxes; Mail's own")
+            g.send()
         } else {
             Log.io("mail: Escape closes the message window")
             KeyboardGesture(identifier: "kb:command+w")?.send()
-            // Mail brings the main window back; read the list where it is.
+            // Mail brings the main window back; read the list where it is, unless a key has come since.
+            let keyAt = InputManager.lastKeyDownAt
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                guard let self else { return }
+                guard let self, InputManager.lastKeyDownAt == keyAt else { return }
                 let app = AXUIElementCreateApplication(self.pid)
                 if let main = app.element(kAXFocusedWindowAttribute) ?? app.element(kAXMainWindowAttribute) { self.focusList("messages", from: main) }
             }
@@ -1100,9 +1101,12 @@ package final class MailAppModule: AppModule {
         // the list, 13 Nov 2026): other news is set aside while the list takes it.
         SettingsPanePlugin.expected = t; SettingsPanePlugin.ignoreOthersUntil = Date().addingTimeInterval(0.4)
         _ = t.set(kAXFocusedAttribute, kCFBooleanTrue)
-        // Mail reports the move itself, and that is read; only if it stays quiet does TurnOver read the list.
+        // Mail reports the move itself, and that is read; only if it stays quiet does TurnOver read the list. Not after
+        // another key: the user had moved on, and TurnOver's focus put back on the list sent the next Backspace's
+        // Delete to wherever Mail's focus was (a review, 13 Nov 2026).
+        let keyAt = InputManager.lastKeyDownAt
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            guard let self, let f = API.focusObject?.element else { return }
+            guard let self, InputManager.lastKeyDownAt == keyAt, let f = API.focusObject?.element else { return }
             var p: AXUIElement? = f; var hops = 0; var inside = false
             while let x = p, hops < 4 { if x.isSame(t) { inside = true; break }; p = x.element(kAXParentAttribute); hops += 1 }
             if !inside { AXHandler.shared.focusChanged(t.elements(kAXSelectedRowsAttribute).first ?? t, pid: self.pid) }

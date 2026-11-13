@@ -136,18 +136,21 @@ public final class MediaView {
         work.beginSession(); queued = []; loadingMore = false; refreshing = false; resolving = false
         jumpedToHeading = nil
         builtAt = .distantPast; pendingSidebarBody = nil
+        pageOpening = nil; loadingKeys = 0   // (a page asked for in an earlier session isn't waited for: a review, 13 Nov 2026)
     }
 
     public func stop() {
         shelfReadiness?.cancel(); shelfReadiness = nil
         work.stop(); queued = []; loadingMore = false; refreshing = false; resolving = false; pendingSidebarBody = nil
         catalogRequest = UUID(); catalog?.cancel(); catalog = nil; catalogDrives = false
+        pageOpening = nil; loadingKeys = 0
     }
 
     private func beginPageIntent() {
         shelfReadiness?.cancel(); shelfReadiness = nil
         work.beginSession(); queued = []; loadingMore = false; refreshing = false; resolving = false; pendingSidebarBody = nil
         jumpedToHeading = nil
+        pageOpening = nil; loadingKeys = 0   // (a newer intent: the last one's wait is over; a press sets it again after)
     }
     private var pendingSidebarBody: [String]?
 
@@ -1351,9 +1354,43 @@ public final class MediaView {
         // outside the item pieces; Number in list must not be hardcoded back on here (#187, 29 Oct 2026).
         parts += Speech.arranged(pieces, by: config.presentation.verbosity(for: bundleIdentifier))
         Speech.speakItem(parts.joined(separator: ", "), processed: true)
+        if item.tableRow { selectTableRow(item) }
         // Object navigation starts from the item Tab or the arrows reached (a tester, 12 Nov 2026).
         ObjectNavigator.shared.focusMoved(to: item.element, pid: item.element.pid)
         Hints.schedule(hint(for: item))
+    }
+
+    /// A library song read by the arrows is Music's selected row too. Delete, Command-Delete and Command-I go to Music,
+    /// which acts on its own selection: with only TurnOver's index moved, Delete removed the song Music had selected,
+    /// not the one just read (a review, 13 Nov 2026). The table takes the focus as Return's press does, so those keys
+    /// reach it.
+    private func selectTableRow(_ item: Item) {
+        guard let table = item.element.element(kAXParentAttribute), acceptsWindow(modelWindow) else { return }
+        ownRowSelectionAt = Date()   // (its selection news is the arrows' echo: the item was just said)
+        if (table.attr(kAXFocusedAttribute) as? Bool) != true { _ = table.set(kAXFocusedAttribute, kCFBooleanTrue) }
+        if table.set(kAXSelectedRowsAttribute, [item.element] as CFArray) != .success { Log.io("media: the library row refused the selection") }
+    }
+
+    private var ownRowSelectionAt = Date.distantPast
+    /// TurnOver itself selected a library row a moment ago (selectTableRow).
+    public var selectedRowJustNow: Bool { Date().timeIntervalSince(ownRowSelectionAt) < 0.5 }
+
+    /// The library song TurnOver reads, when the page's current item is one (Delete and Command-I are sent for it).
+    public var onLibraryRow: Bool { pane == .page && !catalogHasThePage && currentItem()?.tableRow == true }
+
+    /// A key that acts on Music's selected song (Delete, Command-Delete, Command-I): sent only once that song is the one
+    /// read; otherwise not sent at all, so it can't act on another (a review, 13 Nov 2026).
+    public func sendForLibraryRow(_ g: KeyboardGesture) {
+        guard let item = currentItem(), item.tableRow, let table = item.element.element(kAXParentAttribute) else { g.send(); return }
+        selectTableRow(item)
+        let selected = table.elements(kAXSelectedRowsAttribute)
+        guard selected.count == 1, selected[0].isSame(item.element) else {
+            Log.io("media: \(g.identifier) not sent; the read song isn't Music's selection")
+            Tones.edge()
+            Speech.speakMessage(String(localized: "could not select that song", comment: "Spoken message: a key that acts on the selected song was not sent"))
+            return
+        }
+        g.send()
     }
 
     private func hint(for item: Item) -> String {
@@ -1459,15 +1496,14 @@ public final class MediaView {
             let canPress = ((acts as? [String]) ?? []).contains(kAXPressAction as String)
             var r: AXError = canPress ? AXUIElementPerformAction(target, kAXPressAction as CFString) : .actionUnsupported
             Log.io("media: press \(Log.words(String(item.label.prefix(50)))) → \(r.rawValue)")
-            if r != .success {
-                _ = AXUIElementPerformAction(target, "AXScrollToVisible" as CFString)
-                if let f = TurnOverObject.frame(target), f.width > 0, f.height > 0 {
-                    Mouse.click(at: CGPoint(x: f.midX, y: f.midY), button: .left, count: 1)
-                    Log.io("media: clicked it instead")
-                    Tones.press()
-                    r = .success
-                }
+            // Only where it really is once scrolled into sight (Mouse.clickIfOver checks the point; a review, 13 Nov 2026).
+            if r != .success, Mouse.clickIfOver(target) {
+                Log.io("media: clicked it instead")
+                Tones.press()
+                r = .success
             }
+            // Neither pressed nor clicked: no page is coming, so the arrows aren't held saying "loading".
+            guard r == .success else { Tones.edge(); Speech.speakMessage(String(localized: "could not open that", comment: "Spoken message")); return }
         } else {
             Speech.speakMessage(String(localized: "nothing to open", comment: "Spoken message")); return
         }
@@ -1703,7 +1739,8 @@ public final class MediaView {
     private var nowPlayingBefore = ""
     private var playbackRequest = UUID()
     /// What the player's information area says, or "" when nothing is playing.
-    private func playingText() -> String {
+    private func playingText() -> String { Self.playingText(of: player) }
+    package nonisolated static func playingText(of player: [Item]) -> String {
         let t = player.first { $0.press == nil }?.label ?? ""
         return t == "Nothing playing" ? "" : t
     }
@@ -1749,19 +1786,34 @@ public final class MediaView {
         let window = modelWindow
         let originalKeys = keys ?? keyCount()
         delay(0.35) { [weak self] in
-            guard let self, isCurrent(session), acceptsWindow(window) else { return }
+            guard let self, isCurrent(session) else { return }
+            // (Every way out of the wait ends "loading" for the arrows: left set, play-only items and lost reads held
+            // them for eight seconds, a review, 13 Nov 2026.)
+            guard acceptsWindow(window) else { pageOpening = nil; return }
             // The sidebar kept as it is when this page wasn't chosen there (See All, an album, Back): Music's sidebar
             // takes three to four seconds to read, and every page opened waited for it (a read took 5.8 s, 13 Nov 2026).
             let keepSidebar = requiredBodyChange == nil && !sidebar.isEmpty
             read(.build(keepSidebar: keepSidebar, detectVideo: !goingBack), capturedWindow: window) { [weak self] result in
-            guard let self, isCurrent(session), let result else { return }
+            guard let self, isCurrent(session) else { return }
+            guard let result else { pageOpening = nil; return }
             if result.video {
+                pageOpening = nil
                 inVideo = true
                 guard keyCount() == originalKeys else { return }
                 Speech.speakMessage(String(localized: "video playing. Space plays and pauses; Escape leaves the video", comment: "Spoken message"))
                 return
             }
-            guard let built = result.built else { return }
+            guard let built = result.built else { pageOpening = nil; return }
+            // An item that only plays: no page is coming, and the player says so at once. The wait ends there, rather
+            // than eight more reads saying "loading" to the arrows (a review, 13 Nov 2026).
+            let nowPlaying = Self.playingText(of: built.player)
+            if pageOpening != nil, requiredBodyChange == nil, !goingBack, unchangedMessage == nil, signature(of: built) == before,
+               !nowPlaying.isEmpty, nowPlaying != nowPlayingBefore {
+                let quiet = keyCount() - loadingKeys == originalKeys
+                pageOpening = nil; loadingKeys = 0
+                if quiet { Speech.speakText(String(localized: "playing, \(nowPlaying)", comment: "Something started playing: %@ is its title")) }
+                return
+            }
             // A page still loading (no shelves yet, 7 Oct 2026): wait for it, rather than read an empty page.
             let bodyPending = requiredBodyChange.map { Self.bodySignature(built.shelves) == $0 || built.shelves.allSatisfy { $0.items.isEmpty } } ?? false
             let waitingOn = (signature(of: built) == before || (built.shelves.isEmpty && tries > 0) || bodyPending) && tries > 0

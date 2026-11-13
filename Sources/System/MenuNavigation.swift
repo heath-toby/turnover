@@ -113,8 +113,10 @@ final class MenuNavigationPlugin: GlobalPlugin {
         case "home": webIndex = 0
         case "end": webIndex = n - 1
         default:
-            let i = max(0, min(webIndex, n - 1))
-            let item = items[i]
+            // Nothing chosen yet (no item the page had focused): Return goes to the page, not to the first item, which
+            // was pressed unseen (a review, 13 Nov 2026).
+            guard webIndex >= 0, webIndex < n else { g.send(); return }
+            let item = items[webIndex]
             if g.keyName == "rightArrow", item.elements(kAXChildrenAttribute).first(where: { $0.role == "AXMenu" }) == nil,
                (item.attr("AXHasPopup") as? Bool) != true, item.string("AXPopupValue") == nil {
                 Tones.edge(); return
@@ -493,6 +495,9 @@ final class MenuNavigationPlugin: GlobalPlugin {
             // passes) cleared this, and the item it had just said was said again.
             guard !AXHandler.shared.isMenuOpen else { return }
             lastItem = nil; lastSpoken = nil; lastHeading = nil
+            // A page's menu gone: the next one (even one the page builds on the same element) starts afresh, at the item
+            // it has focused, not at the place in the last (a review, 13 Nov 2026).
+            webMenu = nil; webIndex = 0
             if API.focusObject?.role == .menuItem || API.focusObject?.role == .menu {
                 let pid = event.obj.pid
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { if !AXHandler.shared.isMenuOpen { AXHandler.shared.refocus(pid: pid) } }
