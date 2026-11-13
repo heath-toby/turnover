@@ -216,15 +216,33 @@ public final class BrowseModeDocument: ScriptableObject {
     func anchorOffset(_ id: String) -> Int? {
         let wanted = id.removingPercentEncoding ?? id
         let until = Date().addingTimeInterval(0.25)
-        var seen = Set<AXUIElement>()
-        for line in buffer.lines {
-            guard let e = line.element else { continue }
-            if Date() > until { Log.io("browse mode: the anchor not found in the time"); return nil }
-            var x: AXUIElement? = e
-            for _ in 0..<3 {
-                guard let y = x, seen.count < 6000, seen.insert(y).inserted else { break }   // (one seen: those above it too)
-                if y.string("AXDOMIdentifier") == wanted { return line.start }
-                x = y.element(kAXParentAttribute)
+        var timedOut = false
+        let hit = Self.climbToMatch(buffer.lines.map(\.element), parent: { $0.element(kAXParentAttribute) },
+                                    matches: { $0.string("AXDOMIdentifier") == wanted },
+                                    stop: { if Date() > until { timedOut = true }; return timedOut })
+        if timedOut { Log.io("browse mode: the anchor not found in the time") }
+        return hit.map { buffer.lines[$0].start }
+    }
+
+    /// The first start (a line's element) that is, or has within three levels above it, an element that `matches`: its
+    /// index. Each element is asked once, and remembered with the levels the climb still had above it then: a later
+    /// climb stops at it only if it was asked with as many or more (those above it were asked too). Stopping at any
+    /// element seen once missed ancestors when it had been the top of another line's climb: <div id=x><p>Some
+    /// <a>link</a> more</p></div> (a review, 13 Nov 2026). At most 6000 elements, and `stop` asked before each start.
+    /// Pure, for the tests.
+    package static func climbToMatch<T: Hashable>(_ starts: [T?], parent: (T) -> T?, matches: (T) -> Bool, stop: () -> Bool = { false }) -> Int? {
+        var asked: [T: Int] = [:]
+        for (i, start) in starts.enumerated() {
+            guard let e = start else { continue }
+            if stop() { return nil }
+            var x: T? = e
+            for left in stride(from: 3, to: 0, by: -1) {
+                guard let y = x, asked.count < 6000 else { break }
+                let before = asked[y]
+                if let before, before >= left { break }
+                asked[y] = left
+                if before == nil, matches(y) { return i }
+                x = parent(y)
             }
         }
         return nil

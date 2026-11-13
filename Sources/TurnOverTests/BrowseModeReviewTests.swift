@@ -114,6 +114,16 @@ func browseModeReviewTests() {
         expect(BrowseModeDocument.carryOnAfterRebuild(oldText: old, reached: old.length, newText: "Other\n" as NSString), 6, "all gone: within the copy")
     }
 
+    test("browse mode review: the anchor's climb goes past an element an earlier line's climb ended at") {
+        // <div id=x (1)><p (2)><a (3)>link (4)</a> more (5)</p></div>: the first line from 4 climbs 4, 3, 2; the second,
+        // from 5, reaches 2 with a level more to go, and so 1.
+        let parents = [4: 3, 3: 2, 5: 2, 2: 1, 1: 0]
+        expect(BrowseModeDocument.climbToMatch([4, 5], parent: { parents[$0] }, matches: { $0 == 1 }), 1)
+        expect(BrowseModeDocument.climbToMatch([4, 5], parent: { parents[$0] }, matches: { $0 == 3 }), 0, "found on the first line")
+        expect(BrowseModeDocument.climbToMatch([4, 5], parent: { parents[$0] }, matches: { $0 == 0 }), nil, "past three levels: not")
+        expect(BrowseModeDocument.climbToMatch([4, 5], parent: { parents[$0] }, matches: { _ in true }, stop: { true }), nil, "out of time")
+    }
+
     test("browse mode review: a link to this page's anchor is told by its address, the fragment already in the page's or not") {
         expect(BrowseModeDocument.samePageFragment(link: "https://example.com/a#content", page: "https://example.com/a#content"), "content", "Jump to content, a second time")
         expect(BrowseModeDocument.samePageFragment(link: "https://example.com/a#content", page: "https://example.com/a"), "content")
