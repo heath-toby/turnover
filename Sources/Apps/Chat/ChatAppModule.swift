@@ -117,8 +117,9 @@ final class ChatAppModule: AppModule {
                 return ok
             }
         }
+        // TurnOver Command and a digit: Messages' own Control Command 1 to 3 are its folders (13 Nov 2026).
         for n in 1...9 {
-            script("chat_latest\(n)", n == 1 ? String(localized: "Reads the newest message", comment: "A command, as the key list and keyboard help say it") : String(localized: "Reads the message \(String(n)) from the newest", comment: "A command: %@ is how far back"), gestures: ["kb:control+command+\(n)"], category: cat) { [weak self] _ in
+            script("chat_latest\(n)", n == 1 ? String(localized: "Reads the newest message", comment: "A command, as the key list and keyboard help say it") : String(localized: "Reads the message \(String(n)) from the newest", comment: "A command: %@ is how far back"), gestures: ["kb:turnover+command+\(n)"], category: cat) { [weak self] _ in
                 self?.view.readLatest(n)
             }.isAvailable = { API.focusPid == pid }
         }

@@ -126,14 +126,14 @@ public final class GlobalCommands: ScriptableObject {
         }.isAvailable = windowsOn
         script("applicationChooser", String(localized: "Application chooser; lists every application with a window, system alerts too, to switch to (Windows: Windows+Tab, Task View)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:option+tab"], category: win) { _ in
             DispatchQueue.main.async { ApplicationChooser.open() }
-        }.isAvailable = windowsOn
+        }.isAvailable = { windowsOn() && !GlobalCommands.leftToApp("kb:option+tab") }
         // Option+D is Windows+D, the desktop: Finder's Desktop folder in a window, its items under the arrow keys (an
         // AppleVis reader asked how to reach the desktop in the NVDA style, 25 Oct 2026). F11 only clears the screen.
         // Option D: the desktop itself, its icons and widgets under the arrows (a tester's design, 12 Nov 2026); the
         // Desktop folder in a Finder window, as Option D did before, is Option Shift D.
         script("desktop", String(localized: "The desktop: its icons and widgets under the arrows, Return opens or goes in (Windows: Windows+D)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:option+d"], category: win) { _ in
             DesktopNavigator.enter()
-        }.isAvailable = windowsOn
+        }.isAvailable = { windowsOn() && !GlobalCommands.leftToApp("kb:option+d") }
         script("showDesktop", String(localized: "Opens the Desktop folder in Finder, its items under the arrows (Option Shift D)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:option+shift+d"], category: win) { _ in
             // Off the main thread: the open is TurnOver's own first touch of Desktop, a folder macOS protects, and macOS
             // asks for the Desktop folder permission while the call waits. On the main thread that held TurnOver silent
@@ -141,10 +141,10 @@ public final class GlobalCommands: ScriptableObject {
             // prompt a second after Option D, the relaunch 24 s later). Off it, TurnOver goes on and reads the prompt.
             let desktop = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Desktop")
             DispatchQueue.global(qos: .userInitiated).async { NSWorkspace.shared.open(desktop) }
-        }.isAvailable = windowsOn
+        }.isAvailable = { windowsOn() && !GlobalCommands.leftToApp("kb:option+shift+d") }
         script("focusStatusMenus", String(localized: "Status menus; lists the status menus at the right of the menu bar, TurnOver's own item last (Windows: Windows+B)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:option+b"], category: win) { _ in
             StatusMenus.openList()
-        }.isAvailable = windowsOn
+        }.isAvailable = { windowsOn() && !GlobalCommands.leftToApp("kb:option+b") }
         script("openMenus", String(localized: "Opens the application's menus; closes them if open (Windows: Alt or F10). Also Command on its own", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:f10"], category: win) { _ in
             GlobalCommands.toggleMenus()
         }.isAvailable = windowsOn
@@ -621,6 +621,17 @@ public final class GlobalCommands: ScriptableObject {
     /// The context menu for what TurnOver is on, before the app's own: a view's item (contextMenuHandler), or on a
     /// page in browse mode, the link or control at the reading position, as NVDA and VoiceOver open it (a tester,
     /// 13 Oct 2026: on a link the page's menu came up, without "open in a new tab", until he interacted with it).
+    /// The Windows style's Option keys stay the app's where it uses them: typing in a field (Option D and B are
+    /// letters there, Option Tab and B a word in Terminal), or a key the app's own menus have (REAPER's Option B and
+    /// D). A tester's ruling, 13 Nov 2026.
+    static func leftToApp(_ gesture: String) -> Bool {
+        guard let pid = API.focusPid ?? NSWorkspace.shared.frontmostApplication?.processIdentifier else { return false }
+        if AppMenuKeys.owns(gesture, pid: pid) { return true }
+        guard let f = API.focusObject else { return false }
+        if let d = API.focusTreeInterceptor, !d.passThrough { return false }   // browse mode reads, it doesn't type
+        return f.role == .terminal || (f.states.contains(.editable) && !f.states.contains(.readOnly) && !f.states.contains(.unavailable))
+    }
+
     public static func openContextMenu() -> Bool {
         if contextMenuHandler?() == true { return true }
         if let pid = API.focusPid, AppModuleHandler.shared.appModule(for: pid).showContextMenu() { return true }

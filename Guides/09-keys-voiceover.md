@@ -368,15 +368,6 @@ Keys an app's own support adds at the app level, in that app only; the keys abov
 |---|---|
 | Command Down arrow | The last one |
 | Command Up arrow | The first one |
-| Control Command 1 | Reads the newest message |
-| Control Command 2 | Reads the message 2 from the newest |
-| Control Command 3 | Reads the message 3 from the newest |
-| Control Command 4 | Reads the message 4 from the newest |
-| Control Command 5 | Reads the message 5 from the newest |
-| Control Command 6 | Reads the message 6 from the newest |
-| Control Command 7 | Reads the message 7 from the newest |
-| Control Command 8 | Reads the message 8 from the newest |
-| Control Command 9 | Reads the message 9 from the newest |
 | Down arrow | Next message or conversation |
 | End | The last one |
 | Enter | Opens the conversation, or presses the message (a link, a photo) |
@@ -468,15 +459,6 @@ Keys an app's own support adds at the app level, in that app only; the keys abov
 | Command Down arrow | The last one |
 | Command T | Reacts to the message: a list of Tapbacks, Return to choose (Command T) |
 | Command Up arrow | The first one |
-| Control Command 1 | Reads the newest message |
-| Control Command 2 | Reads the message 2 from the newest |
-| Control Command 3 | Reads the message 3 from the newest |
-| Control Command 4 | Reads the message 4 from the newest |
-| Control Command 5 | Reads the message 5 from the newest |
-| Control Command 6 | Reads the message 6 from the newest |
-| Control Command 7 | Reads the message 7 from the newest |
-| Control Command 8 | Reads the message 8 from the newest |
-| Control Command 9 | Reads the message 9 from the newest |
 | Down arrow | Next message or conversation |
 | End | The last one |
 | Enter | Opens the conversation, or presses the message (a link, a photo) |
@@ -727,15 +709,6 @@ Keys an app's own support adds at the app level, in that app only; the keys abov
 |---|---|
 | Command Down arrow | The last one |
 | Command Up arrow | The first one |
-| Control Command 1 | Reads the newest message |
-| Control Command 2 | Reads the message 2 from the newest |
-| Control Command 3 | Reads the message 3 from the newest |
-| Control Command 4 | Reads the message 4 from the newest |
-| Control Command 5 | Reads the message 5 from the newest |
-| Control Command 6 | Reads the message 6 from the newest |
-| Control Command 7 | Reads the message 7 from the newest |
-| Control Command 8 | Reads the message 8 from the newest |
-| Control Command 9 | Reads the message 9 from the newest |
 | Down arrow | Next message or conversation |
 | End | The last one |
 | Enter | Opens the conversation, or presses the message (a link, a photo) |

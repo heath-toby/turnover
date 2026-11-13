@@ -26,6 +26,7 @@ extension AXHandler {
         let old = activePid
         activePid = pid
         Log.io("app activated: \(app.localizedName ?? "?") pid \(pid)")
+        AppMenuKeys.scan(pid)   // its own menu keys, for the keys TurnOver leaves to it
         SettingsPanePlugin.appActivated(pid)
         // An application's menus close when it leaves the front; one still counted open would take the letters
         // typed in the application now in front as menu type-ahead (Safari's page menu ate "in safari" in Claude).
