@@ -231,8 +231,7 @@ public final class BrowseModeDocument: ScriptableObject {
     func followReplacedRoot(tries: Int) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             guard let self, API.focusTreeInterceptor === self, buffer.lines.isEmpty else { return }
-            buffer.build()
-            if !buffer.lines.isEmpty { return }
+            if buildIfEmpty() { return }
             if let fresh = currentWebArea(), !fresh.isSame(webArea) {
                 Log.io("browse mode: the page moved on to another; following it")
                 AXHandler.shared.focusChanged(fresh, pid: webArea.pid)
@@ -381,6 +380,18 @@ public final class BrowseModeDocument: ScriptableObject {
     /// address it was on: kept for the page coming back, rather than the top. The empty read put the reading at 0 and
     /// the page came back at its top, silently (a review, 13 Nov 2026).
     var placeBeforeEmpty: (url: String, line: String, into: Int, offset: Int)?
+    /// An empty copy read again, and if that brought the page, the reading put back where it was before it emptied.
+    /// True if the copy has content now. Every read of an empty copy goes through here: Tab's, the focus's and the
+    /// replaced page's read bypassed the restore and left the reading at the top (a review, 13 Nov 2026).
+    @discardableResult
+    func buildIfEmpty() -> Bool {
+        guard buffer.lines.isEmpty else { return true }
+        buffer.build()
+        guard !buffer.lines.isEmpty else { return false }
+        restorePlaceBeforeEmpty()
+        return true
+    }
+
     /// The page has content again at the same address: the reading back where it was before it emptied. True if so.
     @discardableResult
     func restorePlaceBeforeEmpty() -> Bool {
@@ -504,7 +515,7 @@ public final class BrowseModeDocument: ScriptableObject {
             // The copy of the page now, as the arrows have it: Tab just after a link was followed searched the copy of
             // the page left (a review, 13 Nov 2026).
             refreshIfNavigated()
-            if buffer.lines.isEmpty { buffer.build() }
+            buildIfEmpty()
             rebuildIfCheap()
             // From a field of a Safari page in focus mode (tabIsTurnOversInField): on from the field. Another field
             // takes the focus; a check box, button or link can't in Safari, so the reading position goes there and
@@ -740,8 +751,7 @@ public final class BrowseModeDocument: ScriptableObject {
         // An empty address too: Safari not answering reports none (6 Oct 2026, playtestcloud: "page  —", 0 lines,
         // and every key said "no next heading").
         guard buffer.lines.isEmpty, url != "about:blank" else { return true }
-        buffer.build()
-        guard buffer.lines.isEmpty else { restorePlaceBeforeEmpty(); Log.io("browse mode: the page has arrived"); return true }
+        if buildIfEmpty() { Log.io("browse mode: the page has arrived"); return true }
         // Safari can swap in a new web area on a reload (6 Oct 2026, fast.com: after Command R the copy was
         // of the old one, one element and no address, while the page was there and Tab reached it). The window's
         // web area now, if it is another one, is the page: move there, as Tab did.

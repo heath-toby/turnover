@@ -53,7 +53,7 @@ extension BrowseModeDocument {
             if event.obj.isSameElement(as: webArea), buffer.lines.isEmpty, !url.isEmpty, url != "about:blank" {
                 // A page still arriving: NVDA says "Loading document..." only if it is still loading a second later,
                 // and reads the page once it has loaded (no "document, blank").
-                if Date().timeIntervalSince(buffer.builtAt) > 0.5 { buffer.build() }
+                if Date().timeIntervalSince(buffer.builtAt) > 0.5 { buildIfEmpty() }
                 if buffer.lines.isEmpty {
                     let waiting = url
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
