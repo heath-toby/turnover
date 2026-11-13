@@ -2,6 +2,7 @@
 import TurnOverCore
 import TurnOverAX
 import AXFixtures
+import CoreGraphics
 import Foundation
 
 private final class TerminalTestObject: TurnOverObject {
@@ -9,6 +10,18 @@ private final class TerminalTestObject: TurnOverObject {
 }
 
 func keyboardSessionTests() {
+    // Control let go before Home: the press was Command Up, and the release, translated again from its own
+    // modifiers, Command Left (a review, 13 Nov 2026). The release is given what the press became.
+    test("keys: a translated key's release becomes what its press became") {
+        let controlHome = KeyTranslation(code: 126, add: .maskCommand, remove: .maskControl)   // Control Home: Command Up
+        let press = controlHome.flags(from: [.maskControl, .maskSecondaryFn])
+        check(press.contains(.maskCommand) && !press.contains(.maskControl), "the press: Command for Control")
+        check(press.contains(.maskNumericPad) && press.contains(.maskSecondaryFn), "an arrow carries Fn and the keypad flag")
+        let release = controlHome.flags(from: [])   // Control already let go
+        check(release.contains(.maskCommand) && release.contains(.maskNumericPad), "the release is still Command Up's")
+        let redo = KeyTranslation(code: 6, add: [.maskCommand, .maskShift], remove: .maskControl)   // Control Y: Command Shift Z
+        expect(redo.flags(from: .maskControl), [.maskCommand, .maskShift], "a letter gains no arrow flags")
+    }
     // Ghostty, Alacritty, WezTerm and VS Code's terminal got Command C for Control C: keepControl knows terminals
     // only by bundle (a review, 13 Nov 2026).
     test("keys: the Windows style keeps Control for the shell in any focused terminal") {

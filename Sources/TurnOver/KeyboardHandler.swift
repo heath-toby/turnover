@@ -64,8 +64,8 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
     private var lastCapsUp: UInt64 = 0
     private var realCapsOn = false
     private var quarantined = Set<Int64>()
-    /// Keys translated on the way down (the Windows style): their release is translated too.
-    private var remapped = Set<Int64>()
+    /// Keys translated on the way down (the Windows style), and what each became: its release is given the same.
+    private var remapped: [Int64: KeyTranslation] = [:]
     private var echoCode: Int64 = -1
     private var echoAt: UInt64 = 0
     private var echoCount = 0
@@ -505,7 +505,9 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         if let r = quickNavArrow(type, event, code, settings) { return r }
         if type == .keyUp {
             if quarantined.contains(code) { quarantined.remove(code); return nil }
-            if remapped.contains(code) { remapped.remove(code); WindowsRemap.apply(.keyUp, event) }
+            // What its press became, not a translation worked out again from the release's own modifiers and app:
+            // Control let go before Home made the press Command Up and the release Command Left (a review, 13 Nov 2026).
+            if let t = remapped.removeValue(forKey: code) { t.apply(to: event) }
             return passOrRedirect(event)
         }
         guard type == .keyDown else { return Unmanaged.passUnretained(event) }
@@ -574,7 +576,9 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         // takes it only when TurnOver has nothing of its own for the key (one round trip, not two in turn: a review,
         // 13 Nov 2026). A TurnOver chord is not translated.
         var translated: KeyboardGesture?
-        if settings.windowsKeys, !mods.contains(.turnover), let copy = event.copy(), WindowsRemap.apply(.keyDown, copy) {
+        var translation: KeyTranslation?
+        if settings.windowsKeys, !mods.contains(.turnover), let copy = event.copy(), let t = WindowsRemap.apply(.keyDown, copy) {
+            translation = t
             let c2 = copy.getIntegerValueField(.keyboardEventKeycode)
             var m2 = Modifiers()
             if copy.flags.contains(.maskShift) { m2.insert(.shift) }
@@ -584,19 +588,24 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             translated = KeyboardGesture(keyCode: c2, modifiers: m2, characters: Self.characters(of: copy), timestamp: gesture.timestamp, isRepeat: gesture.isRepeat, flags: copy.flags)
         }
         let (decision, usedTranslation) = ScriptHandler.askMain(gesture, otherwise: translated)
-        if usedTranslation {
-            WindowsRemap.apply(.keyDown, event)   // the key itself, as the copy was: it may go on to the app below
-            remapped.insert(code)
-        }
         switch decision {
         case .taken, .deferred:
             quarantined.insert(code)
+            remapped[code] = nil   // its release is swallowed, untranslated
             return nil
         case .passed:
             // This press goes to the app, so its release must too. A code taken on an earlier press (Down held in a
             // list that put the focus in a field; Tab into a secure field, whose release the tap never sees) swallowed
             // the next release, and the app saw the key held (a review, 13 Nov 2026).
             quarantined.remove(code)
+            // Main chose the translation: the key goes on as the copy main saw, its code and flags, worked out before
+            // main answered. Translated again here, after the wait, the app in front may have changed (a review,
+            // 13 Nov 2026). Its release is given the same; an untranslated press leaves no translation for it.
+            if usedTranslation, let translation, let translated {
+                event.setIntegerValueField(.keyboardEventKeycode, value: translated.keyCode)
+                event.flags = translated.flags
+                remapped[code] = translation
+            } else { remapped[code] = nil }
             if code == 48, event.flags.contains(.maskCommand) { clearLeftoverModifiers(before: "Command Tab") }
             return passOrRedirect(event)
         }

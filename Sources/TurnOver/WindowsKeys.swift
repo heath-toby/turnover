@@ -50,27 +50,26 @@ nonisolated enum WindowsRemap {
     static let commandLetters: Set<Int64> = [8, 7, 9, 0, 6, 1, 31, 45, 35, 3, 13, 17]
     static let letterY: Int64 = 16, letterZ: Int64 = 6, letterQ: Int64 = 12, letterW: Int64 = 13
 
-    /// Rewrite a key down or up in place. True if it was changed.
+    /// Rewrite a key down in place. What it became, if it was changed: the key's release is to be given the same
+    /// (KeyTranslation), not worked out again from its own modifiers and the app in front then.
     @discardableResult
-    static func apply(_ type: CGEventType, _ event: CGEvent) -> Bool {
-        guard type == .keyDown || type == .keyUp, KeySettings.current.windowsKeys else { return false }
-        var flags = event.flags
+    static func apply(_ type: CGEventType, _ event: CGEvent) -> KeyTranslation? {
+        guard type == .keyDown, KeySettings.current.windowsKeys else { return nil }
+        let flags = event.flags
         let ctrl = flags.contains(.maskControl), opt = flags.contains(.maskAlternate), cmd = flags.contains(.maskCommand)
-        if ctrl && opt { return false }   // VoiceOver's keys
+        if ctrl && opt { return nil }   // VoiceOver's keys
         let code = event.getIntegerValueField(.keyboardEventKeycode)
-        func set(_ newCode: Int64, add: CGEventFlags, remove: CGEventFlags) -> Bool {
-            flags.remove(remove); flags.insert(add)
-            if [left, right, up, down].contains(newCode) { flags.insert([.maskSecondaryFn, .maskNumericPad]) }
-            event.setIntegerValueField(.keyboardEventKeycode, value: newCode)
-            event.flags = flags
-            return true
+        func set(_ newCode: Int64, add: CGEventFlags, remove: CGEventFlags) -> KeyTranslation? {
+            let t = KeyTranslation(code: newCode, add: add, remove: remove)
+            t.apply(to: event)
+            return t
         }
         // Alt F4 (Command F4) quits; Control F4 closes the window.
         // F4 as the top row sends it by default: Spotlight (177), or Launchpad (131) on older keyboards (7 Nov 2026).
         let isF4 = code == f4 || code == 177 || code == 131
         if isF4, cmd, !ctrl { return set(letterQ, add: [], remove: [.maskSecondaryFn]) }
         if isF4, ctrl, !cmd { return set(letterW, add: .maskCommand, remove: [.maskControl, .maskSecondaryFn]) }
-        if cmd { return false }   // a Mac shortcut already
+        if cmd { return nil }   // a Mac shortcut already
         let app = front
         let terminal = keepControl.contains(app)
         // Home and End: line start and end (Command Left, Right), with Control the document's (Command Up, Down). Not in
@@ -79,11 +78,11 @@ nonisolated enum WindowsRemap {
         if (code == home || code == end), !browsers.contains(app), !terminal, !grid {
             return set(code == home ? (ctrl ? up : left) : (ctrl ? down : right), add: .maskCommand, remove: .maskControl)
         }
-        guard ctrl, !terminal else { return false }
-        if [left, right, up, down, backspace, forwardDelete].contains(code) { return grid ? false : set(code, add: .maskAlternate, remove: .maskControl) }
+        guard ctrl, !terminal else { return nil }
+        if [left, right, up, down, backspace, forwardDelete].contains(code) { return grid ? nil : set(code, add: .maskAlternate, remove: .maskControl) }
         if commandLetters.contains(code) { return set(code, add: .maskCommand, remove: .maskControl) }
         if code == letterY { return set(letterZ, add: [.maskCommand, .maskShift], remove: .maskControl) }   // redo
-        return false
+        return nil
     }
 }
 
@@ -121,6 +120,8 @@ nonisolated final class WindowsKeyLayer: @unchecked Sendable {   // its state be
     private var connect: io_connect_t { layer?.connect ?? 0 }
     private var capsDown = false
     private var swallowedUps = Set<Int64>()
+    /// Keys translated on the way down, and what each became: its release is given the same.
+    private var remapped: [Int64: KeyTranslation] = [:]
     private var browse = false
     private var passNext = false
     private var loneCommand = LoneModifier()
@@ -177,7 +178,7 @@ nonisolated final class WindowsKeyLayer: @unchecked Sendable {   // its state be
             mine.manager = nil
             if mine.connect != 0 { IOServiceClose(mine.connect); mine.connect = 0 }
             // The key state is the running layer's: a newer thread's is left alone.
-            if layer === mine { layer = nil; capsDown = false; browse = false; swallowedUps.removeAll() }
+            if layer === mine { layer = nil; capsDown = false; browse = false; swallowedUps.removeAll(); remapped.removeAll() }
             lifecycle.lock.lock()
             if lifecycle.unsafeValue.runLoop?.generation == generation { lifecycle.unsafeValue.runLoop = nil }
             lifecycle.lock.unlock()
@@ -366,10 +367,13 @@ nonisolated final class WindowsKeyLayer: @unchecked Sendable {   // its state be
         loneCommand.cancel(); loneOption.cancel()
         if type == .keyUp {
             if swallowedUps.contains(code) { swallowedUps.remove(code); return nil }
-            WindowsRemap.apply(type, event)
+            // The release becomes what its press became: translated again from its own modifiers, Control let go
+            // before Home made the press Command Up and the release Command Left (a review, 13 Nov 2026).
+            if let t = remapped.removeValue(forKey: code) { t.apply(to: event) }
             return Unmanaged.passUnretained(event)
         }
         guard type == .keyDown else { return Unmanaged.passUnretained(event) }
+        remapped[code] = nil   // set again below if this press is translated
         if passNext { passNext = false; return Unmanaged.passUnretained(event) }
         let shift = flags.contains(.maskShift), control = flags.contains(.maskControl)
         let plain = !flags.contains(.maskCommand) && !flags.contains(.maskAlternate)
@@ -471,7 +475,7 @@ nonisolated final class WindowsKeyLayer: @unchecked Sendable {   // its state be
             }
             if let t { swallowedUps.insert(code); Self.post(t); return nil }
         }
-        WindowsRemap.apply(type, event)
+        if let t = WindowsRemap.apply(type, event) { remapped[code] = t }
         return Unmanaged.passUnretained(event)
     }
 
