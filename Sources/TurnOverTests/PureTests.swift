@@ -39,6 +39,16 @@ func pureTests() {
         expect(TerminalRules.firstContentLineStart("\n\u{1F600}\nb"), 1, "after a newline")
         check(TerminalRules.firstContentLineStart("\n  \n") == nil, "nothing above the prompt: nothing to read")
     }
+    test("labels: a text labels a field from its left only when it is near and on the field's row") {
+        let field = CGRect(x: 300, y: 100, width: 200, height: 22)
+        check(TurnOverObject.isLeftLabel(CGRect(x: 200, y: 102, width: 90, height: 17), of: field), "a label just before the field")
+        check(!TurnOverObject.isLeftLabel(CGRect(x: 20, y: 102, width: 60, height: 17), of: field), "a text far across the row")
+        check(!TurnOverObject.isLeftLabel(CGRect(x: 200, y: 140, width: 90, height: 17), of: field), "a text on another row")
+        check(!TurnOverObject.isLeftLabel(CGRect(x: 520, y: 102, width: 60, height: 17), of: field), "a text to the right")
+        let tall = CGRect(x: 300, y: 100, width: 200, height: 300)
+        check(!TurnOverObject.isLeftLabel(CGRect(x: 200, y: 240, width: 90, height: 17), of: CGRect(x: 300, y: 100, width: 200, height: 30)), "below a short field")
+        check(TurnOverObject.isLeftLabel(CGRect(x: 200, y: 240, width: 90, height: 17), of: tall), "beside a tall field's middle")
+    }
     test("pronunciations: whole words, any case, longest first, comments skipped") {
         let list = PronunciationDictionary.parse("# mine\nTurnOver = turn over\nNew York = new york\nNew York City = big apple\nbad line\nLBRF = L B R F")
         expect(list.count, 4, "four entries; the comment and the line without = left out")
