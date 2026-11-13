@@ -36,7 +36,11 @@ nonisolated enum WindowsRemap {
     /// start, A1 and the edge of the data, as on a PC. Translated, Control Home became Command Up and went to the top
     /// of the column (Excel, Day 2, 10 Oct 2026). The Control letters (copy, paste) are still translated.
     static let windowsGrid: Set<String> = ["com.microsoft.Excel"]
-    static let keepControl: Set<String> = ["com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable", "co.zeit.hyper", "net.kovidgoyal.kitty"]
+    /// Terminal apps, by name: where VoiceOver reads, the layer has no focus to ask (TurnOver's own layer also keeps
+    /// Control for any focused terminal, ScriptHandler.askMain). Ghostty, Alacritty and WezTerm added after a review,
+    /// 13 Nov 2026.
+    static let keepControl: Set<String> = ["com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable", "co.zeit.hyper", "net.kovidgoyal.kitty",
+                                           "com.mitchellh.ghostty", "org.alacritty", "com.github.wez.wezterm"]
 
     // Key codes.
     static let left: Int64 = 123, right: Int64 = 124, down: Int64 = 125, up: Int64 = 126

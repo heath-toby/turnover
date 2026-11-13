@@ -111,7 +111,10 @@ public enum ScriptHandler {
             // and the Windows style's leftToApp scans its menus, up to three times a key (a review, 13 Nov 2026).
             // nil: handleKeyDown looks `handled` up itself.
             var resolved: Script?? = nil
-            if let alternative {
+            // Never in a terminal, whatever app it is in: Control C is the shell's there, as GlobalCommands.leftToApp
+            // has it. WindowsRemap.keepControl knows terminal apps only by name, and VS Code's terminal, Ghostty,
+            // Alacritty and WezTerm got Command C (a review, 13 Nov 2026).
+            if let alternative, API.focusObject?.role != .terminal {
                 let own = findScript(for: gesture)
                 // No command for the Windows key: the Mac key it becomes. Or the same command for both (End and
                 // Command Right both a text field's caret move): the Mac key too, so the app gets the key that moves
