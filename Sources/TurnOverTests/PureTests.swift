@@ -30,6 +30,42 @@ func pureTests() {
             check(!TerminalRules.isPasswordPrompt(line), "\(line) is not a password prompt")
         }
         check(!TerminalRules.isPasswordPrompt(nil), "no line is no prompt")
+        for line in ["[sudo: authenticate] Password: *", "[sudo: authenticate] Password: ****", "Password:***", "Password: •••  "] {
+            check(TerminalRules.isPasswordPrompt(line), "\(line): the stars drawn per key leave it a prompt")
+        }
+        check(!TerminalRules.isPasswordPrompt("Pinned items: *"), "a star after another line is not a prompt")
+    }
+    test("terminal: a command that asks for a password next, and keys typed ahead of its prompt are secret") {
+        for line in ["toby@mac ~ % sudo ls", "sudo -k", "toby@mac ~ % ssh host", "$ su -", "passwd", "cd x && sudo make install",
+                     "make;sudo cp a b", "/usr/bin/sudo ls", "❯ doas sh", "toby@mac ~ % git pull | ssh x"] {
+            check(TerminalRules.asksForPassword(commandLine: line), "\(line) asks for a password next")
+        }
+        for line in ["toby@mac ~ % echo sudo", "toby@mac ~ % ls", "man ssh", "toby@mac ~ % grep su file", ""] {
+            check(!TerminalRules.asksForPassword(commandLine: line), "\(line) does not")
+        }
+        let t0 = Date()
+        var s = TerminalSecret()
+        check(!s.isSecret(now: t0), "nothing secret at first")
+        s.returnPressed(commandLine: "toby@mac ~ % sudo ls", at: t0)
+        check(s.isSecret(now: t0.addingTimeInterval(1)), "typed ahead of sudo's prompt: secret")
+        check(!s.isSecret(now: t0.addingTimeInterval(2.5)), "not after two seconds without a prompt")
+        s.keyTypedAhead(backspace: false); s.keyTypedAhead(backspace: false); s.keyTypedAhead(backspace: false); s.keyTypedAhead(backspace: true)
+        expect(s.aheadKeys, 2, "keys typed ahead counted, Backspace taking one off")
+        expect(TerminalRules.withoutTypedAhead("ab[sudo] password for toby:", keys: 2), "[sudo] password for toby:", "their echo before the prompt taken off")
+        s.sawPrompt()
+        check(s.isSecret(now: t0.addingTimeInterval(60)), "at the prompt: secret until Return")
+        expect(s.aheadKeys, 0, "the count goes at the prompt")
+        s.returnPressed(commandLine: "Password:", at: t0.addingTimeInterval(60))
+        check(s.isSecret(now: t0.addingTimeInterval(61)), "a retry may be typed ahead too")
+        s.outputArrived()
+        check(!s.isSecret(now: t0.addingTimeInterval(61)), "output arrived: typing is not secret")
+        s.returnPressed(commandLine: "toby@mac ~ % ls", at: t0.addingTimeInterval(70))
+        check(!s.isSecret(now: t0.addingTimeInterval(70.5)), "an ordinary command: not secret")
+        s.returnPressed(commandLine: "toby@mac ~ % ssh host", at: t0.addingTimeInterval(80))
+        s.keyTypedAhead(backspace: false)
+        s.returnPressed(commandLine: "", at: t0.addingTimeInterval(81))
+        check(s.isSecret(now: t0.addingTimeInterval(82.5)), "a password typed ahead and sent: still ahead of its prompt")
+        expect(s.aheadKeys, 1, "its count kept for the echo")
     }
     test("terminal: after clear, output above the prompt is read from its first line") {
         expect(TerminalRules.firstContentLineStart("\n\n  \nfile.txt\nnotes\n"), 5, "blank lines before the output skipped")
