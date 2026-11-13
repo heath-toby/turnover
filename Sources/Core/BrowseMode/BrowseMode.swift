@@ -176,7 +176,7 @@ public final class BrowseModeDocument: ScriptableObject {
             singleLetterNavigation = true; selectionAnchor = nil; lastFocusElement = nil
             // Safari reuses one web area per tab: a page reached again by a link is a new arrival, read again; only
             // Back and Forward come back to one announced (a review, 13 Nov 2026).
-            if !byHistory { BrowseModeHandler.forgetAnnounced(webArea) }
+            if !byHistory { BrowseModeHandler.forgetAnnounced(webArea, url: now) }
         }
         let saved = byHistory ? BrowseModeHandler.shared.savedPosition(for: now) : nil
         let at = resumeOffset(saved)
