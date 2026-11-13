@@ -208,8 +208,19 @@ extension BrowseModeDocument {
         // sent it elsewhere (the slider's, then the Delete button's, and Shift Tab landed in the header, a tester,
         // 13 Nov 2026); Space and Return press what the reading is on.
         let positionOnly = bundle == "com.apple.mail"
+        var wrapped = false
         for _ in 0..<30 {
-            guard let (at, el) = buffer.find(from: from, forward: forward, roles: roles) else { return false }
+            guard let (at, el) = buffer.find(from: from, forward: forward, roles: roles) else {
+                // Safari, past the page's last control: the edge sound and round to its first, as an app whose Tab
+                // moves the reading does. Its own Tab started from its old focus on the page, back inside it (a
+                // review, 13 Nov 2026). (Mail's message goes on out of the message: tabPastPage.)
+                guard bundle.hasPrefix("com.apple.Safari"), !wrapped,
+                      buffer.find(from: forward ? -1 : buffer.text.length, forward: forward, roles: roles) != nil else { return false }
+                wrapped = true
+                Tones.edge()
+                from = forward ? -1 : buffer.text.length
+                continue
+            }
             if positionOnly {
                 Log.io("browse mode: Tab to \(el.role) at \(at); the reading position goes there")
                 position = at

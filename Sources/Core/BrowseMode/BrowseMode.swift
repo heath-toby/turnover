@@ -482,6 +482,11 @@ public final class BrowseModeDocument: ScriptableObject {
         script("tabFromCaret", String(localized: "Next link or control; moves to the next link or control after the reading position (Shift: before it)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab", "kb:shift+tab"], category: nav) { [weak self] g in
             guard let self else { return }
             BrowseModeDocument.lastTabFromCaretAt = Date()
+            // The copy of the page now, as the arrows have it: Tab just after a link was followed searched the copy of
+            // the page left (a review, 13 Nov 2026).
+            refreshIfNavigated()
+            if buffer.lines.isEmpty { buffer.build() }
+            rebuildIfCheap()
             // From a field of a Safari page in focus mode (tabIsTurnOversInField): on from the field. Another field
             // takes the focus; a check box, button or link can't in Safari, so the reading position goes there and
             // browse mode comes back (Space and Return press it there).
