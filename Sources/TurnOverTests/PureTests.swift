@@ -1585,4 +1585,10 @@ func browseTextNavTests() {
         expect(MediaView.playingText(of: [MediaView.Item(label: "Nothing playing", element: e)]), "", "nothing playing is nothing")
         expect(MediaView.playingText(of: []), "", "no player")
     }
+    test("system settings: Tab's round is kept a second, until the structure changes") {
+        check(SystemSettingsPaneFocus.keepRing(age: 0.3, observed: true, structureSince: false), "kept")
+        check(!SystemSettingsPaneFocus.keepRing(age: 1.2, observed: true, structureSince: false), "too old")
+        check(!SystemSettingsPaneFocus.keepRing(age: 0.3, observed: true, structureSince: true), "the pane changed")
+        check(!SystemSettingsPaneFocus.keepRing(age: 0.3, observed: false, structureSince: false), "news not watched")
+    }
 }

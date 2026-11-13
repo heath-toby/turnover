@@ -37,7 +37,26 @@ package enum SystemSettingsPaneFocus {
 
     /// Tab's round in the window: the sidebar, the search field, then the pane's controls; empty if the window isn't
     /// laid out as System Settings' main window is.
+    /// The last round worked out, kept a second for its window while System Settings reports no change to its
+    /// structure: each Tab asked the pane for up to 600 elements on the main thread (a review, 13 Nov 2026).
+    private static var kept: (window: AXUIElement, at: Date, ring: [AXUIElement], paneStart: Int)?
     static func ring(in window: AXUIElement) -> (stops: [AXUIElement], paneStart: Int) {
+        let pid = window.pid
+        if let k = kept, k.window.isSame(window), keepRing(age: Date().timeIntervalSince(k.at), observed: AXHandler.shared.observers[pid] != nil,
+                                                          structureSince: (AXHandler.shared.lastStructureAt[pid] ?? .distantPast) >= k.at),
+           [k.ring.first, k.ring.last].compactMap({ $0 }).allSatisfy({ $0.role != "?" }) {   // (its ends still there)
+            return (k.ring, k.paneStart)
+        }
+        let at = Date()   // before the walk: news arriving during it makes the round stale
+        let built = buildRing(in: window)
+        kept = built.stops.isEmpty ? nil : (window, at, built.stops, built.paneStart)
+        return built
+    }
+    /// A kept round is used while under a second old, with the app's news watched and no structure news since.
+    package nonisolated static func keepRing(age: TimeInterval, observed: Bool, structureSince: Bool) -> Bool {
+        age >= 0 && age < 1 && observed && !structureSince
+    }
+    private static func buildRing(in window: AXUIElement) -> (stops: [AXUIElement], paneStart: Int) {
         // A sheet over the window (Bluetooth's Show Detail, 10 Nov 2026): Tab goes round the sheet alone, as a dialog's
         // Tab does; TurnOver stayed in the pane behind it (a tester).
         if let sheet = sheet(of: window) { return (controlsInOrder(sheet), 0) }
