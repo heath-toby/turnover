@@ -495,7 +495,12 @@ public enum Speech {
         if hasRole { pieces.append(("role", [parts.last!])) }
         // A value that only repeats the name is not said twice (Excel's headings give both, 10 Oct 2026).
         if !reportsText, reason != .focusEntered, !Role.silentValues.contains(role), let v = obj.value, !v.isEmpty, v != name { pieces.append(("value", [v])) }
-        let states = statesSpeech(role: role, states: obj.states, reason: reason)
+        var states = statesSpeech(role: role, states: obj.states, reason: reason)
+        // "read-only edit", NVDA's words, not "edit … read only".
+        if role == .editableText, obj.states.contains(.readOnly), let i = pieces.firstIndex(where: { $0.0 == "role" }) {
+            pieces[i].1 = [String(localized: "read-only edit", comment: "A role: a text field that can't be typed in")]
+            states.removeAll { $0 == State.readOnly.displayString }
+        }
         // A value that only repeats a state said anyway (Stocks' period buttons: value "selected" and selected,
         // "selected selected", 12 Nov 2026).
         if let i = pieces.firstIndex(where: { $0.0 == "value" }), let v = pieces[i].1.first, states.contains(where: { $0.caseInsensitiveCompare(v) == .orderedSame }) { pieces.remove(at: i) }

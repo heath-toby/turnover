@@ -88,6 +88,10 @@ public final class SettingsPanePlugin: GlobalPlugin {
     }
 
     func trapMove(_ g: KeyboardGesture, forward: Bool) {
+        // An app's module that orders this Tab itself (Mail's message list to the header fields) keeps it.
+        if let pid = API.focusPid, let s = AppModuleHandler.shared.appModule(for: pid).script(for: g) {
+            Log.io("tab trap: the app's module has \(s.name) for this key"); s.handler(g); return
+        }
         // From TurnOver's held place when the app's buttons do not take the focus, else from the focus.
         Self.dropDeadHold()
         guard let current = Self.virtual ?? API.focusObject?.element, let window = Self.scopeOf(current) else {

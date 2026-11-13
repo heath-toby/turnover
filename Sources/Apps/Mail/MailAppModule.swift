@@ -8,6 +8,99 @@ import ApplicationServices
 package final class MailAppModule: AppModule {
     static let bundleID = "com.apple.mail"
 
+    // MARK: The message's header fields, read-only edits on Tab (a tester, 13 Nov 2026: From, To, Cc and Subject
+    // reachable with Tab, as NVDA reads Outlook's; the buttons under them are a toolbar). Mail draws them as one text
+    // area of lines, the sender's line, the subject's, then "To:", "Cc:", "Reply-To:", names as attachments.
+
+    /// The field Tab is on, in the header text area.
+    static var headerAt: (area: AXUIElement, index: Int, at: Date)?
+
+    static func isHeaderArea(_ e: AXUIElement) -> Bool {
+        e.role == "AXTextArea" && e.element(kAXParentAttribute)?.string(kAXDescriptionAttribute) == "message headers"
+    }
+    /// One of the header's buttons (the toolbar under the fields).
+    static func isHeaderButton(_ e: AXUIElement) -> Bool {
+        ["AXButton", "AXMenuButton"].contains(e.role) && e.element(kAXParentAttribute)?.string(kAXDescriptionAttribute) == "message content"
+    }
+    /// The header text area of the message `e` is in or beside (the first message shown).
+    static func headerArea(near e: AXUIElement) -> AXUIElement? {
+        if isHeaderArea(e) { return e }
+        var content: AXUIElement? = isHeaderButton(e) ? e.element(kAXParentAttribute) : nil
+        if content == nil, let w = SettingsPanePlugin.windowOf(e) { content = headerStrips(in: w).first?.0 }
+        guard let c = content, let h = c.elements(kAXChildrenAttribute).first(where: { $0.string(kAXDescriptionAttribute) == "message headers" }) else { return nil }
+        return h.elements(kAXChildrenAttribute).first { $0.role == "AXTextArea" }
+    }
+
+    /// The fields: label, words (names in place of their attachments) and where the line starts.
+    static func headerFields(_ area: AXUIElement) -> [(label: String, text: String, start: Int)] {
+        let value = area.string(kAXValueAttribute) ?? ""
+        let names = area.elements(kAXChildrenAttribute).filter { $0.string(kAXSubroleAttribute) == "AXTextAttachment" }
+            .map { ($0.string(kAXValueAttribute) ?? $0.string(kAXDescriptionAttribute) ?? "").trimmingCharacters(in: .whitespaces) }
+        var out: [(String, String, Int)] = []
+        var k = 0, start = 0
+        for (i, line) in value.components(separatedBy: "\n").enumerated() {
+            defer { start += (line as NSString).length + 1 }
+            var words: [String] = [], plain = ""
+            for ch in line {
+                if ch == "\u{FFFC}" {
+                    if !plain.trimmingCharacters(in: .whitespaces).isEmpty { words.append(plain.trimmingCharacters(in: .whitespaces)) }
+                    plain = ""
+                    if k < names.count, !names[k].isEmpty { words.append(names[k]) }
+                    k += 1
+                } else { plain.append(ch) }
+            }
+            if !plain.trimmingCharacters(in: .whitespaces).isEmpty { words.append(plain.trimmingCharacters(in: .whitespaces)) }
+            guard !words.isEmpty else { continue }
+            var label = ""
+            // "To:", "Cc:", "Reply-To:": Mail's own label, in the Mac's language.
+            if let first = words.first, let colon = first.firstIndex(of: ":"), first.distance(from: first.startIndex, to: colon) <= 14 {
+                label = String(first[..<colon])
+                let rest = first[first.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+                if rest.isEmpty { words.removeFirst() } else { words[0] = rest }
+            } else if i == 0 { label = String(localized: "From", comment: "A received message's sender, read as a field") }
+            else if out.count == 1 { label = String(localized: "Subject", comment: "A received message's subject, read as a field") }
+            guard !words.isEmpty else { continue }
+            out.append((label, words.joined(separator: ", "), start))
+        }
+        return out
+    }
+
+    /// Reading a message in browse mode with no link or control before the reading position: Shift Tab is the header's.
+    /// A message being written (its body is a web area too).
+    static func compose(_ e: AXUIElement) -> Bool { place.hasPrefix("compose:") || (e.role == "AXWebArea" && EditableWebArea.isEditable(e)) }
+
+    static func atMessageStart() -> Bool {
+        // (By the focus, not the place noted: the message's body is drawn by Mail's web content process, whose
+        // focus news never reaches this module.)
+        guard let f = API.focusObject, f.axRole == "AXWebArea" || SettingsPanePlugin.isInWeb(f.element), !compose(f.element) else { return false }
+        // On the message itself, browse mode not yet in it (just come from the header's buttons): its start.
+        guard let d = API.focusTreeInterceptor else { return f.axRole == "AXWebArea" }
+        guard !d.passThrough else { return false }
+        let roles: Set<String> = ["AXLink", "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXComboBox"]
+        return d.buffer.find(from: d.position, forward: false, roles: roles) == nil
+    }
+
+    /// To field `index` of the header: the text area takes the keyboard, its caret at the line, and the field is said.
+    func goHeader(_ area: AXUIElement, _ index: Int) {
+        let fields = Self.headerFields(area)
+        guard fields.indices.contains(index) else { Tones.edge(); return }
+        let f = fields[index]
+        Self.headerAt = (area, index, Date())
+        _ = area.set(kAXFocusedAttribute, kCFBooleanTrue)
+        var r = CFRange(location: f.start, length: 0)
+        if let v = AXValueCreate(.cfRange, &r) { _ = area.set(kAXSelectedTextRangeAttribute, v) }
+        // TurnOver's focus is the field too, whether or not Mail's own follows (its event is held back as said).
+        let obj = ObjectFactory.make(area)
+        API.setFocusObject(obj, ancestors: obj.ancestors)
+        notePlace(area)
+        Log.io("mail: header field \(index + 1) of \(fields.count)")
+        Tones.focusTick()
+        Speech.cancel()
+        let role = String(localized: "read-only edit", comment: "A role: a text field that can't be typed in")
+        Speech.speakMessage([f.label, role, f.text].filter { !$0.isEmpty }.joined(separator: ", "))
+        ObjectNavigator.shared.focusMoved(to: area, pid: pid)
+    }
+
     /// Each message's header buttons: the row of buttons standing directly in its "message content" group.
     static func headerStrips(in window: AXUIElement) -> [(AXUIElement, CGRect)] {
         var out: [(AXUIElement, CGRect)] = []
@@ -86,6 +179,48 @@ package final class MailAppModule: AppModule {
             guard let self, let f = API.focusObject?.element else { g.send(); return }
             self.focusList("messages", from: f)
         }.isAvailable = { Self.place == "mailboxes" }
+        // The header fields on Tab: from the message list into the shown message's first field; along the fields;
+        // past the last, the header's toolbar; Shift Tab back from its toolbar to the last field.
+        script("mail_headerNext", String(localized: "Reading a message: the next header field (From, Subject, To, Cc), then its buttons", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Mail") { [weak self] g in
+            guard let self, let f = API.focusObject?.element else { g.send(); return }
+            if Self.isHeaderArea(f) {
+                let i = Self.headerAt.flatMap { $0.area.isSame(f) ? $0.index : nil } ?? 0
+                if i + 1 < Self.headerFields(f).count { self.goHeader(f, i + 1); return }
+                // Past the last field: the buttons, one stop (the toolbar's last used, else its first).
+                Self.headerAt = nil
+                if let c = f.element(kAXParentAttribute)?.element(kAXParentAttribute),
+                   let b = c.elements(kAXChildrenAttribute).first(where: { Self.isHeaderButton($0) }) {
+                    let row = c.elements(kAXChildrenAttribute).filter { Self.isHeaderButton($0) }
+                    let stop = SettingsPanePlugin.toolbarStop(c, row) ?? b
+                    SettingsPanePlugin.focus(stop); return
+                }
+                g.send(); return
+            }
+            guard let area = Self.headerArea(near: f) else { g.send(); return }
+            self.goHeader(area, 0)
+        }.isAvailable = {
+            guard let f = API.focusObject?.element else { return false }
+            return Self.isHeaderArea(f) || (Self.place == "messages" && Self.headerArea(near: f) != nil)
+        }
+        script("mail_headerPrevious", String(localized: "Reading a message: the previous header field", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Mail") { [weak self] g in
+            guard let self, let f = API.focusObject?.element else { g.send(); return }
+            if Self.isHeaderArea(f) {
+                let i = Self.headerAt.flatMap { $0.area.isSame(f) ? $0.index : nil } ?? 0
+                if i > 0 { self.goHeader(f, i - 1); return }
+                Self.headerAt = nil
+                self.focusList("messages", from: f); return
+            }
+            // From the message itself, before its first link or button: up to its header's buttons.
+            if !Self.isHeaderButton(f), let area = Self.headerArea(near: f), let c = area.element(kAXParentAttribute)?.element(kAXParentAttribute) {
+                let row = c.elements(kAXChildrenAttribute).filter { Self.isHeaderButton($0) }
+                if let stop = SettingsPanePlugin.toolbarStop(c, row) ?? row.first { Log.io("mail: Shift Tab from the message to its header's buttons"); SettingsPanePlugin.focus(stop); return }
+            }
+            guard let area = Self.headerArea(near: f) else { g.send(); return }
+            self.goHeader(area, max(0, Self.headerFields(area).count - 1))
+        }.isAvailable = {
+            guard let f = API.focusObject?.element else { return false }
+            return Self.isHeaderArea(f) || Self.isHeaderButton(f) || Self.atMessageStart()
+        }
         // Escape leaves the message being read, as in Outlook on Windows (7 Oct 2026): a message in its own
         // window closes, and the keys go back to the message list; in the main window, the list takes the keys.
         // Only while reading (browse mode): in focus mode Escape first goes back to browse mode, and in a message
@@ -264,6 +399,8 @@ package final class MailAppModule: AppModule {
         // After Command Shift D: "sent" before the window and focus behind the compose window are read.
         if Self.sending != nil, [.foreground, .gainFocus].contains(event.kind) { Self.saySentIfGone() }
         if event.kind == .gainFocus { notePlace(event.obj.element) }
+        // The header text area taking the keyboard for a field TurnOver has just said: not read again whole.
+        if event.kind == .gainFocus, let h = Self.headerAt, h.area.isSame(event.obj.element), Date().timeIntervalSince(h.at) < 1.5 { return }
         // The focus on the scroll area around a message (Mail can come back to it after Command Tab; nothing in it is
         // TurnOver's to read, and the arrows only scrolled, 13 Oct 2026): reading starts in the message, as
         // when a message opens in its own window.

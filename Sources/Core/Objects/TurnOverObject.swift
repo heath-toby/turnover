@@ -355,6 +355,12 @@ open class TurnOverObject: ScriptableObject {
             if !(empty && s.contains(.required)) { s.insert(.invalidEntry) }
         }
         if Role.withNavigableText.contains(role), role != .document, role != .webArea, axRole != "AXWebArea" { s.insert(.editable); if axRole == "AXTextArea" { s.insert(.multiLine) } }
+        // A field whose text can't be changed: NVDA's "read-only edit" (Mail's message header, From, To, Subject: a
+        // tester, 13 Nov 2026). Terminal's text area answers the same and is a terminal, not a field.
+        if ["AXTextField", "AXTextArea"].contains(axRole), element.string(kAXSubroleAttribute) != "AXTerminalTextArea" {
+            var settable: DarwinBoolean = true
+            if AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success, !settable.boolValue { s.insert(.readOnly) }
+        }
         return s
     }()
 

@@ -42,7 +42,7 @@ extension BrowseModeDocument {
         if obj.axRole == "AXWebArea" { return false }
         if Self.inPlayerOrApplication(obj.element) { return true }
         let s = obj.states
-        if s.contains(.editable) && !s.contains(.unavailable) { return true }
+        if s.contains(.editable) && !s.contains(.unavailable) && !s.contains(.readOnly) { return true }   // (not a read-only edit, as NVDA)
         switch obj.role {
         case .comboBox, .popUpButton, .slider, .spinButton, .list, .table, .treeView, .menu, .menuItem, .tabControl, .tab: return true
         case .listItem, .treeViewItem: return true   // NVDA's LISTITEM, TREEVIEWITEM
