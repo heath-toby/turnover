@@ -174,6 +174,11 @@ public final class BrowseModeDocument: ScriptableObject {
             // The rest of what belonged to the page left: its letters turned off, a selection, the control the focus
             // was last on (a review, 13 Nov 2026).
             singleLetterNavigation = true; selectionAnchor = nil; lastFocusElement = nil
+            // And the places kept for it: where it was before it emptied, a module's wish to enter it at its last
+            // control, its line said instead of a say all. Left over, they placed or silenced the new page (a review,
+            // 13 Nov 2026). A request made in the last second is for this arrival (Mail's Shift Tab, as it moves on).
+            placeBeforeEmpty = nil; startAtLastControl = false; noAutoRead = false
+            if let r = Self.lastControlRequest, r.area.isSame(webArea), Date().timeIntervalSince(r.at) > 1 { Self.lastControlRequest = nil }
             // Safari reuses one web area per tab: a page reached again by a link is a new arrival, read again; only
             // Back and Forward come back to one announced (a review, 13 Nov 2026).
             if !byHistory { BrowseModeHandler.forgetAnnounced(webArea, url: now) }
@@ -371,8 +376,11 @@ public final class BrowseModeDocument: ScriptableObject {
         placeOnArrival()   // entered from below before it had loaded (Mail's Shift Tab): its last control, not its top
         VoiceOverSounds.play("WebAreaLoaded.aiff")   // VoiceOver's "web area loaded", the sound its list has for a page
         Log.io("browse mode: page arrived — resuming at \(position)\(kept ? " (where it was before it emptied)" : saved == nil ? "" : " (saved \(saved!.offset))")")
-        if announce, url != announcedURL { announcePage() }
-        else if kept, announce, Date().timeIntervalSince(pageGoneAt) < 30 { sayReloaded() }   // a reload read mid-way: said, not silent
+        if announce, url != announcedURL { announcePage(); return true }
+        if kept, announce, Date().timeIntervalSince(pageGoneAt) < 30 { sayReloaded() }   // a reload read mid-way: said, not silent
+        // Not announced here: the line-instead-of-say-all placeOnArrival may have set was for this arrival only; left
+        // set, it silenced the say all of a later page (a review, 13 Nov 2026).
+        noAutoRead = false
         return true
     }
 
