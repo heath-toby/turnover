@@ -134,6 +134,9 @@ public final class BrowseModeDocument: ScriptableObject {
         // the top and the page announced again (a review, 13 Nov 2026).
         if !first, Self.isSamePage(now, lastURL) {
             lastURL = now
+            // Back or Forward between anchors is used up here too: left, it made a link followed within 10 s resume part
+            // way down, as the new-page branch below says (a review, 13 Nov 2026).
+            BrowseModeHandler.historyKeyAt = .distantPast
             if Self.urlBase(announcedURL) == Self.urlBase(now) { announcedURL = now }   // not announced again as a page when the focus follows
             // The page's own script moving its anchor under a say all of it: not read again there (its offsets would
             // mean other text); the next key reads it (a review, 13 Nov 2026).
