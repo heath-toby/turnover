@@ -31,6 +31,14 @@ func pureTests() {
         }
         check(!TerminalRules.isPasswordPrompt(nil), "no line is no prompt")
     }
+    test("terminal: after clear, output above the prompt is read from its first line") {
+        expect(TerminalRules.firstContentLineStart("\n\n  \nfile.txt\nnotes\n"), 5, "blank lines before the output skipped")
+        expect(TerminalRules.firstContentLineStart("  a"), 0, "a line's own indent kept")
+        expect(TerminalRules.firstContentLineStart("é\n"), 0, "the first line at once")
+        expect(TerminalRules.firstContentLineStart("\u{1F600}\n\nb"), 0, "counted in UTF-16 units")
+        expect(TerminalRules.firstContentLineStart("\n\u{1F600}\nb"), 1, "after a newline")
+        check(TerminalRules.firstContentLineStart("\n  \n") == nil, "nothing above the prompt: nothing to read")
+    }
     test("pronunciations: whole words, any case, longest first, comments skipped") {
         let list = PronunciationDictionary.parse("# mine\nTurnOver = turn over\nNew York = new york\nNew York City = big apple\nbad line\nLBRF = L B R F")
         expect(list.count, 4, "four entries; the comment and the line without = left out")

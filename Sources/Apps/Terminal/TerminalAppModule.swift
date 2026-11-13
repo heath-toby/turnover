@@ -242,6 +242,15 @@ final class TerminalText: TurnOverObject {
             Speech.speakText(command.isEmpty ? Phrases.blank : command)
             return
         }
+        if s.anchor > total, let (start, text) = cursorLine() {
+            // Cleared (clear, Command-K): the text is shorter than the anchor. Whatever arrived in the same batch
+            // (clear; ls) is above the cursor's line, from the first line with anything on it; the prompt alone there
+            // is nothing new (a review, 13 Nov 2026: that output was lost to the re-anchoring).
+            s.anchor = start; s.anchorText = text
+            guard let first = TerminalRules.firstContentLineStart(string(0, min(start, 40_000))) else { return }
+            s.anchor = first; s.anchorText = ""
+            s.enterAt = .distantPast   // its first line is output, not the command line just heard
+        }
         guard s.anchor >= 0, s.anchor <= total else {
             if let (start, text) = cursorLine() { s.anchor = start; s.anchorText = text }
             return
@@ -446,6 +455,13 @@ final class TerminalText: TurnOverObject {
 
 /// Terminal output as it is read (pure, tested).
 package enum TerminalRules {
+    /// Where the first line with anything on it starts, in UTF-16 units as Terminal counts; nil when all is blank. Pure.
+    package nonisolated static func firstContentLineStart(_ text: String) -> Int? {
+        guard let i = text.firstIndex(where: { !$0.isWhitespace }) else { return nil }
+        let lineStart = text[..<i].lastIndex(where: { $0.isNewline }).map { text.index(after: $0) } ?? text.startIndex
+        return text.utf16.distance(from: text.utf16.startIndex, to: lineStart)
+    }
+
     /// A line that asks for a secret: it ends with ":" and has the word "password", "passphrase" or "pin" in it, in
     /// any case. Whole words, so ssh-keygen's "Enter passphrase (empty for no passphrase):", "Enter same passphrase
     /// again:" and ssh's "Enter PIN for 'key':" are prompts (a review, 13 Nov 2026: the passphrase typed there was
