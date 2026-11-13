@@ -123,7 +123,15 @@ extension AXHandler {
         guard let frontApp = NSRunningApplication(processIdentifier: activePid) else { return false }
         if Self.servesPanel(helperBundle: helper.bundleIdentifier, helperName: helper.localizedName, frontName: frontApp.localizedName) { return true }
         guard let front = frontApp.bundleIdentifier, let b = helper.bundleIdentifier else { return false }
-        return b.hasPrefix(front + ".")
+        return b.hasPrefix(front + ".") || Self.isSettingsExtension(b, front: front)
+    }
+
+    /// System Settings draws a pane that goes deeper (Privacy & Security, then Automation) in the pane's own extension
+    /// process (com.apple.settings.PrivacySecurity.extension, com.apple.Software-Update-Settings.extension). Its focus
+    /// was ignored as not an application's, and Tab fell silent (a tester, 13 Nov 2026, macOS 27.2).
+    nonisolated public static func isSettingsExtension(_ helper: String, front: String) -> Bool {
+        front == "com.apple.systempreferences" && helper.hasPrefix("com.apple.") && helper.hasSuffix(".extension")
+            && helper.lowercased().contains("settings")
     }
 
     /// The Open and Save dialogs are drawn by a system service, one per app, that names the app it serves: "Open and

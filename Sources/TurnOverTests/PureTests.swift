@@ -1521,4 +1521,12 @@ func browseTextNavTests() {
         check(!AXHandler.servesPanel(helperBundle: svc, helperName: nil, frontName: "TextEdit"), "a service without a name")
         check(!AXHandler.servesPanel(helperBundle: svc, helperName: "Open and Save Panel Service ()", frontName: ""), "no app in front")
     }
+    test("a System Settings pane's extension counts as System Settings") {
+        let ss = "com.apple.systempreferences"
+        check(AXHandler.isSettingsExtension("com.apple.settings.PrivacySecurity.extension", front: ss), "Privacy & Security")
+        check(AXHandler.isSettingsExtension("com.apple.Software-Update-Settings.extension", front: ss), "Software Update")
+        check(!AXHandler.isSettingsExtension("com.apple.settings.PrivacySecurity.extension", front: "com.apple.finder"), "only with System Settings in front")
+        check(!AXHandler.isSettingsExtension("com.apple.TextInputUI.xpc.CursorUIViewService", front: ss), "other services stay ignored")
+        check(!AXHandler.isSettingsExtension("com.example.settings.extension", front: ss), "not Apple's")
+    }
 }

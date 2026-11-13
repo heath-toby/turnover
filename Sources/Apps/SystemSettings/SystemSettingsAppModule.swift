@@ -96,11 +96,16 @@ package final class SystemSettingsAppModule: AppModule {
 
     private static func context(pid: pid_t) -> Context? {
         guard Core.active, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
-              !AXHandler.shared.isMenuOpen, !TurnOverMenu.shared.isOpen, let focus = API.focusObject, focus.pid == pid else { return nil }
+              !AXHandler.shared.isMenuOpen, !TurnOverMenu.shared.isOpen, let focus = API.focusObject, inSettings(focus.pid, pid) else { return nil }
         let objects = [focus] + API.focusAncestors
         guard !objects.contains(where: { $0.axRole == "AXSheet" || ["AXDialog", "AXSystemDialog"].contains($0.axSubrole ?? "") }),
               let window = objects.first(where: { $0.axRole == "AXWindow" })?.element else { return nil }
         return .init(window: window, focus: focus.element, ancestors: API.focusAncestors.map(\.element))
+    }
+    /// Settings' own process, or a pane's extension drawing inside its window (Privacy & Security's Automation, 13 Nov 2026).
+    private static func inSettings(_ focusPid: pid_t, _ pid: pid_t) -> Bool {
+        focusPid == pid || NSRunningApplication(processIdentifier: focusPid)?.bundleIdentifier
+            .map { AXHandler.isSettingsExtension($0, front: "com.apple.systempreferences") } == true
     }
     private var isAvailable: Bool { active && !terminated && dependencies.context() != nil }
     /// Tab's round may run in a sheet too (the part commands may not): the focus in System Settings, in front, no menu.
@@ -108,7 +113,7 @@ package final class SystemSettingsAppModule: AppModule {
         guard active, !terminated else { return nil }
         if let c = dependencies.context() { return (c.focus, c.window) }   // the window itself (and the tests' seam)
         guard Core.active, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
-              !AXHandler.shared.isMenuOpen, !TurnOverMenu.shared.isOpen, let focus = API.focusObject, focus.pid == pid,
+              !AXHandler.shared.isMenuOpen, !TurnOverMenu.shared.isOpen, let focus = API.focusObject, Self.inSettings(focus.pid, pid),
               let window = SettingsPanePlugin.windowOf(focus.element) else { return nil }
         return (focus.element, window)
     }
