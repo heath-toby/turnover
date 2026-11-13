@@ -104,6 +104,26 @@ func browseModeReviewTests() {
         expect(BrowseModeDocument.placeAfterRebuild(oldLine: "End", into: 9, oldPosition: 0, in: text), text.range(of: "End").location + 3, "no further than the line")
     }
 
+    test("browse mode review: say all at the end of a copy read again goes on past what it read") {
+        let old = "Top\nFirst part read\n" as NSString
+        expect(BrowseModeDocument.carryOnAfterRebuild(oldText: old, reached: old.length, newText: "Top\nFirst part read\nThe rest\n" as NSString),
+               old.length, "more past its end: on from there")
+        let grown = "Banner\nTop\nFirst part read\nThe rest\n" as NSString
+        expect(BrowseModeDocument.carryOnAfterRebuild(oldText: old, reached: old.length, newText: grown),
+               grown.range(of: "The rest").location, "more above too: past the text read last")
+        expect(BrowseModeDocument.carryOnAfterRebuild(oldText: old, reached: old.length, newText: "Other\n" as NSString), 6, "all gone: within the copy")
+    }
+
+    test("browse mode review: the anchor's climb goes past an element an earlier line's climb ended at") {
+        // <div id=x (1)><p (2)><a (3)>link (4)</a> more (5)</p></div>: the first line from 4 climbs 4, 3, 2; the second,
+        // from 5, reaches 2 with a level more to go, and so 1.
+        let parents = [4: 3, 3: 2, 5: 2, 2: 1, 1: 0]
+        expect(BrowseModeDocument.climbToMatch([4, 5], parent: { parents[$0] }, matches: { $0 == 1 }), 1)
+        expect(BrowseModeDocument.climbToMatch([4, 5], parent: { parents[$0] }, matches: { $0 == 3 }), 0, "found on the first line")
+        expect(BrowseModeDocument.climbToMatch([4, 5], parent: { parents[$0] }, matches: { $0 == 0 }), nil, "past three levels: not")
+        expect(BrowseModeDocument.climbToMatch([4, 5], parent: { parents[$0] }, matches: { _ in true }, stop: { true }), nil, "out of time")
+    }
+
     test("browse mode review: a link to this page's anchor is told by its address, the fragment already in the page's or not") {
         expect(BrowseModeDocument.samePageFragment(link: "https://example.com/a#content", page: "https://example.com/a#content"), "content", "Jump to content, a second time")
         expect(BrowseModeDocument.samePageFragment(link: "https://example.com/a#content", page: "https://example.com/a"), "content")
@@ -120,6 +140,10 @@ func browseModeReviewTests() {
         check(!BrowseModeDocument.isSamePage("https://example.com/b#x", "https://example.com/a#x"), "another page with an anchor")
         check(!BrowseModeDocument.isSamePage("https://example.com/a", "https://example.com/a"), "unchanged")
         check(!BrowseModeDocument.isSamePage("https://example.com/a#b", ""), "the first look")
+        check(!BrowseModeDocument.isSamePage("https://mail.example.com/mail/u/0/#inbox/FMfcg", "https://mail.example.com/mail/u/0/#inbox"), "a route: a message opened")
+        check(!BrowseModeDocument.isSamePage("https://example.com/app/", "https://example.com/app/#/a"), "a route gone: the app's start")
+        check(!BrowseModeDocument.isSamePage("https://example.com/app/#!/b", "https://example.com/app/#!/a"), "a hash-bang route")
+        check(BrowseModeDocument.isSamePage("https://example.com/a#section-2", "https://example.com/a#section-1"), "plain anchors still are")
     }
 
     test("browse mode review: focus mode for a list box or grid, not for a plain list or table that took the focus (NVDA)") {

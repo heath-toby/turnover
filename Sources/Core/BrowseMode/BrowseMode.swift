@@ -134,6 +134,9 @@ public final class BrowseModeDocument: ScriptableObject {
         // the top and the page announced again (a review, 13 Nov 2026).
         if !first, Self.isSamePage(now, lastURL) {
             lastURL = now
+            // Back or Forward between anchors is used up here too: left, it made a link followed within 10 s resume part
+            // way down, as the new-page branch below says (a review, 13 Nov 2026).
+            BrowseModeHandler.historyKeyAt = .distantPast
             if Self.urlBase(announcedURL) == Self.urlBase(now) { announcedURL = now }   // not announced again as a page when the focus follows
             // The page's own script moving its anchor under a say all of it: not read again there (its offsets would
             // mean other text); the next key reads it (a review, 13 Nov 2026).
@@ -149,7 +152,10 @@ public final class BrowseModeDocument: ScriptableObject {
                 position = at
                 Log.io("browse mode: to the page's anchor")
                 speakUnit(.line)
-            } else if followWebKitSelection(force: true) {
+            } else if followWebKitSelection() {
+                // Only if WebKit's selection moved (an anchor by name, not id: the browser went there). Forced, an
+                // unchanged selection anywhere on the page was taken for the anchor and the reading jumped to it for a
+                // fragment that names no anchor (a review, 13 Nov 2026).
                 Log.io("browse mode: to the page's anchor, by WebKit's selection")
                 speakUnit(.line)   // (moved silently before: a review, 13 Nov 2026)
             }
@@ -174,25 +180,38 @@ public final class BrowseModeDocument: ScriptableObject {
             // The rest of what belonged to the page left: its letters turned off, a selection, the control the focus
             // was last on (a review, 13 Nov 2026).
             singleLetterNavigation = true; selectionAnchor = nil; lastFocusElement = nil
+            // And the places kept for it: where it was before it emptied, a module's wish to enter it at its last
+            // control, its line said instead of a say all. Left over, they placed or silenced the new page (a review,
+            // 13 Nov 2026). A request made in the last second is for this arrival (Mail's Shift Tab, as it moves on).
+            placeBeforeEmpty = nil; startAtLastControl = false; noAutoRead = false
+            if let r = Self.lastControlRequest, r.area.isSame(webArea), Date().timeIntervalSince(r.at) > 1 { Self.lastControlRequest = nil }
             // Safari reuses one web area per tab: a page reached again by a link is a new arrival, read again; only
             // Back and Forward come back to one announced (a review, 13 Nov 2026).
-            if !byHistory { BrowseModeHandler.forgetAnnounced(webArea) }
+            if !byHistory { BrowseModeHandler.forgetAnnounced(webArea, url: now) }
         }
         let saved = byHistory ? BrowseModeHandler.shared.savedPosition(for: now) : nil
         let at = resumeOffset(saved)
         position = at
         Log.io("browse mode: page \(Log.words(BrowseModeHandler.shortURL(now))) — resuming at \(position)\(saved == nil ? "" : " (saved \(saved!.offset))")")
         if announce, !buffer.lines.isEmpty { announcePage() }
-        else if !first, byKey, !buffer.lines.isEmpty { announcedURL = now }
+        else if !first, byKey, !buffer.lines.isEmpty { arrivedByKey() }
         GoogleDocs.checkSoon(self)
         if !first, buffer.lines.isEmpty, webArea.role != "AXWebArea" { followReplacedRoot(tries: 10) }
         return true
     }
 
     /// Whether `now` is the page at `last` with another anchor, or with its anchor added or gone: the same address
-    /// before the "#". Pure.
+    /// before the "#". A fragment with "/" or "!" in it is a route, not an anchor: a web app's view (Gmail's #inbox to
+    /// #inbox/FM…, app/#/a back to app/) is a new page, announced and read from its top; taken for the same page, the
+    /// new view was neither (a review, 13 Nov 2026). Pure.
     package static func isSamePage(_ now: String, _ last: String) -> Bool {
-        now != last && !now.isEmpty && !last.isEmpty && urlBase(now) == urlBase(last) && (now.contains("#") || last.contains("#"))
+        guard now != last, !now.isEmpty, !last.isEmpty, urlBase(now) == urlBase(last), now.contains("#") || last.contains("#") else { return false }
+        return !isRoute(now) && !isRoute(last)
+    }
+    /// The address's fragment is a web app's route (#/inbox, #!/a, #inbox/FM…). Pure.
+    package static func isRoute(_ url: String) -> Bool {
+        guard let hash = url.firstIndex(of: "#") else { return false }
+        return url[url.index(after: hash)...].contains { $0 == "/" || $0 == "!" }
     }
 
     /// The address this page arrived at by Back or Forward, for the place it resumes at once it has loaded.
@@ -211,15 +230,33 @@ public final class BrowseModeDocument: ScriptableObject {
     func anchorOffset(_ id: String) -> Int? {
         let wanted = id.removingPercentEncoding ?? id
         let until = Date().addingTimeInterval(0.25)
-        var seen = Set<AXUIElement>()
-        for line in buffer.lines {
-            guard let e = line.element else { continue }
-            if Date() > until { Log.io("browse mode: the anchor not found in the time"); return nil }
-            var x: AXUIElement? = e
-            for _ in 0..<3 {
-                guard let y = x, seen.count < 6000, seen.insert(y).inserted else { break }   // (one seen: those above it too)
-                if y.string("AXDOMIdentifier") == wanted { return line.start }
-                x = y.element(kAXParentAttribute)
+        var timedOut = false
+        let hit = Self.climbToMatch(buffer.lines.map(\.element), parent: { $0.element(kAXParentAttribute) },
+                                    matches: { $0.string("AXDOMIdentifier") == wanted },
+                                    stop: { if Date() > until { timedOut = true }; return timedOut })
+        if timedOut { Log.io("browse mode: the anchor not found in the time") }
+        return hit.map { buffer.lines[$0].start }
+    }
+
+    /// The first start (a line's element) that is, or has within three levels above it, an element that `matches`: its
+    /// index. Each element is asked once, and remembered with the levels the climb still had above it then: a later
+    /// climb stops at it only if it was asked with as many or more (those above it were asked too). Stopping at any
+    /// element seen once missed ancestors when it had been the top of another line's climb: <div id=x><p>Some
+    /// <a>link</a> more</p></div> (a review, 13 Nov 2026). At most 6000 elements, and `stop` asked before each start.
+    /// Pure, for the tests.
+    package static func climbToMatch<T: Hashable>(_ starts: [T?], parent: (T) -> T?, matches: (T) -> Bool, stop: () -> Bool = { false }) -> Int? {
+        var asked: [T: Int] = [:]
+        for (i, start) in starts.enumerated() {
+            guard let e = start else { continue }
+            if stop() { return nil }
+            var x: T? = e
+            for left in stride(from: 3, to: 0, by: -1) {
+                guard let y = x, asked.count < 6000 else { break }
+                let before = asked[y]
+                if let before, before >= left { break }
+                asked[y] = left
+                if before == nil, matches(y) { return i }
+                x = parent(y)
             }
         }
         return nil
@@ -231,8 +268,7 @@ public final class BrowseModeDocument: ScriptableObject {
     func followReplacedRoot(tries: Int) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             guard let self, API.focusTreeInterceptor === self, buffer.lines.isEmpty else { return }
-            buffer.build()
-            if !buffer.lines.isEmpty { return }
+            if buildIfEmpty() { return }
             if let fresh = currentWebArea(), !fresh.isSame(webArea) {
                 Log.io("browse mode: the page moved on to another; following it")
                 AXHandler.shared.focusChanged(fresh, pid: webArea.pid)
@@ -372,8 +408,11 @@ public final class BrowseModeDocument: ScriptableObject {
         placeOnArrival()   // entered from below before it had loaded (Mail's Shift Tab): its last control, not its top
         VoiceOverSounds.play("WebAreaLoaded.aiff")   // VoiceOver's "web area loaded", the sound its list has for a page
         Log.io("browse mode: page arrived — resuming at \(position)\(kept ? " (where it was before it emptied)" : saved == nil ? "" : " (saved \(saved!.offset))")")
-        if announce, url != announcedURL { announcePage() }
-        else if kept, announce, Date().timeIntervalSince(pageGoneAt) < 30 { sayReloaded() }   // a reload read mid-way: said, not silent
+        if announce, url != announcedURL { announcePage(); return true }
+        if kept, announce, Date().timeIntervalSince(pageGoneAt) < 30 { sayReloaded() }   // a reload read mid-way: said, not silent
+        // Not announced here: the line-instead-of-say-all placeOnArrival may have set was for this arrival only; left
+        // set, it silenced the say all of a later page (a review, 13 Nov 2026).
+        noAutoRead = false
         return true
     }
 
@@ -381,6 +420,30 @@ public final class BrowseModeDocument: ScriptableObject {
     /// address it was on: kept for the page coming back, rather than the top. The empty read put the reading at 0 and
     /// the page came back at its top, silently (a review, 13 Nov 2026).
     var placeBeforeEmpty: (url: String, line: String, into: Int, offset: Int)?
+    /// An empty copy read again, and if that brought the page, the reading put back where it was before it emptied.
+    /// True if the copy has content now. Every read of an empty copy goes through here: Tab's, the focus's and the
+    /// replaced page's read bypassed the restore and left the reading at the top (a review, 13 Nov 2026).
+    @discardableResult
+    func buildIfEmpty() -> Bool {
+        guard buffer.lines.isEmpty else { return true }
+        buffer.build()
+        guard !buffer.lines.isEmpty else { return false }
+        restorePlaceBeforeEmpty()
+        return true
+    }
+
+    /// A key's own read brought the page ("loading page", then an arrow, a letter or Tab): the key reads there, so the
+    /// page is taken as announced and the watch for its content ends, as a new page found by a key is
+    /// (refreshIfNavigated). The watch's next look announced it over the key's answer, its title and a say all
+    /// (a review, 13 Nov 2026).
+    func arrivedByKey() {
+        let now = url
+        guard !now.isEmpty else { return }
+        announcedURL = now
+        BrowseModeHandler.noteAnnounced(webArea, url: now)
+        watchingFor = ""
+    }
+
     /// The page has content again at the same address: the reading back where it was before it emptied. True if so.
     @discardableResult
     func restorePlaceBeforeEmpty() -> Bool {
@@ -504,7 +567,7 @@ public final class BrowseModeDocument: ScriptableObject {
             // The copy of the page now, as the arrows have it: Tab just after a link was followed searched the copy of
             // the page left (a review, 13 Nov 2026).
             refreshIfNavigated()
-            if buffer.lines.isEmpty { buffer.build() }
+            if buffer.lines.isEmpty, buildIfEmpty() { arrivedByKey() }
             rebuildIfCheap()
             // From a field of a Safari page in focus mode (tabIsTurnOversInField): on from the field. Another field
             // takes the focus; a check box, button or link can't in Safari, so the reading position goes there and
@@ -740,8 +803,7 @@ public final class BrowseModeDocument: ScriptableObject {
         // An empty address too: Safari not answering reports none (6 Oct 2026, playtestcloud: "page  —", 0 lines,
         // and every key said "no next heading").
         guard buffer.lines.isEmpty, url != "about:blank" else { return true }
-        buffer.build()
-        guard buffer.lines.isEmpty else { restorePlaceBeforeEmpty(); Log.io("browse mode: the page has arrived"); return true }
+        if buildIfEmpty() { Log.io("browse mode: the page has arrived"); arrivedByKey(); return true }
         // Safari can swap in a new web area on a reload (6 Oct 2026, fast.com: after Command R the copy was
         // of the old one, one element and no address, while the page was there and Tab reached it). The window's
         // web area now, if it is another one, is the page: move there, as Tab did.
@@ -808,8 +870,9 @@ public final class BrowseModeDocument: ScriptableObject {
         // arrows (a review, 13 Nov 2026).
         if buffer.isDirty, Self.mayRebuild(lastBuildMs: buffer.lastBuildMs, age: age, cheapAfter: 1) { rebuildKeepingPlace(); return }
         // A control pressed a moment ago and still watched (up to 3 s): what it showed may not have been said by the
-        // browser yet. "Show more" pressed, then Down, read past the text it added (13 Nov 2026).
-        if !Self.watches.isEmpty, buffer.lastBuildMs < 250, age > 0.2 { rebuildKeepingPlace() }
+        // browser yet. "Show more" pressed, then Down, read past the text it added (13 Nov 2026). Once per press in this
+        // page (takeUnreadWatches), not on every key while any press anywhere is watched (a review, 13 Nov 2026).
+        if buffer.lastBuildMs < 250, age > 0.2, takeUnreadWatches() { rebuildKeepingPlace() }
     }
 
     /// Whether a key may read the whole page again now: a page cheap to read (under 250 ms) after `cheapAfter`

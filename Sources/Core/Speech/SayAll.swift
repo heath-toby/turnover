@@ -150,6 +150,18 @@ public enum SayAll {
                 return
             }
         }
+        // A whole copy marked changed under the say all (the page finished loading as it was read: pageLoadCompleted only
+        // marks it): read again at its end and carried on past what was read, not "end of document" with the rest of
+        // the page come (a review, 13 Nov 2026). Only once the last chunk has started (buffered 0), so no chunk queued
+        // with an offset in the old copy moves the caret after the read.
+        if buffered == 0, let r = reader, let doc = (r.obj as? WebArea)?.document, !doc.buffer.isPartial, doc.buffer.isDirty,
+           let at = doc.readAgainAtSayAllEnd(reached: r.start),
+           let info = try? r.obj.makeTextInfo(.bookmark(Bookmark(start: at, end: at))) {
+            Log.io("say all: the page changed under it; read again, on from \(at)")
+            reader = info
+            nextLine(gen)
+            return
+        }
         // The app may go on (Kindle's next page): reader is kept, so a key still stops say all while it turns.
         if buffered == 0, let obj = reader?.obj,
            AppModuleHandler.shared.appModule(for: obj.pid).sayAllReachedEnd(obj, resume: { info in

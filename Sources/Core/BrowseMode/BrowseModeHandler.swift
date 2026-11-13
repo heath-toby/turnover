@@ -25,10 +25,11 @@ public final class BrowseModeHandler {
         announced.removeAll { $0.area.role == "?" }
         return announced.contains { $0.url == url && $0.area.isSame(area) }
     }
-    /// A web area's pages forgotten: a new page in it (a link followed) is announced as it arrives, even at an address
-    /// announced in it before.
-    static func forgetAnnounced(_ area: AXUIElement) {
-        announced.removeAll { $0.area.role == "?" || $0.area.isSame(area) }
+    /// The page just arrived at by a link forgotten in its web area, so it is announced as it arrives even if it was
+    /// announced in it before. Only that address: forgetting every page of the web area made Back to the page left
+    /// (A, a link to B, Back to A) read A out whole again rather than its title and line (a review, 13 Nov 2026).
+    static func forgetAnnounced(_ area: AXUIElement, url: String) {
+        announced.removeAll { $0.area.role == "?" || ($0.url == url && $0.area.isSame(area)) }
     }
     static func noteAnnounced(_ area: AXUIElement, url: String) {
         guard !wasAnnounced(area, url: url) else { return }

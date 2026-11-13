@@ -1142,7 +1142,7 @@ public final class ObjectNavigator {
                     Log.io("review: the reading goes into the page round the landing")
                 }
                 if d.passThrough { d.setPassThrough(false, announce: false) }
-                if d.buffer.lines.isEmpty { d.buffer.build() }
+                d.buildIfEmpty()   // (the place before the page emptied restored too: a review, 13 Nov 2026)
                 if let o = d.buffer.offset(of: target) { d.position = o }
                 return
             }
