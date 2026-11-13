@@ -363,7 +363,7 @@ public enum Speech {
             parts.append(secureCount(obj))
         } else if reportText, let info = try? obj.makeTextInfo(.selection) {
             if !info.isCollapsed {
-                parts.append(String(localized: "selected \(processed(info.text))", comment: "Selected text, read: %@ is the text"))
+                parts.append(selectedSpeech(info.text))
             } else {
                 let line = (try? obj.makeTextInfo(.caret)) ?? info
                 line.expand(.line)
@@ -901,6 +901,12 @@ public enum Speech {
 
     // MARK: - Selection
 
+    /// "selected" and the text; past 1000 characters, how many (a review, 13 Nov 2026: a whole long document's
+    /// selection was read out on focus, with no end). As the selection change says it.
+    public static func selectedSpeech(_ t: String) -> String {
+        String(localized: "selected \(t.count > 1000 ? Phrases.characters(t.count) : processed(t))", comment: "Selected text, read: %@ is the text")
+    }
+
     /// A selection changed: say only the difference. What is in the new selection and not the old was selected; what
     /// was in the old and not the new was unselected. Each is at most two pieces (before and after the overlap).
     /// `generalize`: a big jump (Select All, a whole line) is said as the selection itself, not the pieces.
@@ -925,9 +931,11 @@ public enum Speech {
         func spoken(_ t: String) -> String { t.count == 1 ? Symbols.name(of: t.first!) : (t.count > 1000 ? Phrases.characters(t.count) : processed(t)) }
         func selected(_ t: String) -> String { String(localized: "selected \(spoken(t))", comment: "Selected text, read: %@ is the text") }
         if generalize {
-            if !added.isEmpty { enqueue(selected(new.text)) }
+            // Both added and removed: the new selection once, as "now selected" (a review, 13 Nov 2026: "selected X",
+            // then "now selected X").
             if !removed.isEmpty { enqueue(new.isCollapsed ? String(localized: "selection removed", comment: "The selection went")
                 : String(localized: "now selected \(spoken(new.text))", comment: "The selection changed: %@ is what is selected now")) }
+            else if !added.isEmpty { enqueue(selected(new.text)) }
             return
         }
         for t in added where !t.isEmpty { enqueue(selected(t)) }

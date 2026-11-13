@@ -60,7 +60,7 @@ final class TerminalText: TurnOverObject {
         var review: Int?                // the review cursor's line
         var pending = false
         var prompt = ""                 // the shell's prompt line, as last seen with the shell waiting
-        var lastOutput: (String, Date)? // the output last read, and when
+        var lastOutput: (Int, String, Date)? // the output last read, the anchor it was read from, and when
         var held = false                // output arrived while a menu or sheet was in the way: read on the way back
     }
     static var states: [Int: State] = [:]
@@ -192,9 +192,7 @@ final class TerminalText: TurnOverObject {
     /// A line that asks for a password, or secure input on (Terminal's Secure Keyboard Entry, a prompt's own).
     static func atPasswordPrompt(_ line: String?) -> Bool {
         if IsSecureEventInputEnabled() { return true }
-        guard let l = line?.trimmingCharacters(in: .whitespaces).lowercased() else { return false }
-        return l.hasSuffix("password:") || l.hasSuffix("passphrase:") || l.hasSuffix("password for") || l.contains("passphrase for")
-            || l.hasSuffix("pin:") || (l.contains("password") && l.hasSuffix(":"))
+        return TerminalRules.isPasswordPrompt(line)
     }
 
     override func event_caret() {}   // the cursor moves with every byte of output: the value change speaks
@@ -244,10 +242,20 @@ final class TerminalText: TurnOverObject {
             Speech.speakText(command.isEmpty ? Phrases.blank : command)
             return
         }
+        if s.anchor > total, let (start, text) = cursorLine() {
+            // Cleared (clear, Command-K): the text is shorter than the anchor. Whatever arrived in the same batch
+            // (clear; ls) is above the cursor's line, from the first line with anything on it; the prompt alone there
+            // is nothing new (a review, 13 Nov 2026: that output was lost to the re-anchoring).
+            s.anchor = start; s.anchorText = text
+            guard let first = TerminalRules.firstContentLineStart(string(0, min(start, 40_000))) else { return }
+            s.anchor = first; s.anchorText = ""
+            s.enterAt = .distantPast   // its first line is output, not the command line just heard
+        }
         guard s.anchor >= 0, s.anchor <= total else {
             if let (start, text) = cursorLine() { s.anchor = start; s.anchorText = text }
             return
         }
+        let from = s.anchor
         let region = string(s.anchor, min(total - s.anchor, 40_000))
         var lines = region.components(separatedBy: "\n")
         while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty, lines.count > 1 { lines.removeLast() }
@@ -300,10 +308,12 @@ final class TerminalText: TurnOverObject {
         }
         guard !out.isEmpty else { return }
         // The same output again a moment later: iTerm2 moves its cursor after the text arrives, so the next change
-        // starts from the old line and finds it again ("second test" twice, parts sweep 15 Oct 2026).
+        // starts from the old line and finds it again ("second test" twice, parts sweep 15 Oct 2026). Only when read
+        // from the same anchor: the same output of a new command (echo hi twice) starts from a new line and is news
+        // (a review, 13 Nov 2026: the second was silent).
         Log.io("terminal: read \(out.count) characters (\(rest.isEmpty ? "same line" : "\(rest.count) new lines"), anchor \(s.anchor))")
-        if let (last, at) = s.lastOutput, last == out, Date().timeIntervalSince(at) < 1.5 { return }
-        s.lastOutput = (out, Date())
+        if let (anchor, last, at) = s.lastOutput, anchor == from, last == out, Date().timeIntervalSince(at) < 1.5 { return }
+        s.lastOutput = (from, out, Date())
         Speech.speakNews(out.count > 5000 ? String(out.prefix(5000)) + " … and more" : out)
     }
 
@@ -348,7 +358,9 @@ final class TerminalText: TurnOverObject {
             let trimmed = before.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
             let word = trimmed.split(whereSeparator: { $0 == " " || $0 == "/" }).last.map(String.init) ?? trimmed
             g.send()
-            Speech.speakText(word.isEmpty ? String(localized: "space", comment: "Spoken message") : word)
+            // Deleted text is typing: kept out of the speech history and feedback, as typed characters are (a review,
+            // 13 Nov 2026: a mistyped password, deleted, was kept there).
+            Speech.asPrivate { Speech.speakText(word.isEmpty ? String(localized: "space", comment: "Spoken message") : word) }
         }
         script("terminal_clearLine", String(localized: "Clears what has been typed on the command line", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:control+u"], category: cat) { [weak self] g in
             g.send()
@@ -377,17 +389,16 @@ final class TerminalText: TurnOverObject {
             }
         }
         // Left and Right go to the shell; then the character under the cursor is read, as in an edit field.
-        // At the start of what was typed (Left) or past its end (Right) the shell cannot move: a bump, as an edit
-        // field gives, and the key is kept from the shell.
+        // Always sent: at column 0 or a line's end the key still means something to nano, vim or a program's input
+        // box, which the shell's prompt doesn't describe (a review, 13 Nov 2026: Left at column 0 and Right at the
+        // end never reached them). A bump, as an edit field gives, only when the cursor didn't move.
         for key in ["leftArrow", "rightArrow"] {
             script("terminal_\(key)", String(localized: "Moves the shell's cursor and reads the character there", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:\(key)"], category: cat) { [weak self] g in
-                if let self, let c = self.cursor, key == "leftArrow" ? self.atInputStart(c) : self.atInputEnd(c) {
-                    Tones.edge()
-                    return
-                }
+                let before = self?.cursor
                 g.send()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                     guard let self, let c = self.cursor else { return }
+                    if c == before { Tones.edge(); return }
                     guard let ch = self.character(at: c) else { return }
                     Speech.speakText(ch.isEmpty || ch == "\n" ? "blank" : ch, symbolLevel: .all)
                 }
@@ -418,14 +429,9 @@ final class TerminalText: TurnOverObject {
         let p = state.prompt.trimmingCharacters(in: .whitespaces)
         return !p.isEmpty && before.trimmingCharacters(in: .whitespaces) == p
     }
-    /// Nothing after the cursor on its line (spaces typed at the end still count: Right can move over them).
-    private func atInputEnd(_ c: Int) -> Bool {
-        guard let l = lineIndex(at: c), let r = lineRange(l) else { return false }
-        return string(c, r.location + r.length - c).trimmingCharacters(in: .newlines).isEmpty
-    }
     private func sayCharacter(_ ch: String) {
         guard let first = ch.first, ch != "\n" else { Speech.speakText(String(localized: "blank", comment: "Spoken message")); return }
-        Speech.speakText(Symbols.name(of: first))
+        Speech.asPrivate { Speech.speakText(Symbols.name(of: first)) }   // deleted typing: private, as typed characters are
     }
 
     private func review(_ step: Int) {
@@ -451,6 +457,23 @@ final class TerminalText: TurnOverObject {
 
 /// Terminal output as it is read (pure, tested).
 package enum TerminalRules {
+    /// Where the first line with anything on it starts, in UTF-16 units as Terminal counts; nil when all is blank. Pure.
+    package nonisolated static func firstContentLineStart(_ text: String) -> Int? {
+        guard let i = text.firstIndex(where: { !$0.isWhitespace }) else { return nil }
+        let lineStart = text[..<i].lastIndex(where: { $0.isNewline }).map { text.index(after: $0) } ?? text.startIndex
+        return text.utf16.distance(from: text.utf16.startIndex, to: lineStart)
+    }
+
+    /// A line that asks for a secret: it ends with ":" and has the word "password", "passphrase" or "pin" in it, in
+    /// any case. Whole words, so ssh-keygen's "Enter passphrase (empty for no passphrase):", "Enter same passphrase
+    /// again:" and ssh's "Enter PIN for 'key':" are prompts (a review, 13 Nov 2026: the passphrase typed there was
+    /// read aloud, only lines ending "passphrase:" were known), while "Spinning up:" is not. Pure.
+    package nonisolated static func isPasswordPrompt(_ line: String?) -> Bool {
+        guard let l = line?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), l.hasSuffix(":") else { return false }
+        let words = l.split(whereSeparator: { !$0.isLetter }).map(String.init)
+        return words.contains { ["password", "passphrase", "pin"].contains($0) }
+    }
+
     /// Runs of three or more box-drawing characters (a program's rules and frames: "────") taken out, and lines left
     /// with nothing else dropped. Pure.
     package nonisolated static func withoutRules(_ text: String) -> String {

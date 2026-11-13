@@ -167,13 +167,21 @@ open class TurnOverObject: ScriptableObject {
         guard let texts = Self.siblingTexts(in: parent) else { return nil }
         var left: (String, CGFloat)?, above: (String, CGFloat)?
         for (t, f) in texts {
-            if abs(f.midY - me.midY) <= max(6, me.height / 2), f.maxX <= me.minX + 8 {
+            if Self.isLeftLabel(f, of: me) {
                 if left == nil || f.maxX > left!.1 { left = (t, f.maxX) }
             } else if f.maxY <= me.minY + 4, me.minY - f.maxY < 30, abs(f.minX - me.minX) < 80 {
                 if above == nil || f.maxY > above!.1 { above = (t, f.maxY) }
             }
         }
         return (left ?? above).map { $0.0.trimmingCharacters(in: CharacterSet(charactersIn: ": ")) }
+    }
+
+    /// A text that labels a field from its left: on the field's row (centred with it and overlapping it vertically),
+    /// ending before it and no more than 150 points away. Without the distance, any text on the row labelled the field
+    /// however far across the window it was (a review, 13 Nov 2026). Pure.
+    nonisolated public static func isLeftLabel(_ f: CGRect, of me: CGRect) -> Bool {
+        abs(f.midY - me.midY) <= max(6, me.height / 2) && f.minY < me.maxY && f.maxY > me.minY
+            && f.maxX <= me.minX + 8 && me.minX - f.maxX < 150
     }
 
     /// A parent's short static texts and their frames, for neighbourLabel; nil where it isn't looked in (more than

@@ -28,7 +28,8 @@ public enum ClipboardAnnouncer {
             // Private, as a paste is: a copied password or code never reaches the history.
             guard kind == "pasted" else {
                 if kind == "copied path" { Speech.speakMessage(spoken(kind), remember: false); return }
-                let text = NSPasteboard.general.string(forType: .string)
+                // A password manager's secret (1Password, Bitwarden mark it concealed or transient): the word only.
+                let text = isConcealed(NSPasteboard.general.types?.map(\.rawValue) ?? []) ? nil : NSPasteboard.general.string(forType: .string)
                 Speech.asPrivate { Speech.speakMessage(copiedSpeech(kind, text: text), remember: false) }
                 return
             }
@@ -56,12 +57,20 @@ public enum ClipboardAnnouncer {
         return kind == "cut" ? String(localized: "cut, \(shown)", comment: "Cut text: the text") : String(localized: "copied, \(shown)", comment: "Copied text: the text")
     }
 
+    /// Clipboard contents marked secret by the nspasteboard.org convention: a password manager's copied password
+    /// (ConcealedType) or a one-off value (TransientType). Never read aloud (a review, 13 Nov 2026: a copied or pasted
+    /// password was said). Pure.
+    public static func isConcealed(_ types: [String]) -> Bool {
+        types.contains("org.nspasteboard.ConcealedType") || types.contains("org.nspasteboard.TransientType")
+    }
+
     static func pastedSpeech() -> String {
         if let f = API.focusObject, f.role == .passwordEdit {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { Speech.speakMessage(Speech.secureCount(f), remember: false) }
             return spoken("pasted")
         }
         if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.Terminal" { return spoken("pasted") }
+        if isConcealed(NSPasteboard.general.types?.map(\.rawValue) ?? []) { return spoken("pasted") }
         guard let text = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return spoken("pasted") }
         if text.count <= 400 { return String(localized: "pasted, \(text)", comment: "Pasted text: the text") }
         return String(localized: "pasted, \(String(text.prefix(200))), and \(String(text.count - 200)) more characters", comment: "Pasted text: its start, then how many characters more")

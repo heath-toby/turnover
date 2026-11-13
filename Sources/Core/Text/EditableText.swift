@@ -626,7 +626,7 @@ open class EditableText: TurnOverObject {
         caretMoved(speak: nil, gesture: gesture, info: newInfo)
         if let sel = try? makeTextInfo(.selection), !sel.isCollapsed {
             let t = sel.text
-            Speech.speakMessage(String(localized: "selected \(t.count > 1000 ? Phrases.characters(t.count) : Speech.processed(t))", comment: "Selected text, read: %@ is the text"))
+            Speech.speakMessage(Speech.selectedSpeech(t))
             return
         }
         guard let line = newInfo ?? (try? makeTextInfo(.caret)) else { return }
@@ -700,7 +700,7 @@ open class EditableText: TurnOverObject {
                     guard let self, API.focusObject?.isSameElement(as: self) == true,
                           Date().timeIntervalSince(InputManager.lastKeyDownAt) >= 0.5,
                           let sel = try? self.makeTextInfo(.selection), !sel.isCollapsed else { return }
-                    Speech.speakOnly(String(localized: "selected \(Speech.processed(sel.text))", comment: "Selected text, read: %@ is the text"))   // the display marks it with dots 7 and 8
+                    Speech.speakOnly(Speech.selectedSpeech(sel.text))   // the display marks it with dots 7 and 8
                 }
                 completionWork = work
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
@@ -748,7 +748,7 @@ open class EditableText: TurnOverObject {
         Speech.clearTypedWordBuffer()
         if let sel = try? makeTextInfo(.selection), sel.end > sel.start {
             lastSelection = sel
-            Speech.speakMessage(String(localized: "selected \(sel.text)", comment: "Selected text, read: %@ is the text"))
+            Speech.speakMessage(Speech.selectedSpeech(sel.text))
             return
         }
         guard let caret = try? makeTextInfo(.caret) else { return }

@@ -21,6 +21,34 @@ func pureTests() {
         expect(TerminalRules.withoutEcho("Saved.\n❯ y", cursorLine: "❯ y", typed: "y"), "Saved.", "only the cursor's line goes")
         expect(TerminalRules.withoutEcho("Password:", cursorLine: "Password:", typed: "s"), "Password:", "a prompt on the cursor's line is kept")
     }
+    test("terminal: a line asking for a password, passphrase or PIN hides what is typed") {
+        for line in ["Password:", "[sudo] password for toby:", "Enter passphrase (empty for no passphrase):", "Enter same passphrase again:",
+                     "Enter PIN for 'ECDSA-SK key':", "Enter passphrase for key '/Users/x/.ssh/id_ed25519': ", "PIN:"] {
+            check(TerminalRules.isPasswordPrompt(line), "\(line) is a password prompt")
+        }
+        for line in ["Spinning up:", "Pinned items:", "Password changed.", "password", "toby@mac ~ %", "Enter file in which to save the key (/x/id):"] {
+            check(!TerminalRules.isPasswordPrompt(line), "\(line) is not a password prompt")
+        }
+        check(!TerminalRules.isPasswordPrompt(nil), "no line is no prompt")
+    }
+    test("terminal: after clear, output above the prompt is read from its first line") {
+        expect(TerminalRules.firstContentLineStart("\n\n  \nfile.txt\nnotes\n"), 5, "blank lines before the output skipped")
+        expect(TerminalRules.firstContentLineStart("  a"), 0, "a line's own indent kept")
+        expect(TerminalRules.firstContentLineStart("é\n"), 0, "the first line at once")
+        expect(TerminalRules.firstContentLineStart("\u{1F600}\n\nb"), 0, "counted in UTF-16 units")
+        expect(TerminalRules.firstContentLineStart("\n\u{1F600}\nb"), 1, "after a newline")
+        check(TerminalRules.firstContentLineStart("\n  \n") == nil, "nothing above the prompt: nothing to read")
+    }
+    test("labels: a text labels a field from its left only when it is near and on the field's row") {
+        let field = CGRect(x: 300, y: 100, width: 200, height: 22)
+        check(TurnOverObject.isLeftLabel(CGRect(x: 200, y: 102, width: 90, height: 17), of: field), "a label just before the field")
+        check(!TurnOverObject.isLeftLabel(CGRect(x: 20, y: 102, width: 60, height: 17), of: field), "a text far across the row")
+        check(!TurnOverObject.isLeftLabel(CGRect(x: 200, y: 140, width: 90, height: 17), of: field), "a text on another row")
+        check(!TurnOverObject.isLeftLabel(CGRect(x: 520, y: 102, width: 60, height: 17), of: field), "a text to the right")
+        let tall = CGRect(x: 300, y: 100, width: 200, height: 300)
+        check(!TurnOverObject.isLeftLabel(CGRect(x: 200, y: 240, width: 90, height: 17), of: CGRect(x: 300, y: 100, width: 200, height: 30)), "below a short field")
+        check(TurnOverObject.isLeftLabel(CGRect(x: 200, y: 240, width: 90, height: 17), of: tall), "beside a tall field's middle")
+    }
     test("pronunciations: whole words, any case, longest first, comments skipped") {
         let list = PronunciationDictionary.parse("# mine\nTurnOver = turn over\nNew York = new york\nNew York City = big apple\nbad line\nLBRF = L B R F")
         expect(list.count, 4, "four entries; the comment and the line without = left out")

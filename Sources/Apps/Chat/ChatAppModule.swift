@@ -76,11 +76,15 @@ final class ChatAppModule: AppModule {
         // emptied). WhatsApp says "Message Sent" itself.
         script("chat_send", String(localized: "In the message box: sends the message", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:enter"], category: cat) { [weak self] g in
             guard let self else { g.send(); return }
-            let had = !((view.composer?.string(kAXValueAttribute) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            let text = view.composer?.string(kAXValueAttribute) ?? ""
+            let had = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             g.send()
+            if had { view.noteSent(text) }   // so the watcher knows it for the user's own
             guard had, !view.spec.saysSent else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                guard let self, (view.composer?.string(kAXValueAttribute) ?? "").isEmpty else { return }
+                // The box there and empty: a box gone (the conversation closed, the app's window changed) is no send
+                // (a review, 13 Nov 2026: "sent" was said with no box at all).
+                guard let self, let c = view.composer, (c.string(kAXValueAttribute) ?? "").isEmpty else { return }
                 Speech.speakMessage(String(localized: "sent", comment: "Spoken message"))
             }
         }.isAvailable = { [weak self] in

@@ -640,7 +640,11 @@ public final class ChatView {
         // A list that drops rows as it scrolls (WhatsApp's Archived) keeps its numbering from before the load.
         let shift = pane == .conversations ? listShift : 0
         parts.append(Phrases.position(i + 1 + shift, of: items.count + shift))
-        Speech.speakItem(parts.joined(separator: ", "), processed: true)
+        // Messages and conversations (their last message, a name) are someone's words: in the log only their length,
+        // as new messages are (a review, 13 Nov 2026: browsing logged them whole). A section's name is the app's.
+        let said = parts.joined(separator: ", ")
+        if pane == .sections { Speech.speakItem(said, processed: true) }
+        else { Speech.redactedInLog(pane == .transcript ? "message" : "conversation") { Speech.speakItem(said, processed: true) } }
         // Object navigation starts from here, as from any focus (a tester, 12 Nov 2026: Tab showed one part while the
         // review cursor stayed where it was left).
         ObjectNavigator.shared.focusMoved(to: e, pid: pid)
@@ -867,6 +871,15 @@ public final class ChatView {
     /// message that came in while the user typed was never said (a review, 13 Nov 2026).
     private var composerText = ""
     private var justSent: (text: String, at: Date)?
+
+    /// A message sent from the box with Return, its words taken before the key went: the watcher, looking once a
+    /// second (every three while typing on the web), saw a short message sent between two looks never in the box, and
+    /// read it back as one that came in (a review, 13 Nov 2026).
+    public func noteSent(_ text: String) {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        justSent = (t, Date()); composerText = ""
+    }
 
     /// While the app is in front: read each new message that arrives in the open conversation (not the one just sent).
     public func startWatching() {

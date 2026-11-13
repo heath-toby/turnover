@@ -83,4 +83,15 @@ func typingFeedbackTests() {
         let long = String(repeating: "a", count: 150)
         expect(ClipboardAnnouncer.copiedSpeech("copied", text: long), "copied, " + String(repeating: "a", count: 100) + "…", "long text cut at 100")
     }
+    test("selection: a selection over 1000 characters is said as a count") {
+        expect(Speech.selectedSpeech(String(repeating: "a", count: 1500)), "selected 1500 characters", "a long selection: its length")
+        check(Speech.selectedSpeech("hello").hasPrefix("selected "), "a short one: its text")
+        check(Speech.selectedSpeech("hello").contains("hello"), "a short one: its text")
+    }
+    test("clipboard: a password manager's concealed or transient copy is never read") {
+        check(ClipboardAnnouncer.isConcealed(["public.utf8-plain-text", "org.nspasteboard.ConcealedType"]), "concealed")
+        check(ClipboardAnnouncer.isConcealed(["org.nspasteboard.TransientType", "public.utf8-plain-text"]), "transient")
+        check(!ClipboardAnnouncer.isConcealed(["public.utf8-plain-text", "public.rtf"]), "ordinary text is read")
+        check(!ClipboardAnnouncer.isConcealed([]), "an empty clipboard")
+    }
 }

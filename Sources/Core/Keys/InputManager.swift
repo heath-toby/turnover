@@ -141,7 +141,9 @@ public enum InputManager {
         // Any other key (Escape, Command+L, an arrow) ends the word being typed (NVDA clears its typed-word
         // buffer): "Higgs", Escape, then "en." was echoed as "Higgsen".
         let endsWord = !typing && gesture.keyName != "backspace"
+        // Shift-Return too: a new line in a chat box or a cell, which ended the word without saying it (a review, 13 Nov 2026).
         let saysWord = ["enter", "numpadEnter", "tab"].contains(gesture.keyName) && gesture.modifiers.isEmpty
+            || ["enter", "numpadEnter"].contains(gesture.keyName) && gesture.modifiers == [.shift]
         SayAll.keyArrivedDuringSayAll.value = SayAll.isRunning
         DispatchQueue.main.async {
             // Where say all had got to, before the cancel forgets it (the caret goes to that word: 18 Oct 2026).
