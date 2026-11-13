@@ -18,10 +18,12 @@ enum AppMenuKeys {
     }
 
     /// Read the app's menu keys in the background (an app with a large menu bar takes a moment).
-    static func scan(_ pid: pid_t) {
+    static func scan(_ pid: pid_t, delay: TimeInterval = 0) {
+        // Read once in two minutes at most: every Command Tab walked the whole menu bar again (a review, 13 Nov 2026).
+        if let k = keys[pid], Date().timeIntervalSince(k.at) < 120 { return }
         guard !scanning.contains(pid), pid != getpid() else { return }
         scanning.insert(pid)
-        DispatchQueue.global(qos: .utility).async {
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) {
             let set = read(pid)
             DispatchQueue.main.async {
                 scanning.remove(pid)
@@ -43,9 +45,14 @@ enum AppMenuKeys {
                                     122: "f1", 120: "f2", 99: "f3", 118: "f4", 96: "f5", 97: "f6", 98: "f7", 100: "f8", 101: "f9", 109: "f10", 103: "f11", 111: "f12"]
         var out: Set<String> = []
         var stack: [(AXUIElement, Int)] = [(barRef as! AXUIElement, 0)]
-        var visited = 0
-        while let (e, depth) = stack.popLast(), visited < 4000 {
+        var visited = 0, failures = 0
+        let started = Date()
+        while let (e, depth) = stack.popLast(), visited < 4000, failures < 3, Date().timeIntervalSince(started) < 5 {
             visited += 1
+            // An app that stops answering: given up on after three timeouts or five seconds, not held for minutes.
+            AXUIElementSetMessagingTimeout(e, 0.5)
+            var probe: CFTypeRef?
+            if AXUIElementCopyAttributeValue(e, kAXRoleAttribute as CFString, &probe) == .cannotComplete { failures += 1; continue }
             if (attr(e, kAXRoleAttribute) as? String) == "AXMenuItem" {
                 var key = ""
                 if let code = attr(e, "AXMenuItemCmdVirtualKey") as? Int, let n = named[code] { key = n }

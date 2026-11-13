@@ -910,6 +910,8 @@ public final class BufferTextInfo: TextInfo {
         // Not for Tab: what the focus enters is said, not what it leaves, as NVDA does ("out of list out of list,
         // edit" on Tab in Shortcuts, 13 Nov 2026).
         guard let prev = previousOffset, prev != start, Date().timeIntervalSince(BrowseModeDocument.lastTabFromCaretAt) > 0.5 else { return ([], nil, nil) }
+        // A move within one line (by character or word) leaves nothing and crosses no cell: no walk asked of the page.
+        if let a = buffer.lineIndex(at: prev), let b = buffer.lineIndex(at: start), a == b { return ([], nil, nil) }
         let f = config.documentFormatting
         var leaving: [String] = []
         // Innermost first: "out of list, out of navigation landmark". Every kind said on the way in is said on the way

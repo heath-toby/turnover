@@ -279,15 +279,22 @@ extension AXHandler {
     /// Tab from a control of a toolbar that keeps its own stop (Mail's search, at the toolbar's end) onto the same
     /// toolbar's first item: the toolbar came round twice in one round (toolbar, search, toolbar, 13 Nov 2026). The
     /// toolbar was this round's stop already: on to the next stop past the search.
+    private static var _backOntoToolbarKey = Date.distantPast
+    private var backOntoToolbarKey: Date { get { Self._backOntoToolbarKey } set { Self._backOntoToolbarKey = newValue } }
     func ruleBackOntoToolbar(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
         let key = InputManager.lastKeyIdentifier
-        guard key == "kb:tab" || key == "kb:shift+tab", Date().timeIntervalSince(InputManager.lastKeyDownAt) < 1,
+        // Tab only, and once per key: Shift Tab from the search onto the toolbar's item before it is right where it
+        // goes, and taking it again from the field went round for a second (a review, 13 Nov 2026).
+        guard key == "kb:tab", Date().timeIntervalSince(InputManager.lastKeyDownAt) < 1, backOntoToolbarKey != InputManager.lastKeyDownAt,
               let prev = API.focusObject?.element, !prev.isSame(target), SettingsPanePlugin.ownArrows(prev),
               let w = SettingsPanePlugin.windowOf(target), let (tb, _) = SettingsPanePlugin.toolbarFor(target, in: w),
               let (tb2, _) = SettingsPanePlugin.toolbarFor(prev, in: w), tb.isSame(tb2), !SettingsPanePlugin.ownArrows(target),
-              let plugin = SettingsPanePlugin.current, let g = KeyboardGesture(identifier: key) else { return .go(target) }
+              let plugin = SettingsPanePlugin.current, let g = KeyboardGesture(identifier: key),
+              // Onto the toolbar's first item: round from its end, not along it.
+              let first = SettingsPanePlugin.toolbarItems(around: target)?.items.first, first.isSame(target) else { return .go(target) }
+        backOntoToolbarKey = InputManager.lastKeyDownAt
         Log.io("toolbar: \(key) from a control of the toolbar came back onto it; on past it")
-        DispatchQueue.main.async { plugin.trapMove(g, forward: key == "kb:tab") }
+        DispatchQueue.main.async { plugin.trapMove(g, forward: true) }
         return .done
     }
 

@@ -69,7 +69,7 @@ extension BrowseModeDocument {
             if event.obj.isSameElement(as: webArea), !passThrough, url != announcedURL, !buffer.lines.isEmpty {
                 setPassThrough(false, announce: false)
                 positionAtFocus = position
-                lastChain = []
+                lastChain = []; lastSpokenOffset = nil
                 announcePage()
                 return
             }
@@ -88,7 +88,7 @@ extension BrowseModeDocument {
                 if let at { position = at }
             }
             positionAtFocus = position
-            lastChain = []
+            lastChain = []; lastSpokenOffset = nil
             next()
         default:
             next()

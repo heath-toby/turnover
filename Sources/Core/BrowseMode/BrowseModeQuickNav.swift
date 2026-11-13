@@ -56,7 +56,7 @@ extension BrowseModeDocument {
             if BrowseModeDocument.controlRoles.contains(el.role), !(el.role == "AXLink" && buffer.linkEnd(at: at) != nil) {
                 let obj = ObjectFactory.make(el)
                 Speech.speakMessage(Speech.objectPropertiesSpeech(obj, reason: .focus).joined(separator: ", "))
-                lastChain = []
+                lastChain = []; lastSpokenOffset = nil
             } else { speakQuickNavText(at: at, link: q.name.contains("Link"), element: el) }
         }
         func bufferSearch() {
@@ -77,7 +77,7 @@ extension BrowseModeDocument {
             if BrowseModeDocument.controlRoles.contains(el.role), !(el.role == "AXLink" && buffer.linkEnd(at: at) != nil) {
                 let obj = ObjectFactory.make(el)
                 Speech.speakMessage(Speech.objectPropertiesSpeech(obj, reason: .focus).joined(separator: ", "))
-                lastChain = []
+                lastChain = []; lastSpokenOffset = nil
             } else { speakQuickNavText(at: at, link: q.name.contains("Link"), element: el) }
         }
         // P and N: paragraphs and the text after links come from the buffer's own text (NVDA's textParagraph and
@@ -146,7 +146,7 @@ extension BrowseModeDocument {
         if BrowseModeDocument.controlRoles.contains(target.role), !(target.role == "AXLink" && buffer.linkEnd(at: r.0) != nil) {
             let obj = ObjectFactory.make(target)
             Speech.speakMessage(Speech.objectPropertiesSpeech(obj, reason: .focus).joined(separator: ", ") + (obj.value.map { _ in "" } ?? ((obj.hasNavigableText && ((try? obj.makeTextInfo(.all))?.text.isEmpty ?? true)) ? ", " + Phrases.blank : "")))
-            lastChain = []
+            lastChain = []; lastSpokenOffset = nil
         } else {
             speakQuickNavText(at: r.0, link: q.name.contains("Link"))
         }

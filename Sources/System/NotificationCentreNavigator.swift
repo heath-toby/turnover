@@ -45,10 +45,13 @@ enum NotificationCentreNavigator {
     private static var groupName: String?
     private static var itemWords: String?
 
-    /// While the panel is open and TurnOver's cursor is in it.
+    /// While the panel is open and TurnOver's cursor is in it, and no menu is open over it: a notification's own menu
+    /// (Dismiss, Notification Settings…) had its arrows and Return taken, and Return pressed the notification instead
+    /// (a tester, 13 Nov 2026: "pushing Dismiss does nothing").
     static var active: Bool {
-        NotificationCentrePanel.isOpen && ObjectNavigator.shared.reviewElement?.pid == NotificationCentrePanel.centrePid()
-            || NotificationCentrePanel.isOpen && API.focusObject?.pid == NotificationCentrePanel.centrePid()
+        guard NotificationCentrePanel.isOpen, !AXHandler.shared.isMenuOpen else { return false }
+        return ObjectNavigator.shared.reviewElement?.pid == NotificationCentrePanel.centrePid()
+            || API.focusObject?.pid == NotificationCentrePanel.centrePid()
     }
 
     /// The panel as groups: its own buttons, each app's notifications (an opened app's own buttons, Show Less and

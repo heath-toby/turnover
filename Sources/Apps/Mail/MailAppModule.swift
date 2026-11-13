@@ -26,7 +26,12 @@ package final class MailAppModule: AppModule {
     static func headerArea(near e: AXUIElement) -> AXUIElement? {
         if isHeaderArea(e) { return e }
         var content: AXUIElement? = isHeaderButton(e) ? e.element(kAXParentAttribute) : nil
-        if content == nil, let w = SettingsPanePlugin.windowOf(e) { content = headerStrips(in: w).first?.0 }
+        // The message the focus is in (a conversation shows several), else the first; the strips as last read (the
+        // toolbar's cache, a second old at most), not walked again on every Tab in the list (a review, 13 Nov 2026).
+        if content == nil, let w = SettingsPanePlugin.windowOf(e) {
+            let strips = SettingsPanePlugin.named(in: w).map(\.0)
+            content = strips.first { g in var p: AXUIElement? = e, n = 0; while let x = p, n < 12 { if x.isSame(g) { return true }; p = x.element(kAXParentAttribute); n += 1 }; return false } ?? strips.first
+        }
         guard let c = content, let h = c.elements(kAXChildrenAttribute).first(where: { $0.string(kAXDescriptionAttribute) == "message headers" }) else { return nil }
         return h.elements(kAXChildrenAttribute).first { $0.role == "AXTextArea" }
     }
@@ -399,6 +404,8 @@ package final class MailAppModule: AppModule {
         // After Command Shift D: "sent" before the window and focus behind the compose window are read.
         if Self.sending != nil, [.foreground, .gainFocus].contains(event.kind) { Self.saySentIfGone() }
         if event.kind == .gainFocus { notePlace(event.obj.element) }
+        // Another message chosen: the header field TurnOver was on belongs to the one before.
+        if event.kind == .selection, Self.headerAt != nil, !Self.isHeaderArea(event.obj.element) { Self.headerAt = nil }
         // The header text area taking the keyboard for a field TurnOver has just said: not read again whole.
         if event.kind == .gainFocus, let h = Self.headerAt, h.area.isSame(event.obj.element), Date().timeIntervalSince(h.at) < 1.5 { return }
         // The focus on the scroll area around a message (Mail can come back to it after Command Tab; nothing in it is

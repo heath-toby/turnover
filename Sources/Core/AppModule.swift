@@ -153,6 +153,12 @@ public final class AppModuleHandler {
         let name = app?.localizedName ?? bundle
         let type = registry[bundle] ?? AppModule.self
         lock.unlock()
+        // A System Settings pane drawn by its own extension process (Privacy & Security's Automation): System
+        // Settings' module, so its Tab round and part keys are there too (a review, 13 Nov 2026).
+        if AXHandler.isSettingsExtension(bundle, front: "com.apple.systempreferences"),
+           let host = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.systempreferences").first {
+            return appModule(for: host.processIdentifier)
+        }
         // Made outside the lock: a module whose init makes an object asks for its module again, and the lock isn't
         // recursive (a code review, 14 Oct 2026; latent until a plugin module does it).
         let m = type.init(pid: pid, bundleIdentifier: bundle, appName: name)

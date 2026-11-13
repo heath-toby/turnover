@@ -359,7 +359,10 @@ open class TurnOverObject: ScriptableObject {
         // tester, 13 Nov 2026). Terminal's text area answers the same and is a terminal, not a field.
         if ["AXTextField", "AXTextArea"].contains(axRole), element.string(kAXSubroleAttribute) != "AXTerminalTextArea" {
             var settable: DarwinBoolean = true
-            if AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success, !settable.boolValue { s.insert(.readOnly) }
+            if AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success, !settable.boolValue {
+                s.insert(.readOnly)
+                ReadOnlyLog.note(element, axRole)
+            }
         }
         return s
     }()
@@ -863,5 +866,19 @@ public enum LiveRegions {
         if assertive { Speech.cancel() }
         Log.io("live region: \(Log.words(String(t.prefix(80))))")
         Speech.speakNews(t)
+    }
+}
+
+
+/// Each app and role first found read-only, logged once: a toolkit that answers "not settable" for a field that is
+/// typed in would be found in a sweep (a review, 13 Nov 2026).
+enum ReadOnlyLog {
+    // Every read and write is inside `lock`, from whichever thread makes an object.
+    nonisolated(unsafe) private static var seen: Set<String> = []
+    private static let lock = NSLock()
+    static func note(_ e: AXUIElement, _ role: String) {
+        let b = NSRunningApplication(processIdentifier: e.pid)?.bundleIdentifier ?? "pid \(e.pid)"
+        lock.lock(); let fresh = seen.insert(b + "|" + role).inserted; lock.unlock()
+        if fresh { Log.io("read-only edit: \(role) in \(b)") }
     }
 }

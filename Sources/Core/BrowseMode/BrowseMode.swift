@@ -221,11 +221,13 @@ public final class BrowseModeDocument: ScriptableObject {
 
     func speak(_ info: TextInfo, unit: TextUnit) {
         if let w = info as? WebTextInfo { w.previousChain = lastChain }
-        if let b = info as? BufferTextInfo { b.previousChain = lastChain; b.previousOffset = lastSpokenOffset }
+        // (Measured from the last reading of this page only: a say all since has moved on, and its "out of" were said.)
+        if let b = info as? BufferTextInfo { b.previousChain = lastChain; b.previousOffset = SayAll.endedSince(lastSpokenAt) ? nil : lastSpokenOffset }
         Speech.speakTextInfo(info, unit: unit, reason: .caret)
         if let w = info as? WebTextInfo { lastChain = w.chain }
-        if let b = info as? BufferTextInfo { lastChain = b.chain; lastSpokenOffset = b.start; followProgress(in: b) }
+        if let b = info as? BufferTextInfo { lastChain = b.chain; lastSpokenOffset = b.start; lastSpokenAt = Date(); followProgress(in: b) }
     }
+    var lastSpokenAt = Date.distantPast
     /// Where the last reading began: the cell and containers the next move is measured from.
     var lastSpokenOffset: Int?
 
@@ -339,7 +341,7 @@ public final class BrowseModeDocument: ScriptableObject {
                 if let h = here, !roles.contains(h.role) { here = nil }   // the reading is on no control: nothing to skip
                 let forward = !g.modifiers.contains(.shift)
                 var from = position, found: Int?
-                for _ in 0..<40 {
+                for _ in 0..<1000 {   // (a field of many lines is passed whole: a review, 13 Nov 2026)
                     guard let (at, el) = buffer.find(from: from, forward: forward, roles: roles) else { break }
                     if let here, Self.within(el, here) { from = at; continue }
                     found = at; break

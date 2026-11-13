@@ -18,6 +18,8 @@ final class ContactsAppModule: AppModule {
 
     required init(pid: pid_t, bundleIdentifier: String, appName: String) {
         super.init(pid: pid, bundleIdentifier: bundleIdentifier, appName: appName)
+        // Space on a detail opens its menu (Call, FaceTime, Copy…): AXPress would call at once. Action icons are clicked.
+        SettingsPanePlugin.pressOverrides[bundleIdentifier] = { Self.press($0) }
         script("contacts_toCard", String(localized: "From the list to the person's card", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Contacts") { [weak self] g in
             // No card shown: editing one (Command L), its fields are Contacts' own to Tab through.
             guard let self else { return }
@@ -182,8 +184,13 @@ final class ContactsAppModule: AppModule {
     static func press(_ e: AXUIElement) -> Bool {
         if e.string(kAXIdentifierAttribute) == "ContactCardDetailsView", e.role == "AXButton" {
             lastDetail = e
-            let r = AXUIElementPerformAction(e, kAXShowMenuAction as CFString)
-            Log.io("contacts: a detail's menu → \(r.rawValue)")
+            // SwiftUI's own "show menu" (a custom action, named in its action's description): AXShowMenu answers
+            // success and opens nothing (13 Nov 2026).
+            var names: CFArray?
+            AXUIElementCopyActionNames(e, &names)
+            let custom = ((names as? [String]) ?? []).first { $0.hasPrefix("Name:show menu") || $0.hasPrefix("Name:Show Menu") }
+            let r = AXUIElementPerformAction(e, (custom ?? kAXShowMenuAction) as CFString)
+            Log.io("contacts: a detail's menu (\(custom == nil ? "AXShowMenu" : "its own action")) → \(r.rawValue)")
             return r == .success
         }
         if e.string(kAXIdentifierAttribute) == "InlineActionsHStack", let f = TurnOverObject.frame(e) {
@@ -220,7 +227,15 @@ final class ContactsAppModule: AppModule {
     }
     private func list() -> AXUIElement? { find("personList", in: window()) }
     /// The card's contents: the scroll area inside the detail pane.
+    private var cardCache: (at: Date, card: AXUIElement?)?
+    /// The card, kept half a second: a Tab asks for it several times (availability, then the move).
     private func card() -> AXUIElement? {
+        if let c = cardCache, Date().timeIntervalSince(c.at) < 0.5 { return c.card }
+        let found = findCard()
+        cardCache = (Date(), found)
+        return found
+    }
+    private func findCard() -> AXUIElement? {
         // macOS 27.2 names the card's scroll area itself (13 Nov 2026: Tab from the list said nothing, the old pane gone).
         // (Two AXUnknown elements before it carry the same identifier.)
         if let w = window() {
