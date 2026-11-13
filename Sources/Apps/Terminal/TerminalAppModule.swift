@@ -60,7 +60,7 @@ final class TerminalText: TurnOverObject {
         var review: Int?                // the review cursor's line
         var pending = false
         var prompt = ""                 // the shell's prompt line, as last seen with the shell waiting
-        var lastOutput: (String, Date)? // the output last read, and when
+        var lastOutput: (Int, String, Date)? // the output last read, the anchor it was read from, and when
         var held = false                // output arrived while a menu or sheet was in the way: read on the way back
     }
     static var states: [Int: State] = [:]
@@ -246,6 +246,7 @@ final class TerminalText: TurnOverObject {
             if let (start, text) = cursorLine() { s.anchor = start; s.anchorText = text }
             return
         }
+        let from = s.anchor
         let region = string(s.anchor, min(total - s.anchor, 40_000))
         var lines = region.components(separatedBy: "\n")
         while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty, lines.count > 1 { lines.removeLast() }
@@ -298,10 +299,12 @@ final class TerminalText: TurnOverObject {
         }
         guard !out.isEmpty else { return }
         // The same output again a moment later: iTerm2 moves its cursor after the text arrives, so the next change
-        // starts from the old line and finds it again ("second test" twice, parts sweep 15 Oct 2026).
+        // starts from the old line and finds it again ("second test" twice, parts sweep 15 Oct 2026). Only when read
+        // from the same anchor: the same output of a new command (echo hi twice) starts from a new line and is news
+        // (a review, 13 Nov 2026: the second was silent).
         Log.io("terminal: read \(out.count) characters (\(rest.isEmpty ? "same line" : "\(rest.count) new lines"), anchor \(s.anchor))")
-        if let (last, at) = s.lastOutput, last == out, Date().timeIntervalSince(at) < 1.5 { return }
-        s.lastOutput = (out, Date())
+        if let (anchor, last, at) = s.lastOutput, anchor == from, last == out, Date().timeIntervalSince(at) < 1.5 { return }
+        s.lastOutput = (from, out, Date())
         Speech.speakNews(out.count > 5000 ? String(out.prefix(5000)) + " … and more" : out)
     }
 
