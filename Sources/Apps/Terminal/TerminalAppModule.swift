@@ -290,8 +290,11 @@ final class TerminalText: TurnOverObject {
         s.review = nil
         var out = TerminalRules.withoutRules(speech.joined(separator: "\n")).trimmingCharacters(in: .whitespacesAndNewlines)
         // A full-screen program redrawing its input box as you type (Claude Code: the line typed so far and the box's
-        // rules, read after every letter, a tester, 13 Nov 2026): short lines just after a typed key aren't output.
-        if InputManager.lastKeyWasTyped, Date().timeIntervalSince(InputManager.lastKeyDownAt) < 0.6, TerminalRules.isTypingEcho(out) { out = "" }
+        // rules, read after every letter, a tester, 13 Nov 2026): just after a typed key, the cursor's own line (the box
+        // being typed in) isn't output. Only that line: short real output ("done", a y/n prompt's answer) is kept (a review).
+        if InputManager.lastKeyWasTyped, Date().timeIntervalSince(InputManager.lastKeyDownAt) < 0.6, let (_, cur) = cursorLine() {
+            out = TerminalRules.withoutEcho(out, cursorLine: cur)
+        }
         guard !out.isEmpty else { return }
         // The same output again a moment later: iTerm2 moves its cursor after the text arrives, so the next change
         // starts from the old line and finds it again ("second test" twice, parts sweep 15 Oct 2026).
@@ -462,9 +465,14 @@ package enum TerminalRules {
         }.joined(separator: "\n")
     }
 
-    /// Output that is only a typing echo's redraw: every line short (sixteen characters or fewer). Pure.
-    package nonisolated static func isTypingEcho(_ text: String) -> Bool {
-        let lines = text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        return !lines.isEmpty && lines.count <= 3 && lines.allSatisfy { $0.count <= 16 }
+    /// Output without the lines that are the cursor's own line redrawn, whole or its end (the text typed so far in a
+    /// program's input box, rules and frames aside). Pure.
+    package nonisolated static func withoutEcho(_ text: String, cursorLine: String) -> String {
+        let cur = withoutRules(cursorLine).trimmingCharacters(in: .whitespaces)
+        guard !cur.isEmpty else { return text }
+        return text.split(separator: "\n", omittingEmptySubsequences: false).filter { line in
+            let t = line.trimmingCharacters(in: .whitespaces)
+            return t.isEmpty || !(t == cur || cur.hasSuffix(t))
+        }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

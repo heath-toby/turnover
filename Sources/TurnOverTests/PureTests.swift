@@ -16,9 +16,9 @@ func pureTests() {
         expect(TerminalRules.withoutRules("ok ───────────"), "ok", "a rule after text taken out")
         expect(TerminalRules.withoutRules("──────\nDone.\n╰────╯"), "Done.", "lines of rules dropped")
         expect(TerminalRules.withoutRules("a ─ b"), "a ─ b", "a single box character kept")
-        check(TerminalRules.isTypingEcho("Se"), "a short redraw is an echo")
-        check(!TerminalRules.isTypingEcho("Compiling TurnOver, 412 files of 640"), "real output isn't")
-        check(!TerminalRules.isTypingEcho(""), "nothing isn't an echo")
+        expect(TerminalRules.withoutEcho("Se", cursorLine: "│ ❯ Se ───"), "", "the box's typed text redrawn isn't output")
+        expect(TerminalRules.withoutEcho("done", cursorLine: "❯ git st"), "done", "short real output is kept")
+        expect(TerminalRules.withoutEcho("Saved.\n❯ y", cursorLine: "❯ y"), "Saved.", "only the cursor's line goes")
     }
     test("pronunciations: whole words, any case, longest first, comments skipped") {
         let list = PronunciationDictionary.parse("# mine\nTurnOver = turn over\nNew York = new york\nNew York City = big apple\nbad line\nLBRF = L B R F")

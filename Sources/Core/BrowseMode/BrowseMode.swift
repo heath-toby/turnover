@@ -200,6 +200,8 @@ public final class BrowseModeDocument: ScriptableObject {
     /// A module placed the reading itself as the page was entered (Mail's Shift Tab into a message, at its last
     /// control): no automatic say all from the top.
     public var noAutoRead = false
+    /// The page was entered from below while still empty: when it arrives, the reading starts at its last control.
+    public var startAtLastControl = false
     /// The page last announced (its title and its reading), so a page is announced once as it arrives.
     var announcedURL = ""
 
@@ -221,7 +223,8 @@ public final class BrowseModeDocument: ScriptableObject {
             // Not a page the focus only passes through: Mail's message pane, on the way to the search field, had the
             // whole message read out (8 Oct 2026).
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                guard let self, API.focusTreeInterceptor === self, !self.noAutoRead else { return }
+                guard let self, API.focusTreeInterceptor === self else { return }
+                if self.noAutoRead { self.noAutoRead = false; return }   // (once: a later page here is read as ever)
                 SayAll.readText(from: self.rootObject)
             }
         } else if let info = makeTextInfo(.bookmark(Bookmark(start: position, end: position))) {
@@ -273,6 +276,11 @@ public final class BrowseModeDocument: ScriptableObject {
         guard !buffer.lines.isEmpty else { return false }
         let saved = BrowseModeHandler.cameBackByHistory ? BrowseModeHandler.shared.savedPosition(for: url) : nil
         position = resumeOffset(saved)
+        if startAtLastControl {
+            // Entered from below before it had loaded (Mail's Shift Tab): its last control, not its top.
+            startAtLastControl = false; noAutoRead = true
+            position = buffer.find(from: buffer.text.length, forward: false, roles: Self.controlRoles.union(["AXDisclosureTriangle"]))?.offset ?? position
+        }
         VoiceOverSounds.play("WebAreaLoaded.aiff")   // VoiceOver's "web area loaded", the sound its list has for a page
         Log.io("browse mode: page arrived — resuming at \(position)\(saved == nil ? "" : " (saved \(saved!.offset))")")
         if announce, url != announcedURL { announcePage() }

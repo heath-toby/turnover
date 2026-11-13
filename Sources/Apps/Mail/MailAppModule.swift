@@ -132,6 +132,7 @@ package final class MailAppModule: AppModule {
             // Shift Tab into a message never read before: its document is made just now, and its say all from the top
             // gives way to its last control (a review, 13 Nov 2026).
             if !forward, !hadDocument, let d = API.focusTreeInterceptor, d.webArea.isSame(web) {
+                if d.buffer.lines.isEmpty { d.startAtLastControl = true; return }   // (not loaded yet: placed when it comes)
                 d.noAutoRead = true
                 d.position = d.buffer.find(from: d.buffer.text.length, forward: false, roles: Self.messageControlRoles)?.0 ?? 0
                 Speech.cancel()
@@ -446,6 +447,16 @@ package final class MailAppModule: AppModule {
                   let w = SettingsPanePlugin.windowOf(f), let tb = w.elements(kAXChildrenAttribute).first(where: { $0.role == "AXToolbar" }) else { return false }
             return Self.searchField(in: tb) != nil
         }
+        // A message in its own window: Tab from its toolbar goes into the message's first part, as Shift Tab from that
+        // part comes round to the toolbar (a review, 13 Nov 2026).
+        script("mail_toolbarIntoMessage", String(localized: "From a message window's toolbar: into the message (Tab)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Mail") { [weak self] g in
+            guard let self, let f = API.focusObject?.element, let first = Self.shownMessages(from: f).first,
+                  let stop = Self.messageStops(first).first else { g.send(); return }
+            self.go(stop, forward: true, in: first)
+        }.isAvailable = {
+            guard let f = API.focusObject?.element, Self.inWindowToolbar(f), !Self.place.hasPrefix("compose:") else { return false }
+            return !Self.hasMessageList(f) && !Self.shownMessages(from: f).isEmpty
+        }
         // Shift Tab from the mailboxes: the search field, the way round backwards.
         script("mail_mailboxesBack", String(localized: "From the mailboxes: back to the search field (Shift Tab)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Mail") { [weak self] g in
             guard let self, let f = API.focusObject?.element, self.toWindowToolbar(from: f, last: true) else { g.send(); return }
@@ -473,7 +484,8 @@ package final class MailAppModule: AppModule {
                 // (A conversation: its first message, top to bottom; a review, 13 Nov 2026.)
                 guard let matched = Self.headerAreaFromList(f)?.element(kAXParentAttribute)?.element(kAXParentAttribute) else { g.send(); return }
                 let content = Self.messages(around: matched).first ?? matched
-                guard let first = Self.messageStops(content).first else { g.send(); return }
+                // (A message with nothing to stop on yet, still loading: on round, not Mail's own Tab, a review.)
+                guard let first = Self.messageStops(content).first else { if !self.toWindowToolbar(from: f, last: false) { Tones.edge() }; return }
                 self.go(first, forward: true, in: content); return
             }
             guard let content = Self.contentGroup(of: f) else { g.send(); return }
@@ -1022,6 +1034,14 @@ package final class MailAppModule: AppModule {
     /// The window has the message list (the viewer, not a compose window or a message on its own).
     static func hasMessageList(_ from: AXUIElement) -> Bool {
         guard let w = SettingsPanePlugin.windowOf(from) else { return false }
+        // Kept a second per window: asked on every Tab and Shift Tab on a toolbar (a review, 13 Nov 2026).
+        if let k = listKept, k.window.isSame(w), Date().timeIntervalSince(k.at) < 1 { return k.has }
+        let has = walkForMessageList(w)
+        listKept = (w, Date(), has)
+        return has
+    }
+    private static var listKept: (window: AXUIElement, at: Date, has: Bool)?
+    private static func walkForMessageList(_ w: AXUIElement) -> Bool {
         var queue = [w], seen = 0
         while !queue.isEmpty, seen < 150 {
             let e = queue.removeFirst(); seen += 1
