@@ -20,17 +20,39 @@ final class MediaAppModule: AppModule {
     private var terminated = false
     /// Whether the media view has the keys: the same test its commands use (`active` in init).
     private var readerHasTheKeys: () -> Bool = { false }
+    /// The last look for the video player, in the window it was made in (main thread). The look walks the window
+    /// three deep, 100 to 300 questions, and ran behind every key's availability check and every focus event (a
+    /// review, 13 Nov 2026). Kept while the same window is focused, the app has said nothing of its controls changing
+    /// since, and for two seconds at most; dropped when a key that can open a video (Return, Space, Escape) runs.
+    private var videoCheck: (pid: pid_t, window: AXUIElement, at: Date, video: Bool)?
+
+    private func showsVideo(pid: pid_t) -> Bool {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.3)
+        guard let w = app.element(kAXFocusedWindowAttribute) else { videoCheck = nil; return false }
+        let ax = AXHandler.shared
+        if let c = videoCheck, c.pid == pid, c.window.isSame(w), Date().timeIntervalSince(c.at) < 2, ax.observers[pid] != nil,
+           (ax.lastStructureAt[pid] ?? .distantPast) < c.at {
+            return c.video
+        }
+        let at = Date()   // before the walk: news arriving during it makes the answer stale
+        let video = MediaView.showsVideo(in: w, timeout: 0.3)
+        // Only "no video" is kept: leaving the player (Escape is the app's there) runs no script of this module to
+        // drop it, and while a video shows the keys are the app's anyway.
+        videoCheck = video ? nil : (pid, w, at, false)
+        return video
+    }
 
     required init(pid: pid_t, bundleIdentifier: String, appName: String) {
         super.init(pid: pid, bundleIdentifier: bundleIdentifier, appName: appName)
         let cat = appName
-        let active: () -> Bool = {
+        let active: () -> Bool = { [weak self] in
             if AXHandler.shared.isMenuOpen || TurnOverMenu.shared.isOpen { return false }
             guard let f = API.focusObject else { return true }
             // A dialog or sheet has the keys (TV's notification sheet): the media view stands aside.
             if f.role == .dialog || f.role == .sheet || API.focusAncestors.contains(where: { $0.role == .dialog || $0.role == .sheet }) { return false }
             if [.editableText, .searchField, .comboBox, .passwordEdit].contains(f.role) { return false }
-            return !MediaView.showsVideo(pid: f.pid)
+            return !(self?.showsVideo(pid: f.pid) ?? MediaView.showsVideo(pid: f.pid))
         }
         readerHasTheKeys = active
         // The catalog's list (Catalog.swift) is read while the search field still has the focus: the arrows, Home, End,
@@ -41,7 +63,10 @@ final class MediaAppModule: AppModule {
             return !(AXHandler.shared.isMenuOpen || TurnOverMenu.shared.isOpen)
         }
         func add(_ name: String, _ description: String, _ keys: [String], listKeys: Bool = false, _ run: @escaping (KeyboardGesture) -> Void) {
-            script("media_\(name)", description, gestures: keys.map { "kb:" + $0 }, category: cat, run).isAvailable = listKeys ? activeOrCatalog : active
+            // A key that can open a video or leave one: the next key looks again.
+            let opensOrLeaves = ["open", "openDetails", "play", "back"].contains(name)
+            let body: (KeyboardGesture) -> Void = opensOrLeaves ? { [weak self] g in self?.videoCheck = nil; run(g) } : run
+            script("media_\(name)", description, gestures: keys.map { "kb:" + $0 }, category: cat, body).isAvailable = listKeys ? activeOrCatalog : active
         }
         add("previous", String(localized: "Previous item", comment: "A command, as the key list and keyboard help say it"), ["upArrow"], listKeys: true) { [weak self] _ in self?.view.move(-1) }
         add("next", String(localized: "Next item", comment: "A command, as the key list and keyboard help say it"), ["downArrow"], listKeys: true) { [weak self] _ in self?.view.move(1) }
@@ -117,7 +142,7 @@ final class MediaAppModule: AppModule {
     override func handleEvent(_ event: Event, next: () -> Void) {
         // Music's video player: its buttons speak as anywhere else. Leaving it, the page is read again.
         if event.kind == .gainFocus || event.kind == .focusEntered {
-            if MediaView.showsVideo(pid: pid) { next(); return }
+            if showsVideo(pid: pid) { next(); return }
             if view.inVideo {
                 view.inVideo = false
                 let generation = focusGeneration, keys = ScriptHandler.keysArrivedCount

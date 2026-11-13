@@ -372,24 +372,49 @@ enum NVDATables {
 
     static func cells(_ row: AXUIElement) -> [AXUIElement] { row.elements(kAXChildrenAttribute).filter { $0.role == "AXCell" } }
 
+    /// A table's rows, each fetched as it is needed: every Control Command arrow fetched them all, 23,000 in Mail's
+    /// message list (a review, 13 Nov 2026). The row's own index finds it, where the table's row at that index is it;
+    /// else all the rows are fetched, as before.
+    struct TableRows {
+        let table: AXUIElement
+        let count: Int
+        private let all: [AXUIElement]?
+
+        /// The rows, and where `row` is among them; nil when it isn't one of them.
+        static func locate(_ row: AXUIElement, in table: AXUIElement) -> (TableRows, Int)? {
+            if let n = table.attributeValueCountResult(kAXRowsAttribute).value, n > 0, let i = row.int(kAXIndexAttribute), i >= 0, i < n {
+                let ranged = TableRows(table: table, count: n, all: nil)
+                if let at = ranged.row(i), at.isSame(row) { return (ranged, i) }
+            }
+            let rows = table.elements(kAXRowsAttribute)
+            guard let r = rows.firstIndex(where: { $0.isSame(row) }) else { return nil }
+            return (TableRows(table: table, count: rows.count, all: rows), r)
+        }
+
+        func row(_ i: Int) -> AXUIElement? {
+            guard i >= 0, i < count else { return nil }
+            if let all { return all[i] }
+            return (table.attributeValuesResult(kAXRowsAttribute, index: i, maxValues: 1).value as? [AXUIElement])?.first
+        }
+    }
+
     static func move(_ m: Move) {
         let word: String? = { switch m { case .column(let d): return d < 0 ? "table_previousColumn" : "table_nextColumn"; case .row(let d): return d < 0 ? "table_previousRow" : "table_nextRow"; default: return nil } }()
         if let n = word, let s = moduleScript(n), let g = KeyboardGesture(identifier: "kb:control+command+rightArrow") { s.handler(g); return }
         guard let (cell, table) = VoiceOverKeysPlugin.tableCell() else { Speech.speakMessage(String(localized: "not in a table", comment: "Spoken message")); return }
-        let rows = table.elements(kAXRowsAttribute)
-        guard let parent = cell.element(kAXParentAttribute), let r = rows.firstIndex(where: { $0.isSame(parent) }),
-              let c = cells(rows[r]).firstIndex(where: { $0.isSame(cell) }) else { Speech.speakMessage(String(localized: "not in a table", comment: "Spoken message")); return }
+        guard let parent = cell.element(kAXParentAttribute), let (rows, r) = TableRows.locate(parent, in: table),
+              let c = cells(parent).firstIndex(where: { $0.isSame(cell) }) else { Speech.speakMessage(String(localized: "not in a table", comment: "Spoken message")); return }
         var (nr, nc) = (r, c)
         switch m {
         case .column(let d): nc += d
         case .row(let d): nr += d
         case .firstColumn: nc = 0
-        case .lastColumn: nc = cells(rows[r]).count - 1
+        case .lastColumn: nc = cells(parent).count - 1
         case .firstRow: nr = 0
         case .lastRow: nr = rows.count - 1
         }
-        guard rows.indices.contains(nr) else { Speech.speakMessage(String(localized: "edge of table", comment: "Spoken message")); return }
-        let rowCells = cells(rows[nr])
+        guard nr >= 0, nr < rows.count, let toRow = nr == r ? parent : rows.row(nr) else { Speech.speakMessage(String(localized: "edge of table", comment: "Spoken message")); return }
+        let rowCells = cells(toRow)
         guard rowCells.indices.contains(nc) else { Speech.speakMessage(String(localized: "edge of table", comment: "Spoken message")); return }
         let target = rowCells[nc]
         if nr == r && nc == c { Speech.speakMessage(String(localized: "edge of table", comment: "Spoken message")); return }

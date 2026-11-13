@@ -1123,11 +1123,18 @@ public final class MediaView {
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, 0.3)
         guard let w = app.element(kAXFocusedWindowAttribute) else { return false }
-        return showsVideo(in: w)
+        return showsVideo(in: w, timeout: 0.3)
     }
 
-    nonisolated private static func showsVideo(in window: AXUIElement) -> Bool {
-        first(in: window, depth: 3) { $0.string(kAXIdentifierAttribute) == "Toggle Controls" } != nil
+    /// `timeout`: each element asked waits at most this long. The window's children otherwise wait the global
+    /// default, and the per-key check (MediaAppModule) must not hold a key that long (a review, 13 Nov 2026). The
+    /// view's own builds, off main, keep the default.
+    nonisolated static func showsVideo(in window: AXUIElement, timeout: Float? = nil) -> Bool {
+        if let timeout { AXUIElementSetMessagingTimeout(window, timeout) }
+        return first(in: window, depth: 3) { e in
+            if let timeout { AXUIElementSetMessagingTimeout(e, timeout) }
+            return e.string(kAXIdentifierAttribute) == "Toggle Controls"
+        } != nil
     }
 
     nonisolated static func cgSize(_ e: AXUIElement, _ name: String) -> CGSize? {
