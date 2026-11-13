@@ -925,9 +925,11 @@ public enum Speech {
         func spoken(_ t: String) -> String { t.count == 1 ? Symbols.name(of: t.first!) : (t.count > 1000 ? Phrases.characters(t.count) : processed(t)) }
         func selected(_ t: String) -> String { String(localized: "selected \(spoken(t))", comment: "Selected text, read: %@ is the text") }
         if generalize {
-            if !added.isEmpty { enqueue(selected(new.text)) }
+            // Both added and removed: the new selection once, as "now selected" (a review, 13 Nov 2026: "selected X",
+            // then "now selected X").
             if !removed.isEmpty { enqueue(new.isCollapsed ? String(localized: "selection removed", comment: "The selection went")
                 : String(localized: "now selected \(spoken(new.text))", comment: "The selection changed: %@ is what is selected now")) }
+            else if !added.isEmpty { enqueue(selected(new.text)) }
             return
         }
         for t in added where !t.isEmpty { enqueue(selected(t)) }
