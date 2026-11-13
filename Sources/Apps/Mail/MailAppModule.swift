@@ -532,6 +532,17 @@ package final class MailAppModule: AppModule {
             guard let d = API.focusTreeInterceptor, !d.passThrough, d.webArea.pid == pid else { return false }
             return !Self.place.hasPrefix("compose:") && !AXHandler.shared.isMenuOpen
         }
+        // Escape from a message's other parts (its header fields, its buttons, a banner's): as from its text. In its own
+        // window it stayed open (13 Nov 2026).
+        script("mail_leaveMessageParts", String(localized: "On a message's header or buttons: back to the message list (closes the message's own window)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:escape"], category: "Mail") { [weak self] g in
+            guard let self, let f = API.focusObject?.element else { g.send(); return }
+            Self.headerAt = nil
+            self.leaveMessage(from: f, g)
+        }.isAvailable = {
+            guard let f = API.focusObject?.element, !Self.place.hasPrefix("compose:"), !AXHandler.shared.isMenuOpen,
+                  f.role != "AXWebArea", !SettingsPanePlugin.isInWeb(f) else { return false }
+            return Self.contentGroup(of: f) != nil
+        }
         script("mail_getNewMail", String(localized: "Checks for new mail and says so", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:command+shift+n"], category: "Mail") { g in
             g.send()
             Speech.speakMessage(String(localized: "checking for new mail", comment: "Spoken message"))
