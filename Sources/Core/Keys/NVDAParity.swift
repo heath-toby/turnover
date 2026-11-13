@@ -430,8 +430,9 @@ package enum NVDATables {
         let t = VoiceOverKeysPlugin.text(target)
         parts.append(t.isEmpty ? Phrases.blank : t)
         if config.documentFormatting.tableCellCoordinates {
-            if nr != r { parts.append(Phrases.row(nr + 1)) }
-            if nc != c { parts.append(Phrases.column(nc + 1)) }
+            // "row 2 column 1" in one breath, as the reading's own cell news (a tester, 13 Nov 2026: no pause between).
+            let coords = [nr != r ? Phrases.row(nr + 1) : nil, nc != c ? Phrases.column(nc + 1) : nil].compactMap { $0 }
+            if !coords.isEmpty { parts.append(coords.joined(separator: " ")) }
         }
         Speech.speakMessage(parts.joined(separator: ", "))
     }
@@ -497,8 +498,9 @@ package enum NVDATables {
         if tr != row.location, let h = VoiceOverKeysPlugin.rowHeader(target, table), !h.isEmpty, tc != 0, h != t { parts.append(h) }
         parts.append(t.isEmpty ? Phrases.blank : t)
         if config.documentFormatting.tableCellCoordinates {
-            if tr != row.location { parts.append(Phrases.row(tr + 1)) }
-            if tc != column.location { parts.append(Phrases.column(tc + 1)) }
+            // "row 2 column 1" in one breath, as the reading's own cell news (a tester, 13 Nov 2026: no pause between).
+            let coords = [tr != row.location ? Phrases.row(tr + 1) : nil, tc != column.location ? Phrases.column(tc + 1) : nil].compactMap { $0 }
+            if !coords.isEmpty { parts.append(coords.joined(separator: " ")) }
         }
         Speech.speakMessage(parts.joined(separator: ", "))
     }

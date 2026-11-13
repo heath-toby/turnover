@@ -612,6 +612,20 @@ extension AXHandler {
         Log.io("focus to the window \"\(Log.words(name))\" after \(f.axRole) let go; held a moment")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             guard let self, self.lastGainFocus?.1 == since, API.focusPid == pid else { return }
+            // The app's own focus first: Safari, opening an address, named its window "Untitled" for a moment while
+            // the page kept the keyboard, and TurnOver took the window and left browse mode (a sweep, 13 Nov 2026).
+            if let real = AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute), real.role != "AXWindow", real.role != "?" {
+                let page = f.element.enclosingWebArea()
+                // (Or the page browse mode is already reading: the new page that took the old one's place.)
+                let reading = API.focusTreeInterceptor.map { real.isSame($0.webArea) } ?? false
+                if reading || real.isSame(f.element) || (page != nil && real.enclosingWebArea().map { $0.isSame(page!) } == true) {
+                    Log.io("focus: the window \"\(Log.words(name))\" passed; the app's focus is still \(f.axRole)")
+                    return
+                }
+                Log.io("focus: nothing followed the window \"\(Log.words(name))\"; the app's focus, \(real.role)")
+                self.present(real, pid: pid)
+                return
+            }
             Log.io("focus: nothing followed the window \"\(Log.words(name))\"; the window")
             self.present(target, pid: pid)
         }
