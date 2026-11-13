@@ -38,6 +38,10 @@ final class CalendarAppModule: AppModule {
         script("cal_nextEvent", String(localized: "The day's next event", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:downArrow"], category: cat) { [weak self] g in self?.moveEvent(1, g) }.isAvailable = { [weak self] in self?.inView() == true }
         script("cal_previousEvent", String(localized: "The day's previous event", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:upArrow"], category: cat) { [weak self] g in self?.moveEvent(-1, g) }.isAvailable = { [weak self] in self?.inView() == true }
         script("cal_open", String(localized: "Opens the event (its details)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:enter"], category: cat) { [weak self] g in self?.openEvent(g) }.isAvailable = { [weak self] in self?.inView() == true && self?.eventIndex != nil }
+        // Delete and Backspace act on Calendar's own selection. When the event refused the focus the day took it
+        // (followWithCalendarFocus), so Calendar's selection could be another event than the one read: sent only when
+        // Calendar's focus is the event read, or the day when no event is (a review, 13 Nov 2026).
+        script("cal_delete", String(localized: "Deletes the event being read", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:backspace", "kb:delete"], category: cat) { [weak self] g in self?.deleteEvent(g) }.isAvailable = { [weak self] in self?.inView() == true }
         script("cal_today", String(localized: "Back to today", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:command+t"], category: cat) { [weak self] g in
             g.send()
             guard let self else { return }
@@ -586,6 +590,19 @@ final class CalendarAppModule: AppModule {
         guard i < list.count else { return }
         Speech.cancel()
         Speech.speakMessage("\(Self.brief(list[i])), \(Phrases.position(i + 1, of: list.count))")
+    }
+
+    private func deleteEvent(_ g: KeyboardGesture) {
+        guard let day = dayShowing(current) else { g.send(); return }
+        let list = events(day)
+        let target = eventIndex.flatMap { list.indices.contains($0) ? list[$0] : nil } ?? day.element
+        guard let focused = AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute), focused.isSame(target) else {
+            Log.io("calendar: \(g.identifier) not sent; Calendar's focus isn't the \(eventIndex == nil ? "day" : "event") read")
+            Tones.edge()
+            Speech.speakMessage(String(localized: "could not select that", comment: "Spoken message: Delete was not sent, as the Calendar event or day read isn't Calendar's selection"))
+            return
+        }
+        g.send()
     }
 
     private func openEvent(_ g: KeyboardGesture) {
