@@ -58,10 +58,13 @@ open class SelectableList: TurnOverObject {
         // Answered as soon as the row opens or closes, or the selection moves; it used to wait the whole 0.3 s each
         // time and then, on a row with nothing to open, say nothing (Reminders' sidebar, 10 Oct 2026).
         var after = before
+        // Another key gives way: what this one did is not said over it (a review, 13 Nov 2026).
+        let keys = ScriptHandler.keysArrivedCount
         let moved = Poll.pumping(every: 0.03, limit: 0.3) {
             after = row.attr("AXDisclosing") as? Bool
-            return after != before || EventHandler.isPending(.selection) || EventHandler.isPending(.gainFocus)
+            return after != before || EventHandler.isPending(.selection) || EventHandler.isPending(.gainFocus) || ScriptHandler.keysArrivedCount != keys
         }
+        if ScriptHandler.keysArrivedCount != keys { return }
         if let after, after != before { Speech.speakMessage(after ? String(localized: "expanded", comment: "Spoken message") : String(localized: "collapsed", comment: "Spoken message")); return }
         if !moved { Tones.edge(keySent: true) }   // nothing to open or close here
     }
@@ -127,8 +130,11 @@ open class SelectableList: TurnOverObject {
     /// A list whose app posts no selection news: not waited for until then.
     static var quietUntil: (list: AXUIElement, until: Date)?
 
+    /// True when the selection's news came, or another key did: that key's own move reads the row it reaches, so this
+    /// one says nothing more (the keys queued behind the wait: a review, 13 Nov 2026).
     private func waitForSelection() -> Bool {
-        Poll.pumping(limit: 0.3) { EventHandler.isPending(.selection) || EventHandler.isPending(.gainFocus) }
+        let keys = ScriptHandler.keysArrivedCount
+        return Poll.pumping(limit: 0.3) { EventHandler.isPending(.selection) || EventHandler.isPending(.gainFocus) || ScriptHandler.keysArrivedCount != keys }
     }
 
     private func moveSelection(_ g: KeyboardGesture) {
@@ -173,8 +179,10 @@ open class SelectableList: TurnOverObject {
         }
         if waitForSelection() { return }   // the selection event reads the row
         // A collection may move its selection a little later still.
-        if axSubrole == "AXCollectionList" { _ = Poll.pumping(every: 0.03, limit: 0.4) { EventHandler.isPending(.selection) || self.element.elements(self.selectionKey).first.map { b in before.map { !$0.isSame(b) } ?? true } == true }
-            if EventHandler.isPending(.selection) { return } }
+        if axSubrole == "AXCollectionList" {
+            let keys = ScriptHandler.keysArrivedCount
+            _ = Poll.pumping(every: 0.03, limit: 0.4) { EventHandler.isPending(.selection) || ScriptHandler.keysArrivedCount != keys || self.element.elements(self.selectionKey).first.map { b in before.map { !$0.isSame(b) } ?? true } == true }
+            if EventHandler.isPending(.selection) || ScriptHandler.keysArrivedCount != keys { return } }
         // The selection moved and nothing said so (SwiftUI's collections post no event: Shortcuts, 12 Nov 2026): read
         // the item now selected.
         if let now = element.elements(selectionKey).first, before.map({ !$0.isSame(now) }) ?? true {

@@ -10,8 +10,10 @@ public enum SayAll {
         didSet { runningLock.lock(); running = reader != nil; runningLock.unlock() }
     }
     // Read on the keyboard thread; the reader itself is only touched on main (E6 audit, 4 Oct 2026).
-    private static let runningLock = NSLock()
-    private static var running = false
+    nonisolated private static let runningLock = NSLock()
+    // Written on main by `reader`'s didSet, read by `isRunning` from any thread: both only under runningLock, which
+    // the main-actor default cannot express (the key tap asks before it cancels speech: a review, 13 Nov 2026).
+    nonisolated(unsafe) private static var running = false
     private static var buffered = 0
     private static var blanks = 0
     private static let maxBuffered = 3
@@ -20,7 +22,7 @@ public enum SayAll {
     private static var stopPoint: (obj: TurnOverObject, offset: Int)?
     private static var firstChunk = true
     private static var generation = 0
-    public static var isRunning: Bool { runningLock.lock(); defer { runningLock.unlock() }; return running }
+    nonisolated public static var isRunning: Bool { runningLock.lock(); defer { runningLock.unlock() }; return running }
     /// Set on the keyboard thread as each key arrives: whether say all was reading when it was pressed. The key stops
     /// say all (on main) before its command is looked up, so a style's say-all keys (JAWS: Left and Right go back and
     /// on, Page Up and Down change the speed) ask this instead of isRunning.

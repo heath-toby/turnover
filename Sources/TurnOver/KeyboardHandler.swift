@@ -554,24 +554,31 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         if settings.controlOptionIsTurnOver, mods.contains(.control), mods.contains(.option) {
             mods.remove(.control); mods.remove(.option); mods.insert(.turnover)
         }
-        var gesture = KeyboardGesture(keyCode: code, modifiers: mods, characters: Self.characters(of: event),
+        let gesture = KeyboardGesture(keyCode: code, modifiers: mods, characters: Self.characters(of: event),
                                       timestamp: UInt64(Double(event.timestamp) / Self.machToNs),
                                       isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0, flags: event.flags)
         // The Windows style: a Windows key TurnOver has no command of its own for becomes the Mac key that does the
         // same (Control C to Command C, Control Left to Option Left). TurnOver's own bindings (browse mode's Home,
         // Control Home) keep their keys. The key's release is translated to match.
-        // The lookup happens once, here, and is handed on; a TurnOver chord is not looked up on this thread at all.
-        if settings.windowsKeys, !mods.contains(.turnover), ScriptHandler.mainHasScript(for: gesture) == false, WindowsRemap.apply(.keyDown, event) {
-            remapped.insert(code)
-            let c2 = event.getIntegerValueField(.keyboardEventKeycode)
+        // The lookup happens once, on main, with the handling: the translation is worked out here on a copy, and main
+        // takes it only when TurnOver has nothing of its own for the key (one round trip, not two in turn: a review,
+        // 13 Nov 2026). A TurnOver chord is not translated.
+        var translated: KeyboardGesture?
+        if settings.windowsKeys, !mods.contains(.turnover), let copy = event.copy(), WindowsRemap.apply(.keyDown, copy) {
+            let c2 = copy.getIntegerValueField(.keyboardEventKeycode)
             var m2 = Modifiers()
-            if event.flags.contains(.maskShift) { m2.insert(.shift) }
-            if event.flags.contains(.maskControl) { m2.insert(.control) }
-            if event.flags.contains(.maskAlternate) { m2.insert(.option) }
-            if event.flags.contains(.maskCommand) { m2.insert(.command) }
-            gesture = KeyboardGesture(keyCode: c2, modifiers: m2, characters: Self.characters(of: event), timestamp: gesture.timestamp, isRepeat: gesture.isRepeat, flags: event.flags)
+            if copy.flags.contains(.maskShift) { m2.insert(.shift) }
+            if copy.flags.contains(.maskControl) { m2.insert(.control) }
+            if copy.flags.contains(.maskAlternate) { m2.insert(.option) }
+            if copy.flags.contains(.maskCommand) { m2.insert(.command) }
+            translated = KeyboardGesture(keyCode: c2, modifiers: m2, characters: Self.characters(of: copy), timestamp: gesture.timestamp, isRepeat: gesture.isRepeat, flags: copy.flags)
         }
-        switch ScriptHandler.askMain(gesture) {
+        let (decision, usedTranslation) = ScriptHandler.askMain(gesture, otherwise: translated)
+        if usedTranslation {
+            WindowsRemap.apply(.keyDown, event)   // the key itself, as the copy was: it may go on to the app below
+            remapped.insert(code)
+        }
+        switch decision {
         case .taken, .deferred:
             quarantined.insert(code)
             return nil

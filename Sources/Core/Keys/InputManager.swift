@@ -6,6 +6,7 @@
 // every key into its description.
 import Foundation
 import AppKit
+import TurnOverSpeech
 
 public enum InputManager {
     nonisolated private static let lock = NSLock()
@@ -90,6 +91,18 @@ public enum InputManager {
         set { lock.lock(); _lastKeyIdentifier = newValue; lock.unlock() }
     }
     private static var _lastKeyIdentifier = ""
+
+    /// Keyboard thread, as a key goes to main: the speech is stopped now, not when main gets to the key. handleKeyDown
+    /// cancels it on main, and while main was busy (a script waiting on the app, a slow walk) the old words went on
+    /// over the new key (a review, 13 Nov 2026). The player's cancel is its speech queue's work, safe from any thread.
+    /// Only where handleKeyDown would cancel anyway, and only what it can do without main: not a typed key (its echo
+    /// and the typed word are main's bookkeeping), not during say all (main notes where it stopped before cutting it),
+    /// not the key the commands editor or pass-next-key are waiting for (those don't cancel). handleKeyDown still
+    /// cancels as before; a second cancel finds nothing playing.
+    nonisolated public static func cancelSpeechEarly(for gesture: KeyboardGesture) {
+        guard gesture.typedCharacter == nil, !isCapturing, !(passNextKey && !gesture.isRepeat), !SayAll.isRunning else { return }
+        SpeechPlayer.current?.cancel()
+    }
 
     public static func handleKeyDown(_ gesture: KeyboardGesture) -> Bool {
         Hints.cancel()

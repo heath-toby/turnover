@@ -29,7 +29,10 @@ final class KeynoteAppModule: AppModule {
                 guard let self else { return }
                 let before = self.selectedSlide()?.index
                 g.send()
-                _ = Poll.pumping(every: 0.02, limit: 0.3) { self.selectedSlide()?.index != before }
+                // Another key gives way: its own move says the slide it reaches (a review, 13 Nov 2026).
+                let keys = ScriptHandler.keysArrivedCount
+                _ = Poll.pumping(every: 0.02, limit: 0.3) { self.selectedSlide()?.index != before || ScriptHandler.keysArrivedCount != keys }
+                if ScriptHandler.keysArrivedCount != keys { return }
                 if self.selectedSlide()?.index == before { Tones.edge() }
                 self.saySlide()
             }.isAvailable = { [weak self] in self?.onSlide() == true }

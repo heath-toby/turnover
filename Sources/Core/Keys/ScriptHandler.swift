@@ -78,31 +78,42 @@ public enum ScriptHandler {
     nonisolated private static let keysArrived = Locked(0)
     nonisolated public static var keysArrivedCount: Int { keysArrived.value }
 
-    nonisolated public static func askMain(_ gesture: KeyboardGesture) -> KeyDecision {
+    nonisolated public static func askMain(_ gesture: KeyboardGesture) -> KeyDecision { askMain(gesture, otherwise: nil).decision }
+
+    /// As askMain, with the Windows style's translation in the same round trip: when TurnOver has no script for
+    /// `gesture`, main handles `alternative` (the Mac key it becomes) instead. It asked main twice in turn, once
+    /// whether there was a script and once to handle the key, and each wait is a main-thread turn the user hears
+    /// (a review, 13 Nov 2026). `usedAlternative`: main handled the alternative (only known when it answered in
+    /// time; a late answer sends on whichever it chose).
+    nonisolated public static func askMain(_ gesture: KeyboardGesture, otherwise alternative: KeyboardGesture?) -> (decision: KeyDecision, usedAlternative: Bool) {
         keysArrived.lock.lock(); keysArrived.unsafeValue &+= 1; keysArrived.lock.unlock()
-        guard !(mainStuck?() ?? false) else { Log.warning("keyboard: the main thread is not beating; \(gesture.logDescription()) goes through"); return .passed }
+        guard !(mainStuck?() ?? false) else { Log.warning("keyboard: the main thread is not beating; \(gesture.logDescription()) goes through"); return (.passed, false) }
+        InputManager.cancelSpeechEarly(for: gesture)
         let state = Locked(Wait.waiting); let done = DispatchSemaphore(value: 0)
+        let usedAlternative = Locked(false)
         let started = DispatchTime.now()
         DispatchQueue.main.async { MainActor.assumeIsolated {
-            let taken = InputManager.handleKeyDown(gesture)
+            var handled = gesture
+            if let alternative, findScript(for: gesture) == nil { handled = alternative; usedAlternative.value = true }
+            let taken = InputManager.handleKeyDown(handled)
             var late = false
             state.lock.lock()
             if case .timedOut = state.unsafeValue { late = true } else { state.unsafeValue = .answered(taken) }
             state.lock.unlock()
             if late {
                 let ms = Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1e6
-                Log.warning("keyboard: \(gesture.logDescription()) answered after \(Int(ms)) ms: \(taken ? "its script runs now" : "sent on to the application now")")
-                if !taken { gesture.send() }
+                Log.warning("keyboard: \(handled.logDescription()) answered after \(Int(ms)) ms: \(taken ? "its script runs now" : "sent on to the application now")")
+                if !taken { handled.send() }
             } else { done.signal() }
         } }
         if done.wait(timeout: .now() + lookupLimit) == .timedOut {
             state.lock.lock(); defer { state.lock.unlock() }
-            if case .answered(let taken) = state.unsafeValue { return taken ? .taken : .passed }
+            if case .answered(let taken) = state.unsafeValue { return (taken ? .taken : .passed, usedAlternative.value) }
             state.unsafeValue = .timedOut
-            return .deferred
+            return (.deferred, false)
         }
-        if case .answered(let taken) = state.value { return taken ? .taken : .passed }
-        return .passed
+        if case .answered(let taken) = state.value { return (taken ? .taken : .passed, usedAlternative.value) }
+        return (.passed, false)
     }
 
     /// A script by name from whatever answers here: the app module, the document, the focus and its ancestors,

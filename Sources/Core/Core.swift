@@ -33,8 +33,11 @@ public enum Core {
         Recipes.load(plugins: [])
         // Every accessibility question waits at most 2 s (macOS's default is about 6): a page that stops answering
         // (Safari's web content, 2 Oct 2026) froze TurnOver call after call until the watchdog relaunched it.
+        // One second since 13 Nov 2026 (a review): two apps that stopped answering, asked in one main-thread turn, held
+        // it four seconds at two, the watchdog's limit. Not lower: AXHealth knows a timeout by a failure that took
+        // most of a second (over 0.9 s), and rests the app; shorter, a hung app would be asked again and again.
         startStep = "accessibility"
-        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 2.0)
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1.0)
         // E12: an application that stops answering is left alone for a few seconds; say so, for the one in front.
         AXHealth.onSlowRest = { pid in DispatchQueue.main.async { Log.info("pid \(pid) slow to answer; resting it 1.5 s") } }
         AXHealth.onUnresponsive = { pid in

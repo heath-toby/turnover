@@ -16,7 +16,10 @@ open class Slider: TurnOverObject {
             let before = self.element.attr(kAXValueAttribute).map { "\($0)" }
             let spokenBefore = Speech.lastSpoken
             g.send()
-            _ = Poll.pumping(every: 0.02, limit: 0.4) { self.element.attr(kAXValueAttribute).map { "\($0)" } != before }
+            // Another key gives way: its own change says the value it reaches (a review, 13 Nov 2026).
+            let keys = ScriptHandler.keysArrivedCount
+            _ = Poll.pumping(every: 0.02, limit: 0.4) { self.element.attr(kAXValueAttribute).map { "\($0)" } != before || ScriptHandler.keysArrivedCount != keys }
+            if ScriptHandler.keysArrivedCount != keys { return }
             let now = self.element.string(kAXValueDescriptionAttribute).flatMap { $0.isEmpty ? nil : $0 } ?? self.element.attr(kAXValueAttribute).map { v -> String in
                 if let n = v as? NSNumber { let d = n.doubleValue; return d == d.rounded() ? String(Int(d)) : String(format: "%.1f", d) }
                 return "\(v)"
@@ -25,8 +28,8 @@ open class Slider: TurnOverObject {
             if now == before { Tones.edge(); return }
             // The app may say it itself (a value change it posts, read as "67 percent"): a moment for that, then
             // only if nothing was said.
-            _ = Poll.pumping(every: 0.02, limit: 0.15) { Speech.lastSpoken != spokenBefore }
-            if Speech.lastSpoken != spokenBefore { return }
+            _ = Poll.pumping(every: 0.02, limit: 0.15) { Speech.lastSpoken != spokenBefore || ScriptHandler.keysArrivedCount != keys }
+            if Speech.lastSpoken != spokenBefore || ScriptHandler.keysArrivedCount != keys { return }
             Speech.cancel()
             Speech.speakMessage(now)
         }
