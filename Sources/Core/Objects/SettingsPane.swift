@@ -416,6 +416,10 @@ public final class SettingsPanePlugin: GlobalPlugin {
             guard expected.map({ $0.isSame(target) }) ?? false else { return }
             expected = nil
             let app = AXUIElementCreateApplication(target.pid)
+            if let now = app.element(kAXFocusedUIElementAttribute), !now.isSame(target), within(now, target) || within(target, now) {
+                // Taken, inside: the app's own news of it is the focus (a page's first element).
+                return
+            }
             if app.element(kAXFocusedUIElementAttribute).map({ $0.isSame(target) }) ?? false {
                 // The app's focus was there all along (TurnOver held a place elsewhere, a copy window's bar): focusing
                 // it again sends no news, so TurnOver comes back to it itself (11 Nov 2026: Shift Tab said nothing).
@@ -512,7 +516,16 @@ public final class SettingsPanePlugin: GlobalPlugin {
     public static var ignoreOthersUntil = Date.distantPast
     public static func setsAside(_ e: AXUIElement) -> Bool {
         guard Date() < ignoreOthersUntil, let x = expected else { return false }
-        return !x.isSame(e)
+        // Inside it, or holding it (Safari's focus went to the group round the page).
+        return !x.isSame(e) && !within(e, x) && !within(x, e)
+    }
+
+    /// Whether `e` is inside `container` (a few levels): a page TurnOver moved to puts its focus on a group inside
+    /// itself (Safari, 13 Nov 2026: Tab from the toolbar to the page was set aside and said nothing).
+    static func within(_ e: AXUIElement, _ container: AXUIElement) -> Bool {
+        var p = e.element(kAXParentAttribute); var hops = 0
+        while let x = p, hops < 30 { if x.isSame(container) { return true }; p = x.element(kAXParentAttribute); hops += 1 }
+        return false
     }
 
     /// `ownTab`: false when an app module runs Tab itself and only wants the held place (System Settings' pane,

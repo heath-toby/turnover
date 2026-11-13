@@ -18,6 +18,10 @@ extension SettingsPanePlugin {
     /// TurnOver's focus is on a toolbar item (not a text field): the arrows and Tab are the toolbar's (any thread).
     static var inToolbar: Bool { toolbarLock.lock(); defer { toolbarLock.unlock() }; return _inToolbar }
 
+    /// Where the focus was before it came onto a toolbar, and whether Tab (true) or Shift Tab (false) brought it.
+    static var lastOffToolbar: AXUIElement?
+    static var enteredFrom: (from: AXUIElement?, forward: Bool?) = (nil, nil)
+
     /// The item last landed on in each toolbar, latest first: Tab comes back to it.
     static var lastToolbarItem: [(toolbar: AXUIElement, item: AXUIElement)] = []
 
@@ -132,6 +136,8 @@ extension SettingsPanePlugin {
             if lastToolbarItem.count > 12 { lastToolbarItem.removeLast() }
         }
         toolbarLock.lock(); let was = _inToolbar; _inToolbar = on; toolbarLock.unlock()
+        if !on { lastOffToolbar = e }
+        else if !was { enteredFrom = (lastOffToolbar, InputManager.lastKeyIdentifier == "kb:shift+tab" ? false : InputManager.lastKeyIdentifier == "kb:tab" ? true : nil) }
         if was != on { Log.io("toolbar: \(on ? "on a toolbar item; the arrows go along it" : "off the toolbar")") }
         return on && !was
     }
@@ -159,7 +165,12 @@ extension SettingsPanePlugin {
         let all = Self.controls(in: scope, toolbars: true, unfocusable: true)
         // The toolbar's stop is the item just used (remembered as the focus landed).
         guard let here = all.firstIndex(where: { $0.isSame(cur) }), all.count > 1 else { g.send(); return }
-        let n = ((forward ? here + 1 : here - 1) + all.count) % all.count
+        var n = ((forward ? here + 1 : here - 1) + all.count) % all.count
+        // Not back where the same key came from: Safari's own Tab goes from the address field into the toolbar, and
+        // Tab from the toolbar went straight back to the field, never reaching the page (13 Nov 2026).
+        if Self.enteredFrom.forward == forward, let from = Self.enteredFrom.from, all[n].isSame(from), all.count > 2 {
+            n = ((forward ? n + 1 : n - 1) + all.count) % all.count
+        }
         Log.io("toolbar: \(forward ? "Tab" : "Shift Tab") leaves the toolbar for \(all[n].role) \(n + 1) of \(all.count)")
         Self.trapList = (scope, all, Date())
         if let (rows, _, _, container) = Self.rowList(of: all[n]) {
