@@ -426,6 +426,7 @@ public final class BrowseModeDocument: ScriptableObject {
                 if let found { position = found; speakUnit(.line) } else { Tones.edge() }
                 return
             }
+            if AppModuleHandler.shared.appModule(for: webArea.pid).tabPastPage(webArea, forward: !g.modifiers.contains(.shift)) { return }
             g.send(); PageWatch.keySent(to: webArea.pid)
         }
         script("disablePassThrough", String(localized: "Switches back to browse mode", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:escape"], category: nav) { [weak self] g in

@@ -855,6 +855,29 @@ package final class MailAppModule: AppModule {
             : String(localized: "\(String(n)) results", comment: "A Mail search: how many messages it found")
     }
 
+    /// Past the message's last link or control: Tab goes on to the window's toolbar (Mail's own went round inside the
+    /// message, back to its first Play button, a tester, 13 Nov 2026); Shift Tab before its first, to the part above it.
+    package override func tabPastPage(_ webArea: AXUIElement, forward: Bool) -> Bool {
+        guard !Self.compose(webArea), let content = Self.contentGroup(of: webArea) else { return false }
+        if forward { return toWindowToolbar(from: webArea, last: false) }
+        let stops = Self.messageStops(content)
+        guard let i = stops.firstIndex(where: { if case .body = $0 { return true }; return false }), i > 0 else { return false }
+        go(stops[i - 1], forward: false, in: content)
+        return true
+    }
+
+    /// To the window's toolbar: the item last used there, else its first (or, `last`, its last).
+    @discardableResult
+    func toWindowToolbar(from e: AXUIElement, last: Bool) -> Bool {
+        guard let w = SettingsPanePlugin.windowOf(e), let tb = w.elements(kAXChildrenAttribute).first(where: { $0.role == "AXToolbar" }),
+              let (_, items) = SettingsPanePlugin.toolbarItems(around: tb), !items.isEmpty else { return false }
+        let used = SettingsPanePlugin.toolbarStop(tb, items)
+        Log.io("mail: on to the window's toolbar")
+        Self.headerAt = nil
+        SettingsPanePlugin.focus((last && used.map { $0.isSame(items[0]) } != false ? items.last : used) ?? items[0])
+        return true
+    }
+
     private func focusList(_ wanted: String, from: AXUIElement) {
         guard let w = from.role == "AXWindow" ? from : SettingsPanePlugin.windowOf(from) else { return }
         var queue = [w]; var seen = 0; var target: AXUIElement?
@@ -865,7 +888,12 @@ package final class MailAppModule: AppModule {
             if e.role == "AXToolbar" { continue }
             queue.append(contentsOf: e.elements(kAXChildrenAttribute))
         }
-        guard let t = target else { Tones.edge(); return }
+        // No mailboxes (the sidebar hidden): Shift Tab from the messages goes round to the toolbar, as the window's
+        // order does, not an edge sound four times over (a tester, 13 Nov 2026).
+        guard let t = target else {
+            if wanted == "mailboxes", toWindowToolbar(from: from, last: true) { return }
+            Tones.edge(); return
+        }
         _ = t.set(kAXFocusedAttribute, kCFBooleanTrue)
         // Mail reports the move itself, and that is read; only if it stays quiet does TurnOver read the list.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
@@ -946,6 +974,14 @@ package final class MailAppModule: AppModule {
         if event.kind == .typedCharacter, event.obj.pid == pid, Self.inAddressField { lookForSuggestionsSoon() }
         // Another message chosen: the header field TurnOver was on belongs to the one before.
         if event.kind == .selection, Self.headerAt != nil, !Self.isHeaderArea(event.obj.element) { Self.headerAt = nil }
+        // A late word of the focus TurnOver left for a header field (the message's buttons, Shift Tab from them): it put
+        // the place back on the button, said it again, and the next Shift Tab said the same field again (a tester,
+        // 13 Nov 2026).
+        if event.kind == .gainFocus, let h = Self.headerAt, Date().timeIntervalSince(h.at) < 0.8, !h.area.isSame(event.obj.element),
+           Self.contentGroup(of: event.obj.element).map({ c in h.area.element(kAXParentAttribute)?.element(kAXParentAttribute).map { $0.isSame(c) } ?? false }) == true {
+            Log.io("mail: late focus news for \(event.obj.axRole) after a header field; set aside")
+            return
+        }
         // The header text area taking the keyboard for a field TurnOver has just said: not read again whole.
         if event.kind == .gainFocus, let h = Self.headerAt, h.area.isSame(event.obj.element), Date().timeIntervalSince(h.at) < 1.5 { return }
         // The focus on the scroll area around a message (Mail can come back to it after Command Tab; nothing in it is

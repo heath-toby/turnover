@@ -70,6 +70,9 @@ open class AppModule: ScriptableObject {
     /// Pages whose controls can't be given the keyboard by accessibility (Kindle's iOS web view): Tab in browse mode
     /// moves the reading position to the next control and reads it, rather than sending Tab nowhere.
     open var browseTabMovesReadingPosition: Bool { false }
+    /// Browse mode's Tab found no further link or control on the page: the module may take it on out of the page
+    /// (true) instead of the app's own Tab, which in some apps goes round inside the page (Mail's message, 13 Nov 2026).
+    open func tabPastPage(_ webArea: AXUIElement, forward: Bool) -> Bool { false }
 
     /// Say all reached the end of `obj`'s text: the module may carry on (Kindle turns the page) and call `resume` with
     /// where to read next. True when it will; say all then waits rather than saying "end of document".
