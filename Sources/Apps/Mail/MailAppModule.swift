@@ -21,6 +21,19 @@ package final class MailAppModule: AppModule {
     /// A message's header group, and the group holding it with the message's buttons. Two layouts: groups described
     /// "message headers" in "message content" (a conversation, 12 Nov 2026), or, for a single message, groups named by
     /// the message ("…, Headers") with identifiers message_header in message_view (macOS 27.2, 13 Nov 2026).
+    /// The message's text: the web area in its content group, not in its header.
+    static func messageBody(in content: AXUIElement) -> AXUIElement? {
+        var queue = content.elements(kAXChildrenAttribute).filter { !isHeadersGroup($0) && !["AXButton", "AXMenuButton", "AXStaticText"].contains($0.role) }
+        var seen = 0
+        while !queue.isEmpty, seen < 200 {
+            let e = queue.removeFirst(); seen += 1
+            if e.role == "AXWebArea" { return EditableWebArea.isEditable(e) ? nil : e }
+            if e.role == "AXScrollBar" { continue }
+            queue += e.elements(kAXChildrenAttribute)
+        }
+        return nil
+    }
+
     /// The last focus was in a message (its web area or a link in it).
     static var focusWasInMessage = false
     static func isHeadersGroup(_ g: AXUIElement) -> Bool {
@@ -269,6 +282,19 @@ package final class MailAppModule: AppModule {
         }.isAvailable = { Self.place == "mailboxes" }
         // The header fields on Tab: from the message list into the shown message's first field; along the fields;
         // past the last, the header's toolbar; Shift Tab back from its toolbar to the last field.
+        // From the message's buttons, Tab goes into the message itself. Left to the window's order, a message with a
+        // link in its header or a mailing list's banner put its text before the buttons, and Tab from them went back
+        // to the message list (a tester, 13 Nov 2026: the reading pane seen by object navigation, never by Tab).
+        script("mail_buttonsToMessage", String(localized: "Reading a message: from its buttons into the message", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Mail") { [weak self] g in
+            guard let self, let f = API.focusObject?.element, Self.isHeaderButton(f), let content = f.element(kAXParentAttribute),
+                  let web = Self.messageBody(in: content) else { g.send(); return }
+            Log.io("mail: Tab from the message's buttons into the message")
+            _ = web.set(kAXFocusedAttribute, kCFBooleanTrue)
+            AXHandler.shared.focusChanged(web, pid: self.pid)
+        }.isAvailable = {
+            guard let f = API.focusObject?.element, Self.isHeaderButton(f) else { return false }
+            return true
+        }
         script("mail_headerNext", String(localized: "Reading a message: the next header field (From, Subject, To, Cc), then its buttons", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Mail") { [weak self] g in
             guard let self, let f = API.focusObject?.element else { g.send(); return }
             if Self.isHeaderArea(f) {
