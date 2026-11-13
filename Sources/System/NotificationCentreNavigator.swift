@@ -340,7 +340,9 @@ package enum NotificationCentreNavigator {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             let now = groups()
             guard !now.isEmpty else { Speech.speakMessage(String(localized: "no notifications", comment: "Spoken message")); return }
-            let (ng, ni) = place(in: now)
+            // The remembered place alone: Notification Centre moves its own focus as the item goes, and the cursor
+            // or that focus took the closed one's place over (a review, 13 Nov 2026).
+            let (ng, ni) = place(in: now, useCursor: false)
             land(now, ng, ni, announceGroup: groupName != now[ng].name, interrupt: false)
         }
     }
