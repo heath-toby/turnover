@@ -143,6 +143,10 @@ extension AXHandler {
             }
             Self.passingWindowRecheck = target
             self.refocus(pid: pid)
+            // Taken by this refocus or not at all: refocus runs the rules at once. Left set (a refocus skipped for a
+            // held menu bar, or the app's focus elsewhere by then), it let the window through on some later Tab, its
+            // words read again (a review, 13 Nov 2026).
+            Self.passingWindowRecheck = nil
         }
         return .ignore
     }
@@ -236,9 +240,14 @@ extension AXHandler {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 guard let self else { return }
                 self.backgroundRecheckPending = false
-                if pid == self.activePid, let f = AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute), f.isSame(element) {
-                    // Still the application's focus: the window is the front one after all.
-                    if let w = f.element(kAXWindowAttribute), let fw = AXUIElementCreateApplication(pid).element(kAXFocusedWindowAttribute), w.isSame(fw) { self.focusChanged(f, pid: pid) }
+                // The application's focus now, whatever it is, if its window is the front one and TurnOver isn't on it:
+                // only the first focus of a burst set aside was tested again, and a later one in a window just opened
+                // was never read (a review, 13 Nov 2026). Still the first one: the window is the front one after all.
+                guard pid == self.activePid else { return }
+                let app = AXUIElementCreateApplication(pid)
+                if let f = app.element(kAXFocusedUIElementAttribute), API.focusObject?.isSameElement(as: f) != true,
+                   let w = f.element(kAXWindowAttribute), let fw = app.element(kAXFocusedWindowAttribute), w.isSame(fw) {
+                    self.focusChanged(f, pid: pid)
                 }
             }
         }
@@ -462,6 +471,17 @@ extension AXHandler {
         return nil
     }
 
+    /// The page a nameless container holds, if any. Walked on main for every nameless group's focus: up to 300
+    /// elements, two calls each, per report (a review, 13 Nov 2026). Now 80, breadth first (a pane's page sits a
+    /// level or two in), and the answer kept for the same group a moment: they come in twos and threes.
+    private static var lastWebAreaInside: (group: AXUIElement, web: AXUIElement?, at: Date)?
+    static func webAreaInside(_ group: AXUIElement) -> AXUIElement? {
+        if let c = lastWebAreaInside, c.group.isSame(group), Date().timeIntervalSince(c.at) < 2 { return c.web }
+        let web = group.firstDescendant(role: "AXWebArea", maxVisited: 80)
+        lastWebAreaInside = (group, web, Date())
+        return web
+    }
+
     func ruleNamelessContainer(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
         let axRole = target.role
         guard axRole == "AXUnknown" || axRole == "AXGroup", let current = API.focusObject else { return .go(target) }
@@ -487,7 +507,7 @@ extension AXHandler {
             Log.io("focus on a nameless \(axRole): following it to the focused \(inner.role) inside")
             return .follow(inner)
         }
-        if let web = target.firstDescendant(role: "AXWebArea", maxVisited: 300) {
+        if let web = Self.webAreaInside(target) {
             if sameWindow, axRole == "AXUnknown" { Log.io("focus on a nameless \(axRole) in the same window; ignored"); return .ignore }
             // A list or table in the same window still says it has the keyboard: the report is the app announcing a
             // pane it loaded, not a move. Outlook does it for its reading pane each time a message loads, half a
