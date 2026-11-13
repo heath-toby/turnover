@@ -21,6 +21,16 @@ func pureTests() {
         expect(TerminalRules.withoutEcho("Saved.\n❯ y", cursorLine: "❯ y", typed: "y"), "Saved.", "only the cursor's line goes")
         expect(TerminalRules.withoutEcho("Password:", cursorLine: "Password:", typed: "s"), "Password:", "a prompt on the cursor's line is kept")
     }
+    test("terminal: a line asking for a password, passphrase or PIN hides what is typed") {
+        for line in ["Password:", "[sudo] password for toby:", "Enter passphrase (empty for no passphrase):", "Enter same passphrase again:",
+                     "Enter PIN for 'ECDSA-SK key':", "Enter passphrase for key '/Users/x/.ssh/id_ed25519': ", "PIN:"] {
+            check(TerminalRules.isPasswordPrompt(line), "\(line) is a password prompt")
+        }
+        for line in ["Spinning up:", "Pinned items:", "Password changed.", "password", "toby@mac ~ %", "Enter file in which to save the key (/x/id):"] {
+            check(!TerminalRules.isPasswordPrompt(line), "\(line) is not a password prompt")
+        }
+        check(!TerminalRules.isPasswordPrompt(nil), "no line is no prompt")
+    }
     test("pronunciations: whole words, any case, longest first, comments skipped") {
         let list = PronunciationDictionary.parse("# mine\nTurnOver = turn over\nNew York = new york\nNew York City = big apple\nbad line\nLBRF = L B R F")
         expect(list.count, 4, "four entries; the comment and the line without = left out")

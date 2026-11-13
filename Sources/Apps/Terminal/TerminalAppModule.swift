@@ -192,9 +192,7 @@ final class TerminalText: TurnOverObject {
     /// A line that asks for a password, or secure input on (Terminal's Secure Keyboard Entry, a prompt's own).
     static func atPasswordPrompt(_ line: String?) -> Bool {
         if IsSecureEventInputEnabled() { return true }
-        guard let l = line?.trimmingCharacters(in: .whitespaces).lowercased() else { return false }
-        return l.hasSuffix("password:") || l.hasSuffix("passphrase:") || l.hasSuffix("password for") || l.contains("passphrase for")
-            || l.hasSuffix("pin:") || (l.contains("password") && l.hasSuffix(":"))
+        return TerminalRules.isPasswordPrompt(line)
     }
 
     override func event_caret() {}   // the cursor moves with every byte of output: the value change speaks
@@ -451,6 +449,16 @@ final class TerminalText: TurnOverObject {
 
 /// Terminal output as it is read (pure, tested).
 package enum TerminalRules {
+    /// A line that asks for a secret: it ends with ":" and has the word "password", "passphrase" or "pin" in it, in
+    /// any case. Whole words, so ssh-keygen's "Enter passphrase (empty for no passphrase):", "Enter same passphrase
+    /// again:" and ssh's "Enter PIN for 'key':" are prompts (a review, 13 Nov 2026: the passphrase typed there was
+    /// read aloud, only lines ending "passphrase:" were known), while "Spinning up:" is not. Pure.
+    package nonisolated static func isPasswordPrompt(_ line: String?) -> Bool {
+        guard let l = line?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), l.hasSuffix(":") else { return false }
+        let words = l.split(whereSeparator: { !$0.isLetter }).map(String.init)
+        return words.contains { ["password", "passphrase", "pin"].contains($0) }
+    }
+
     /// Runs of three or more box-drawing characters (a program's rules and frames: "────") taken out, and lines left
     /// with nothing else dropped. Pure.
     package nonisolated static func withoutRules(_ text: String) -> String {
