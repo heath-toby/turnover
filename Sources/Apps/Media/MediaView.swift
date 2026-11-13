@@ -222,11 +222,20 @@ public final class MediaView {
                 guard let self, isCurrent(session), loadingMore, acceptsWindow(window) else { return }
                 Speech.speakMessage(String(localized: "please wait", comment: "Spoken message"), remember: false)
             }
-            read(.build(keepSidebar: false, detectVideo: false), capturedWindow: window) { [weak self] result in
+            // The page first, the key answered from it; the sidebar after, in the background. Music's sidebar takes
+            // three to four seconds to read, and the first key in the app waited for it ("please wait" on every
+            // arrival, a tester asking what for, 13 Nov 2026).
+            read(.build(keepSidebar: true, detectVideo: false), capturedWindow: window) { [weak self] result in
                 guard let self else { return }
                 apply(result?.built)
                 loadingMore = false
                 runQueued()
+                guard sidebar.isEmpty else { return }
+                read(.build(keepSidebar: false, detectVideo: false), capturedWindow: window) { [weak self] full in
+                    guard let self, let b = full?.built, !b.sidebar.isEmpty else { return }
+                    apply(b)   // (the same page: merged, the reading where it is; the sidebar and the page's title now in)
+                    Log.io("media: the sidebar read after the page, \(b.sidebar.count) items")
+                }
             }
             return false
         }
@@ -237,9 +246,16 @@ public final class MediaView {
 
     /// Read the window in the background, then carry on (arriving in the app).
     public func refresh(keepSidebar: Bool = false, then: @escaping @MainActor @Sendable () -> Void) {
-        read(.build(keepSidebar: keepSidebar, detectVideo: false)) { [weak self] result in
+        // The page first, and whoever asked carries on with it; the sidebar after, in the background (Music's takes
+        // three to four seconds: arriving in the app waited for it, 5.4 s, 13 Nov 2026).
+        read(.build(keepSidebar: true, detectVideo: false)) { [weak self] result in
             guard let self else { return }
             apply(result?.built); then()
+            guard !keepSidebar else { return }
+            read(.build(keepSidebar: false, detectVideo: false)) { [weak self] full in
+                guard let self, let b = full?.built, !b.sidebar.isEmpty else { return }
+                apply(b)
+            }
         }
     }
 
@@ -400,7 +416,10 @@ public final class MediaView {
         // the sidebar's choice when the window is just the app's name (Music).
         let appName = NSRunningApplication(processIdentifier: input.pid)?.localizedName ?? ""
         let windowName = window.string(kAXTitleAttribute) ?? ""
-        var pageTitle = !windowName.isEmpty && windowName != appName ? windowName : (sidebar.first(where: { $0.selected })?.label ?? windowName)
+        // (The sidebar not read yet, the page first: its chosen row alone, two questions, not all fifty.)
+        let chosen = sidebar.first(where: { $0.selected })?.label
+            ?? sidebarRoot?.elements(kAXSelectedRowsAttribute).first.map { ElementMatcher.text(of: $0) }.flatMap { $0.isEmpty ? nil : $0 }
+        var pageTitle = !windowName.isEmpty && windowName != appName ? windowName : (chosen ?? windowName)
         // An album, artist or playlist page (Music's "album details"): its own title, not the sidebar's choice it was
         // opened from ("Recently Added page" on an album, 11 Nov 2026).
         if let details = Self.first(in: window, depth: 3, where: { $0.role == "AXScrollArea" && $0.string(kAXIdentifierAttribute) == "detailsScroller" }),
