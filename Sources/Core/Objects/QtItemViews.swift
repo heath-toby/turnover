@@ -33,11 +33,27 @@ enum QtItemViews {
         return ((acts as? [String]) ?? []).contains(kAXPressAction)
     }
     /// A nameless group of two or more groups, the first titled and pressable: an item view.
+    /// Kept a moment per element: every item asks of its view, and a long list's arrows asked of all its children
+    /// each time (a review, 13 Nov 2026). Only the first few children are looked at.
+    private static var viewCache: [(e: AXUIElement, yes: Bool, at: Date)] = []
     static func isView(_ e: AXUIElement) -> Bool {
-        guard e.role == "AXGroup", nameless(e) else { return false }
-        let kids = e.elements(kAXChildrenAttribute)
-        guard kids.count >= 2, kids.allSatisfy({ $0.role == "AXGroup" }) else { return false }
-        return !(kids[0].string(kAXTitleAttribute) ?? "").isEmpty && pressable(kids[0])
+        let now = Date()
+        viewCache.removeAll { now.timeIntervalSince($0.at) > 2 }
+        if let hit = viewCache.first(where: { CFEqual($0.e, e) }) { return hit.yes }
+        var yes = false
+        if e.role == "AXGroup", nameless(e) {
+            var count: CFIndex = 0
+            AXUIElementGetAttributeValueCount(e, kAXChildrenAttribute as CFString, &count)
+            if count >= 2 {
+                var v: CFArray?
+                AXUIElementCopyAttributeValues(e, kAXChildrenAttribute as CFString, 0, 3, &v)
+                let kids = (v as? [AXUIElement]) ?? []
+                yes = !kids.isEmpty && kids.allSatisfy { $0.role == "AXGroup" } && !(kids[0].string(kAXTitleAttribute) ?? "").isEmpty && pressable(kids[0])
+            }
+        }
+        viewCache.append((e, yes, now))
+        if viewCache.count > 32 { viewCache.removeFirst() }
+        return yes
     }
 
     /// A Qt table's column titles, for saying what it holds when its rows can't be read.
@@ -45,10 +61,24 @@ enum QtItemViews {
         e.elements(kAXChildrenAttribute).filter { $0.role == "AXColumn" }.compactMap { $0.string(kAXTitleAttribute) }.filter { !$0.isEmpty }
     }
 
+    /// Whether a titled group sits in a view, through titled items (a few levels of subfolders).
+    private static func isItemChain(_ e: AXUIElement) -> Bool {
+        var x: AXUIElement? = e; var hops = 0
+        while let y = x, hops < 6 {
+            guard let p = y.element(kAXParentAttribute) else { return false }
+            if isView(p) { return true }
+            guard p.role == "AXGroup", !(p.string(kAXTitleAttribute) ?? "").isEmpty else { return false }
+            x = p; hops += 1
+        }
+        return false
+    }
+
     /// The role an AXGroup has in a Qt app's item view, if it is one.
     static func role(of e: AXUIElement) -> Role? {
         guard e.role == "AXGroup", isQt(e.pid) else { return nil }
-        if !(e.string(kAXTitleAttribute) ?? "").isEmpty, pressable(e), let p = e.element(kAXParentAttribute), isView(p) { return .listItem }
+        // (Or a subfolder: an item inside an item, KeePassXC's "Surf Shark" under "Shared".)
+        if !(e.string(kAXTitleAttribute) ?? "").isEmpty, pressable(e), let p = e.element(kAXParentAttribute),
+           isView(p) || (p.role == "AXGroup" && !(p.string(kAXTitleAttribute) ?? "").isEmpty && pressable(p) && p.element(kAXParentAttribute).map { isView($0) || $0.role == "AXGroup" } == true && isItemChain(p)) { return .listItem }
         if isView(e) { return .list }
         // A table that gives its columns and no rows (KeePassXC's entries, Qt 5): a table, though its rows can't be read.
         if nameless(e), let first = e.elements(kAXChildrenAttribute).first, first.role == "AXColumn" { return .table }

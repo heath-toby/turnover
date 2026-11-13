@@ -29,6 +29,11 @@ extension SettingsPanePlugin {
     static func typesText(_ e: AXUIElement) -> Bool {
         ["AXTextField", "AXSearchField", "AXComboBox", "AXTextArea"].contains(e.role) || e.string(kAXSubroleAttribute) == "AXSearchField"
     }
+    /// Kinds whose arrows are their own (a slider's value, a stepper, a date): a stop of their own too (a review,
+    /// 13 Nov 2026: a toolbar's volume slider lost its arrows to the toolbar).
+    static func ownArrows(_ e: AXUIElement) -> Bool {
+        typesText(e) || ["AXSlider", "AXIncrementor", "AXDateField", "AXColorWell"].contains(e.role)
+    }
 
     /// A toolbar: the window's own, or a group that calls itself one (Outlook's two groups titled "Toolbar", 13 Nov 2026).
     static func isToolbar(_ e: AXUIElement) -> Bool {
@@ -63,7 +68,7 @@ extension SettingsPanePlugin {
 
     /// Which of the window's controls (as found by `controls(in:)`'s walk) are toolbar items, left to right.
     static func toolbarMembers(_ found: [(AXUIElement, CGRect)], strip: CGRect) -> [(AXUIElement, CGRect)] {
-        found.filter { inStrip($0.1, of: strip) && !typesText($0.0) && !inContent($0.0) }.sorted { $0.1.minX < $1.1.minX }
+        found.filter { inStrip($0.1, of: strip) && !ownArrows($0.0) && !inContent($0.0) }.sorted { $0.1.minX < $1.1.minX }
     }
 
     /// In a list, a scroll area or a split pane, outside the toolbar itself: the window's content, which runs up under a
@@ -129,7 +134,8 @@ extension SettingsPanePlugin {
     @discardableResult
     static func noteToolbar(_ e: AXUIElement) -> Bool {
         var on = false
-        if !typesText(e), controlRoles.contains(e.role) || isPressableItem(e), let w = windowOf(e), let (tb, _) = toolbarFor(e, in: w) {
+        // Not a settings window's pane buttons: their arrows and Tab are PreferenceTab's (a review, 13 Nov 2026).
+        if !ownArrows(e), controlRoles.contains(e.role) || isPressableItem(e), !PreferenceTab.isPreferenceTab(e), let w = windowOf(e), let (tb, _) = toolbarFor(e, in: w) {
             on = true
             lastToolbarItem.removeAll { $0.toolbar.isSame(tb) || $0.toolbar.role == "?" }
             lastToolbarItem.insert((tb, e), at: 0)
@@ -211,10 +217,18 @@ extension SettingsPanePlugin {
         // From web content too (Mail's attachment button in the message), but not from text, where Tab types.
         guard g.keyName == "tab", g.modifiers.subtracting(.shift).isEmpty, !inToolbar, let before = API.focusObject?.element,
               !["AXTextArea", "AXTextField", "AXWebArea"].contains(before.role), let window = scopeOf(before), window.role == "AXWindow", toolbar(of: window) != nil else { return }
-        let forward = !g.modifiers.contains(.shift)
+        let forward = !g.modifiers.contains(.shift), keyAt = InputManager.lastKeyDownAt
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            guard let after = API.focusObject?.element, !after.isSame(before), after.pid == before.pid, !inToolbar,
+            // Another key since: the landings no longer belong to this one (a review, 13 Nov 2026).
+            guard InputManager.lastKeyDownAt == keyAt,
+                  let after = API.focusObject?.element, !after.isSame(before), after.pid == before.pid, !inToolbar,
                   !isInWeb(after), scopeOf(after).map({ $0.isSame(window) }) ?? false else { return }
+            // Only a Tab that went back up or left (round the window), or a Shift Tab that went down or right, can
+            // have passed the toolbar: the window isn't walked for the rest.
+            guard let bf = TurnOverObject.frame(before), let af = TurnOverObject.frame(after) else { return }
+            let back = af.midY < bf.minY - 4 || af.midX < bf.minX - 4
+            let on = af.midY > bf.maxY + 4 || af.midX > bf.maxX + 4
+            guard forward ? back : on else { return }
             let all = controls(in: window, toolbars: true, unfocusable: true)
             guard let (tb, _) = toolbar(of: window), let items = toolbarItems(around: tb)?.items,
                   let stop = toolbarStop(tb, items), let t = all.firstIndex(where: { $0.isSame(stop) }),

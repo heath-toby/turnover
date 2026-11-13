@@ -269,6 +269,10 @@ extension AXHandler {
         return .go(target)
     }
 
+    /// The key press passed on for, and how many times (main thread).
+    private var passedOn: (at: Date, n: Int) { get { Self._passedOn } set { Self._passedOn = newValue } }
+    private static var _passedOn: (at: Date, n: Int) = (.distantPast, 0)
+
     /// Mail's Tab order stops on its message list's hidden scroll bar between the list and the message: a stop
     /// with nothing to say or do. Tab on past it, as the user meant.
     func ruleHiddenScrollBar(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
@@ -276,7 +280,10 @@ extension AXHandler {
         let layout = ["AXSplitGroup", "AXSplitter"].contains(target.role) && ObjectFactory.make(target).name.isEmpty
         guard target.role == "AXScrollBar" && (target.attr("AXHidden") as? Bool) == true || layout else { return .go(target) }
         let key = InputManager.lastKeyIdentifier
-        if Date().timeIntervalSince(InputManager.lastKeyDownAt) < 1.5, key == "kb:tab" || key == "kb:shift+tab", let g = KeyboardGesture(identifier: key) {
+        // At most twice for one key press: a Tab order of nothing but split views would go round for ever (a review).
+        if Date().timeIntervalSince(InputManager.lastKeyDownAt) < 1.5, key == "kb:tab" || key == "kb:shift+tab", let g = KeyboardGesture(identifier: key),
+           passedOn.at != InputManager.lastKeyDownAt || passedOn.n < 2 {
+            passedOn = (InputManager.lastKeyDownAt, passedOn.at == InputManager.lastKeyDownAt ? passedOn.n + 1 : 1)
             Log.io("focus on a \(layout ? "nameless \(target.role)" : "hidden scroll bar") after \(key); passing on")
             g.send()
             return .done
@@ -399,7 +406,9 @@ extension AXHandler {
     /// the new folder, reported its current entry as the focus too, cutting off the folder (13 Nov 2026). The keys
     /// stay in the tree: a focus outside the item's view (or inside the item) within half a second is set aside.
     func ruleQtChildEcho(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
+        // (With no key since: a Tab to the entries is the user's, the echo comes on its own; a review, 13 Nov 2026.)
         guard target.role == "AXGroup", QtItemViews.isQt(pid), let (last, at) = lastGainFocus, Date().timeIntervalSince(at) < 0.5,
+              InputManager.lastKeyDownAt < at,
               QtItemViews.role(of: last) == .listItem, !target.isSame(last), let view = last.element(kAXParentAttribute),
               SettingsPanePlugin.within(target, last) || !SettingsPanePlugin.within(target, view) else { return .go(target) }
         Log.io("focus to another Qt view's item just after an item; set aside")

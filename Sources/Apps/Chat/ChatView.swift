@@ -410,6 +410,7 @@ public final class ChatView {
     /// start call, info, … the message list, then add button, message edit, then … the emoji picker and the
     /// dictate/record audio buttons"): the toolbar and the box's own buttons were never reached.
     private func stops(box: AXUIElement) -> [Stop] {
+        toolbarHeld = []
         var out: [Stop] = spec.sectionsPrefix != nil ? [.part(.sections)] : []
         out.append(.part(.conversations))
         if let (tb, items) = toolbarControls(), let stop = SettingsPanePlugin.toolbarStop(tb, items) {

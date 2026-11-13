@@ -82,7 +82,8 @@ final class FinderAppModule: AppModule {
             // The sidebar's Shift Tab: back to the files. The keyboard may be elsewhere by now (the toolbar, reached
             // by Tab from the sidebar): it is put on the files (12 Nov 2026: Shift Tab said the toolbar's button).
             guard let f = API.focusObject else { return false }
-            if let w = window(), let files = SettingsPanePlugin.controls(in: w).first(where: { ["AXOutline", "AXTable", "AXList", "AXBrowser"].contains($0.role) && ($0.string(kAXDescriptionAttribute) ?? "").lowercased() != "sidebar" }),
+            let sb = sidebar()
+            if let w = window(), let files = SettingsPanePlugin.controls(in: w).first(where: { x in ["AXOutline", "AXTable", "AXList", "AXBrowser"].contains(x.role) && !(sb.map { s in x.isSame(s) } ?? false) }),
                !f.isSameElement(as: files) {
                 _ = files.set(kAXFocusedAttribute, kCFBooleanTrue)
                 return true

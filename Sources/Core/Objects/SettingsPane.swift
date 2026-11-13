@@ -416,7 +416,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
             guard expected.map({ $0.isSame(target) }) ?? false else { return }
             expected = nil
             let app = AXUIElementCreateApplication(target.pid)
-            if let now = app.element(kAXFocusedUIElementAttribute), !now.isSame(target), within(now, target) || within(target, now) {
+            if let now = app.element(kAXFocusedUIElementAttribute), !now.isSame(target), within(now, target) || holdsPage(now, target) {
                 // Taken, inside: the app's own news of it is the focus (a page's first element).
                 return
             }
@@ -516,12 +516,17 @@ public final class SettingsPanePlugin: GlobalPlugin {
     public static var ignoreOthersUntil = Date.distantPast
     public static func setsAside(_ e: AXUIElement) -> Bool {
         guard Date() < ignoreOthersUntil, let x = expected else { return false }
-        // Inside it, or holding it (Safari's focus went to the group round the page).
-        return !x.isSame(e) && !within(e, x) && !within(x, e)
+        // Inside it, or a nameless group holding a page TurnOver moved to (Safari's focus went to the group round the
+        // page). Never the window or a split view: those hold everything (a review, 13 Nov 2026).
+        return !x.isSame(e) && !within(e, x) && !holdsPage(e, x)
     }
 
     /// Whether `e` is inside `container` (a few levels): a page TurnOver moved to puts its focus on a group inside
     /// itself (Safari, 13 Nov 2026: Tab from the toolbar to the page was set aside and said nothing).
+    static func holdsPage(_ e: AXUIElement, _ page: AXUIElement) -> Bool {
+        page.role == "AXWebArea" && e.role == "AXGroup" && within(page, e)
+    }
+
     static func within(_ e: AXUIElement, _ container: AXUIElement) -> Bool {
         var p = e.element(kAXParentAttribute); var hops = 0
         while let x = p, hops < 30 { if x.isSame(container) { return true }; p = x.element(kAXParentAttribute); hops += 1 }
@@ -630,7 +635,19 @@ public final class SettingsPanePlugin: GlobalPlugin {
         let held: Set<String> = ["AXTable", "AXOutline", "AXList", "AXTextArea", "AXWebArea", "AXGrid", "AXBrowser"]
         if e.elements(kAXChildrenAttribute).contains(where: { held.contains($0.role) }) { return false }
         // Nor a page a little way in (Mail's message: a group holding a web area).
-        return e.firstDescendant(role: "AXWebArea", maxVisited: 40) == nil
+        if e.firstDescendant(role: "AXWebArea", maxVisited: 40) != nil { return false }
+        // Nor one round controls that take the keyboard themselves (a settings pane): those are the stops (a review,
+        // 13 Nov 2026).
+        var queue = e.elements(kAXChildrenAttribute).prefix(20).map { ($0, 1) }, seen = 0
+        while !queue.isEmpty, seen < 40 {
+            let (x, d) = queue.removeFirst(); seen += 1
+            if controlRoles.contains(x.role) {
+                var st: DarwinBoolean = false
+                if AXUIElementIsAttributeSettable(x, kAXFocusedAttribute as CFString, &st) == .success, st.boolValue { return false }
+            }
+            if d < 2 { queue += x.elements(kAXChildrenAttribute).prefix(20).map { ($0, d + 1) } }
+        }
+        return true
     }
 
     /// An item iPad apps make pressable without calling it a button: Stocks' symbols and news stories are generic
