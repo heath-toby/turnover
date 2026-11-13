@@ -127,7 +127,11 @@ public enum ScriptHandler {
             // Never in a terminal, whatever app it is in: Control C is the shell's there, as GlobalCommands.leftToApp
             // has it. WindowsRemap.keepControl knows terminal apps only by name, and VS Code's terminal, Ghostty,
             // Alacritty and WezTerm got Command C (a review, 13 Nov 2026).
-            if let alternative, API.focusObject?.role != .terminal {
+            // Nor when the key itself is wanted: the keyboard commands editor capturing a key, input help naming it,
+            // or pass next key sending it on untouched. The Mac key replaced the user's own there (a review, 13 Nov 2026).
+            let keyItselfWanted = InputManager.isInputHelpActive
+                || (InputManager.captureNext != nil || InputManager.passNextKey) && !gesture.isRepeat
+            if let alternative, !keyItselfWanted, API.focusObject?.role != .terminal {
                 let own = findScript(for: gesture)
                 // No command for the Windows key: the Mac key it becomes. Or the same command for both (End and
                 // Command Right both a text field's caret move): the Mac key too, so the app gets the key that moves
