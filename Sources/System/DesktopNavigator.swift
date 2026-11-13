@@ -46,7 +46,7 @@ enum DesktopNavigator {
     /// Active, and the app in front then still in front: another app come forward ends it. Left on, Tab in System
     /// Settings went round the desktop's widgets (13 Nov 2026).
     static var stillActive: Bool {
-        guard active else { return false }
+        guard active, !AXHandler.shared.isMenuOpen else { return false }   // (a menu open over it has its keys)
         if let p = enteredOver, NSWorkspace.shared.frontmostApplication?.processIdentifier != p {
             active = false; lines = nil; Log.io("desktop: another app in front; left"); return false
         }

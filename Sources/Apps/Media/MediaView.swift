@@ -1626,16 +1626,19 @@ public final class MediaView {
         guard let window = synchronizedWindow() else { return }
         beginPageIntent()
         let before = signature()
-        catalogBack()
+        // (The suggestions' hold on the arrows comes back only once a Back has really been pressed: Escape with no page
+        // behind turned it on again, a review, 13 Nov 2026.)
         // Podcasts: a Back button in the toolbar. Music and TV: Controls > Back (Command+[), disabled at the top.
         if let backButton = window.elements(kAXChildrenAttribute).first(where: { $0.role == "AXToolbar" })?.elements(kAXChildrenAttribute)
                .first(where: { $0.string(kAXDescriptionAttribute) == "Back" || $0.string(kAXIdentifierAttribute) == "BackButton" }) {
             if (backButton.attr(kAXEnabledAttribute) as? Bool) == false { Speech.speakMessage(String(localized: "no previous page", comment: "Spoken message"), remember: false); return }
             guard acceptsWindow(window) else { return }
+            catalogBack()
             _ = AXUIElementPerformAction(backButton, kAXPressAction as CFString)
         } else if let item = MenuPath.find(["Controls", "Back"], pid: pid) ?? MenuPath.find(["Go", "Back"], pid: pid) {
             if (item.attr(kAXEnabledAttribute) as? Bool) == false { Speech.speakMessage(String(localized: "no previous page", comment: "Spoken message"), remember: false); return }
             guard acceptsWindow(window) else { return }
+            catalogBack()
             _ = AXUIElementPerformAction(item, kAXPressAction as CFString)
         } else {
             guard acceptsWindow(window) else { return }

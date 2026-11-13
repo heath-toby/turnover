@@ -43,6 +43,14 @@ final class MenuNavigationPlugin: GlobalPlugin {
         }
         script("menuBar_activate", String(localized: "Opens the application's menus", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:control+f2", "kb:control+function+f2"], category: cat) { [weak self] g in self?.openMenuBar(g) }
         InputManager.onPassThrough = { [weak self] g in self?.passedThrough(g) }
+        // The menu bar held (VO M) lets go when the focus moves anywhere but a menu: Tab, a click, the app's own move
+        // left Left and Right reading menu titles in a field (a review, 13 Nov 2026).
+        API.focusChangeHandlers.append { _, new in
+            guard Self.heldBar != nil || Self.heldStatus != nil, let n = new else { return }
+            if ["AXMenuBarItem", "AXMenuItem", "AXMenu", "AXMenuBar"].contains(n.axRole) { return }
+            Log.io("menu bar: the focus moved on; let go")
+            Self.releaseBar()
+        }
     }
 
     override func script(for gesture: KeyboardGesture) -> Script? {

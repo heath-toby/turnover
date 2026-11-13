@@ -663,6 +663,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
 
     /// Space or Return on a held control: press it.
     private func pressHeld(_ g: KeyboardGesture) {
+        // A held place whose control has gone (a view replaced with no news) lets go, and the key goes to the app
+        // rather than vanishing in a failed press (a review, 13 Nov 2026).
+        Self.dropDeadHold()
         // (Or a helper drawing for the app in front: System Settings' pane extensions, 13 Nov 2026.)
         guard let v = Self.virtual, API.focusObject?.isSameElement(as: v) == true,
               v.pid == NSWorkspace.shared.frontmostApplication?.processIdentifier
@@ -729,7 +732,12 @@ public final class SettingsPanePlugin: GlobalPlugin {
     /// Another app came to the front: a place held in the one that left is let go. TurnOver kept Phone's buttons
     /// held with Music in front, Tab went round Phone's and Space would have pressed Call (11 Nov 2026).
     static func appActivated(_ pid: pid_t) {
-        guard let v = virtual, v.pid != pid else { return }
+        // The pane, trap and ribbon flags are the app's that left: reset whether or not a place was held, so Tab in
+        // the new app isn't taken by the old one's mode (a review, 13 Nov 2026).
+        lock.lock(); _inPane = false; _inTrapZone = false; _onRibbonTab = false; lock.unlock()
+        // (A place in a helper drawing for the app now in front stays: System Settings' pane extensions.)
+        guard let v = virtual, v.pid != pid,
+              NSRunningApplication(processIdentifier: v.pid).map({ AXHandler.shared.isHelperOfActiveApp($0) }) != true else { return }
         Log.io("settings: another app in front; the place held in pid \(v.pid) let go")
         virtual = nil
         lock.lock(); _holding = false; _heldByTrap = false; _inTrapZone = false; lock.unlock()

@@ -27,10 +27,16 @@ public enum API {
         return focusObject
     }
 
+    /// Told whenever the focus element changes (old, new): modes that belong to a place let go when the user has
+    /// moved on (a review, 13 Nov 2026: the held menu bar, a held place, desktop mode outlived the move).
+    public static var focusChangeHandlers: [(TurnOverObject?, TurnOverObject?) -> Void] = []
+
     public static func setFocusObject(_ obj: TurnOverObject?, ancestors: [TurnOverObject], interceptor: BrowseModeDocument? = nil) {
         FormattingFeedback.shared.cancel()
         let pid = obj?.pid ?? 0
-        lock.lock(); _focus = obj; _ancestors = ancestors; _interceptor = interceptor; lock.unlock()
+        lock.lock(); let old = _focus; _focus = obj; _ancestors = ancestors; _interceptor = interceptor; lock.unlock()
+        let changed = old.map { o in obj.map { !o.isSameElement(as: $0) } ?? true } ?? (obj != nil)
+        if changed { for h in focusChangeHandlers { h(old, obj) } }
         focusedPidValue.value = pid
         SoundChoices.place(at: obj?.element)   // positional sound: the focus's sounds come from where it is
     }
