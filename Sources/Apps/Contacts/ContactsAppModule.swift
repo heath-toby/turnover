@@ -44,8 +44,10 @@ final class ContactsAppModule: AppModule {
                 if next < 0, let list = self.list() {
                     _ = list.set(kAXFocusedAttribute, kCFBooleanTrue); AXHandler.shared.focusChanged(list, pid: self.pid); return
                 }
-                if next >= stops.count, let w = self.window(), let field = self.searchField(in: w) {
-                    _ = field.set(kAXFocusedAttribute, kCFBooleanTrue); return
+                // Past the card's end: round the window, the toolbar (Sidebar, Add, Edit) first, as the screen goes.
+                if next >= stops.count, let w = self.window() {
+                    if self.toToolbar(in: w) { return }
+                    if let field = self.searchField(in: w) { _ = field.set(kAXFocusedAttribute, kCFBooleanTrue); return }
                 }
                 self.go(to: next, in: card)
             }.isAvailable = { [weak self] in self?.inCard() == true }
@@ -61,11 +63,40 @@ final class ContactsAppModule: AppModule {
             guard let self, let f = API.focusObject, f.pid == self.pid else { return false }
             return f.element.string(kAXSubroleAttribute) == "AXSearchField" || f.axRole == "AXSearchField"
         }
+        // Shift Tab from the search field: the toolbar above it (Contacts' own went into the card).
+        script("contacts_searchToToolbar", String(localized: "From the search field back to the toolbar", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Contacts") { [weak self] g in
+            guard let self, let w = self.window(), self.toToolbar(in: w) else { g.send(); return }
+        }.isAvailable = { [weak self] in
+            guard let self, let f = API.focusObject, f.pid == self.pid else { return false }
+            return f.element.string(kAXSubroleAttribute) == "AXSearchField" || f.axRole == "AXSearchField"
+        }
+        // On the toolbar: Tab on to the search field, Shift Tab back to the card's last part (the window's own order).
+        for forward in [true, false] {
+            script(forward ? "contacts_toolbarNext" : "contacts_toolbarPrevious", forward ? String(localized: "From the toolbar to the search field", comment: "A command, as the key list and keyboard help say it") : String(localized: "From the toolbar back to the card", comment: "A command, as the key list and keyboard help say it"), gestures: [forward ? "kb:tab" : "kb:shift+tab"], category: "Contacts") { [weak self] g in
+                guard let self, let w = self.window() else { g.send(); return }
+                if forward, let field = self.searchField(in: w) { _ = field.set(kAXFocusedAttribute, kCFBooleanTrue); return }
+                if !forward, let card = self.card() { self.go(to: Self.stops(in: card).count - 1, in: card); return }
+                g.send()
+            }.isAvailable = { [weak self] in
+                guard let self, let f = SettingsPanePlugin.heldRow ?? API.focusObject?.element, f.pid == self.pid else { return false }
+                return f.element(kAXParentAttribute)?.role == "AXToolbar"
+            }
+        }
         script("contacts_toSearch", String(localized: "From the list back to the search field", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Contacts") { [weak self] g in
             guard let self, let w = self.window(),
                   let field = self.searchField(in: w) else { g.send(); return }
             _ = field.set(kAXFocusedAttribute, kCFBooleanTrue)
         }.isAvailable = { [weak self] in self?.inList() == true }
+    }
+
+    /// To the window's toolbar, one stop: its item last used, else its first.
+    private func toToolbar(in w: AXUIElement) -> Bool {
+        guard let tb = w.elements(kAXChildrenAttribute).first(where: { $0.role == "AXToolbar" }) else { return false }
+        let items = tb.elements(kAXChildrenAttribute).filter { ["AXButton", "AXMenuButton", "AXPopUpButton", "AXCheckBox"].contains($0.role) }
+        guard let stop = SettingsPanePlugin.toolbarStop(tb, items) ?? items.first else { return false }
+        Log.io("contacts: to the toolbar")
+        SettingsPanePlugin.focus(stop)
+        return true
     }
 
     /// A card being edited: its fields, the name's then each detail's (an AppKit form beside the list).
@@ -139,6 +170,9 @@ final class ContactsAppModule: AppModule {
             Log.io("contacts: card stop \(i + 1) of \(stops.count), the details list, \(rows.count) rows")
             // The list's container: the first detail's group, which doesn't scroll, so the list is counted ("list, 11
             // items", "3 of 11"); the card's scroll area scrolls, and its rows were "item 1" of a list of unknown length.
+            // Contacts' own focus onto the row too: left on the note, its news took TurnOver back there, and the next
+            // Shift Tab came to the list again (a tester, 13 Nov 2026: Tab stopped, Shift Tab needed).
+            _ = rows[at].set(kAXFocusedAttribute, kCFBooleanTrue)
             SettingsPanePlugin.enterList(rows, container: rows[0].element(kAXParentAttribute) ?? card, at: at)
         }
     }
