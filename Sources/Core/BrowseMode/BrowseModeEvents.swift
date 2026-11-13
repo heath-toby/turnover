@@ -83,9 +83,9 @@ extension BrowseModeDocument {
             // Follow the focus with the virtual caret.
             if !event.obj.isSameElement(as: webArea) {
                 lastFocusElement = event.obj.element
-                var at = buffer.offset(of: event.obj.element)
-                if at == nil, Date().timeIntervalSince(buffer.builtAt) > 1 { buffer.build(); at = buffer.offset(of: event.obj.element) }
-                if let at { position = at }
+                // Not in the copy: read on toward it, or read again at most every 1.5 s on a page slow to read (Tab
+                // after Tab read a big page whole each time; a review, 13 Nov 2026).
+                if let at = offsetReadingOnOrAgain(event.obj.element, cheapAfter: 1) { position = at }
             }
             positionAtFocus = position
             lastChain = []; lastSpokenOffset = nil

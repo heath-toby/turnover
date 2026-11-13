@@ -133,6 +133,8 @@ public final class BrowseModeDocument: ScriptableObject {
             if base(announcedURL) == base(now) { announcedURL = now }   // not announced again as a page when the focus follows
             rebuildKeepingPlace()
             if let at = anchorOffset(frag) {
+                // Gone to and read already as the link was pressed (followSamePageLink), its address spelt otherwise.
+                if let m = samePageLinkMove, m.offset == at, Date().timeIntervalSince(m.at) < 5 { position = at; return false }
                 position = at
                 Log.io("browse mode: to the page's anchor")
                 speakUnit(.line)
@@ -160,6 +162,9 @@ public final class BrowseModeDocument: ScriptableObject {
         if !first, buffer.lines.isEmpty, webArea.role != "AXWebArea" { followReplacedRoot(tries: 10) }
         return true
     }
+
+    /// Where a link to this page's anchor last took the reading, and when (followSamePageLink).
+    var samePageLinkMove: (offset: Int, at: Date)?
 
     /// Where an element with this id (an anchor's target) begins: its line, or a line just inside it.
     func anchorOffset(_ id: String) -> Int? {
@@ -199,8 +204,7 @@ public final class BrowseModeDocument: ScriptableObject {
     /// its first line (or the line it resumes at).
     func announcePage() {
         announcedURL = url
-        let title = (webArea.string(kAXDescriptionAttribute) ?? webArea.element(kAXWindowAttribute)?.string(kAXTitleAttribute) ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = pageTitle()
         if !title.isEmpty { Speech.speakMessage(title) }
         if config.virtualBuffers.autoSayAllOnPageLoad {
             // Not a page the focus only passes through: Mail's message pane, on the way to the search field, had the
@@ -213,6 +217,28 @@ public final class BrowseModeDocument: ScriptableObject {
             info.expand(.line); speak(info, unit: .line)
             Hints.schedule(Hints.page)   // not over a say all: only when the page is not being read out
         }
+    }
+
+    func pageTitle() -> String {
+        (webArea.string(kAXDescriptionAttribute) ?? webArea.element(kAXWindowAttribute)?.string(kAXTitleAttribute) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// When a read of the page again found the copy's elements gone (`pageIsGone`): the page was reloaded.
+    var pageGoneAt = Date.distantPast
+
+    /// The page finished loading at the same address (AXLoadComplete, from AXHandlerNotifications): read again keeping
+    /// the place; and if it was a reload (Command R: the same address and web area, every element made anew), its title
+    /// said, as a page arriving says it. A reload was silent, and the reading kept its old offset in the new copy
+    /// (a review, 13 Nov 2026).
+    public func pageLoadCompleted() {
+        rebuildKeepingPlace()   // notes a copy of a gone page (pageGoneAt)
+        guard Date().timeIntervalSince(pageGoneAt) < 30 else { Log.io("browse mode: page finished loading; read again"); return }
+        pageGoneAt = .distantPast
+        Log.io("browse mode: the page was reloaded; read again at \(position)")
+        guard !passThrough else { return }
+        let title = pageTitle()
+        Speech.speakMessage(title.isEmpty ? String(localized: "page reloaded", comment: "Spoken message") : title)
     }
 
     /// Where to resume on a page: the place it was left, found by its line's text if the page came back rearranged
@@ -263,6 +289,13 @@ public final class BrowseModeDocument: ScriptableObject {
     var lastSpokenAt = Date.distantPast
     /// Where the last reading began: the cell and containers the next move is measured from.
     var lastSpokenOffset: Int?
+
+    /// A move that said its own words at `offset` (a table cell, by the table keys): taken as the last reading, so the
+    /// next arrow's row, column and "out of" news start from it.
+    func noteRead(at offset: Int) {
+        lastSpokenOffset = offset; lastSpokenAt = Date()
+        lastChain = buffer.lineIndex(at: offset).map { buffer.lines[$0].entering } ?? []
+    }
 
     /// A progress bar read on the page is followed as it moves (ProgressWatch), as one the focus reads is. Known by its
     /// line's role, so the lines read ask the page nothing. (Say all reads by its own path, so a bar it passes isn't.)
@@ -394,14 +427,25 @@ public final class BrowseModeDocument: ScriptableObject {
             // Inside a web dialog or application, Escape is the page's: NVDA keeps such places in focus mode. 1Password's
             // Quick Access, a dialog from end to end, never closed on Escape, and its next shortcut closed it rather
             // than opening it (a tester, 12 Nov 2026).
-            if passThrough, let f = API.focusObject, Self.inWebDialog(f.element) { g.send(); return }
+            if passThrough, let f = API.focusObject, Self.inWebDialog(f.element) {
+                g.send()
+                // Said once a page, the first time: with Escape the page's, nothing said how browse mode comes back
+                // (a review, 13 Nov 2026).
+                if escapeHintURL != url {
+                    escapeHintURL = url
+                    let words = Self.backToBrowseModeHint(keyName: config.general.turnOverKeyName, windowsKeys: config.general.windowsKeys)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                        guard let self, API.focusTreeInterceptor === self else { return }
+                        Speech.speakMessage(words)
+                    }
+                }
+                return
+            }
             if passThrough {
                 // The virtual caret goes to the control that had focus (NVDA): on a page that was still arriving when
                 // the field took focus, the field was not in the buffer yet and the caret stayed at the top.
                 if let f = API.focusObject, f.pid == webArea.pid, !f.isSameElement(as: webArea) {
-                    var at = buffer.offset(of: f.element)
-                    if at == nil { buffer.build(); at = buffer.offset(of: f.element) }
-                    if let at { position = at }
+                    if let at = offsetReadingOnOrAgain(f.element) { position = at }
                 }
                 disableAutoPassThrough = false   // Escape ends the by-hand choice too: the next field switches by itself again
                 setPassThrough(false, announce: true)
@@ -438,6 +482,14 @@ public final class BrowseModeDocument: ScriptableObject {
             if !singleLetterNavigation { g.send(); return }
             moveToContainerEdge(end: false)
         }.isAvailable = { config.general.windowsKeys }
+    }
+
+    /// The page Escape in a web dialog last said how to get back to browse mode on (once a page).
+    var escapeHintURL = ""
+    /// How to get back to browse mode, in the keyboard style's words: NVDA's TurnOver Space, VoiceOver's VO-Q.
+    package static func backToBrowseModeHint(keyName: String, windowsKeys: Bool) -> String {
+        let keys = windowsKeys ? "\(keyName) Space" : "\(keyName) Q"
+        return String(localized: "\(keys) returns to browse mode", comment: "Said once a page, when Escape in a web dialog in focus mode goes to the page: %@ is the key")
     }
 
     public struct QuickNavType { public let name: String; public let key: String; public let spoken: String; let searchKey: String; let roles: Set<String>? }
@@ -523,13 +575,20 @@ public final class BrowseModeDocument: ScriptableObject {
     public func find(_ s: String, forward: Bool) -> Bool {
         refreshIfNavigated()
         clearSelection()
-        let text = buffer.text, n = text.length
-        guard n > 0, !s.isEmpty else { return false }
-        let from = min(position + 1, n)
-        let r = forward
-            ? text.range(of: s, options: .caseInsensitive, range: NSRange(location: from, length: n - from))
-            : text.range(of: s, options: [.caseInsensitive, .backwards], range: NSRange(location: 0, length: min(position, n)))
-        guard r.location != NSNotFound else { return false }
+        guard buffer.text.length > 0, !s.isEmpty else { return false }
+        func search() -> NSRange? {
+            let text = buffer.text, n = text.length
+            let from = min(position + 1, n)
+            let r = forward
+                ? text.range(of: s, options: .caseInsensitive, range: NSRange(location: from, length: n - from))
+                : text.range(of: s, options: [.caseInsensitive, .backwards], range: NSRange(location: 0, length: min(position, n)))
+            return r.location == NSNotFound ? nil : r
+        }
+        var hit = search()
+        // Nothing ahead in a page read only in part (a long chat): read on, as the letters do, before "not found"; the
+        // match past the part read was never found (a review, 13 Nov 2026).
+        if hit == nil, forward, buffer.isPartial, buffer.canReadOn { hit = readingOn { search() } }
+        guard let r = hit else { return false }
         position = r.location
         guard let info = makeTextInfo(.bookmark(Bookmark(start: r.location, end: r.location))) else { return true }
         info.expand(.line)
@@ -612,8 +671,34 @@ public final class BrowseModeDocument: ScriptableObject {
         let age = Date().timeIntervalSince(buffer.builtAt)
         // Not for its age a page read on past its first part (a long chat, issue 227): read again from the top, it
         // could take two seconds a key and still not get back to the reader. Its end is read on instead.
-        if let stale, age > stale, buffer.passes == 1 { buffer.build(); clampPosition(); return }
-        if buffer.isDirty, buffer.lastBuildMs < 250, age > 1 { rebuildKeepingPlace() }
+        // (Keeping the place: a bare read and a clamp left the reading position at its old offset, in other text.)
+        if let stale, age > stale, buffer.passes == 1 { rebuildKeepingPlace(); return }
+        // A page that said it changed is read again even when its last read was slow, at most every 1.5 s: only cheap
+        // pages were, so on real sites an accordion opened, results that came, a dialog closed never reached the
+        // arrows (a review, 13 Nov 2026).
+        if buffer.isDirty, Self.mayRebuild(lastBuildMs: buffer.lastBuildMs, age: age, cheapAfter: 1) { rebuildKeepingPlace() }
+    }
+
+    /// Whether a key may read the whole page again now: a page cheap to read (under 250 ms) after `cheapAfter`
+    /// seconds, any other only once its last read is 1.5 s old, so a slow page is never read again on every key
+    /// (each read up to 2 s on the main thread, where the watchdog trips at 4; a review, 13 Nov 2026). Pure.
+    package static func mayRebuild(lastBuildMs: Int, age: TimeInterval, cheapAfter: TimeInterval = 0) -> Bool {
+        lastBuildMs < 250 ? age >= cheapAfter : age > 1.5
+    }
+    func mayRebuildNow(cheapAfter: TimeInterval = 0) -> Bool {
+        Self.mayRebuild(lastBuildMs: buffer.lastBuildMs, age: Date().timeIntervalSince(buffer.builtAt), cheapAfter: cheapAfter)
+    }
+
+    /// An element the buffer doesn't hold (WebKit's search found it, the focus went to it): on a page read only in
+    /// part, read on toward it (it is most likely past the part read); otherwise the page read again, if a key may
+    /// (mayRebuildNow). Its offset, or nil. Read again in full on every such key, a big page held the main thread for
+    /// seconds a key (a review, 13 Nov 2026).
+    func offsetReadingOnOrAgain(_ element: AXUIElement, cheapAfter: TimeInterval = 0) -> Int? {
+        if let at = buffer.offset(of: element) { return at }
+        if buffer.isPartial, buffer.canReadOn { return readingOn { buffer.offset(of: element) } }
+        guard mayRebuildNow(cheapAfter: cheapAfter) else { return nil }
+        rebuildKeepingPlace()
+        return buffer.offset(of: element)
     }
 
     /// At the end of a page that loads more as it scrolls (YouTube said "bottom" before the end): the last
