@@ -358,7 +358,9 @@ final class TerminalText: TurnOverObject {
             let trimmed = before.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
             let word = trimmed.split(whereSeparator: { $0 == " " || $0 == "/" }).last.map(String.init) ?? trimmed
             g.send()
-            Speech.speakText(word.isEmpty ? String(localized: "space", comment: "Spoken message") : word)
+            // Deleted text is typing: kept out of the speech history and feedback, as typed characters are (a review,
+            // 13 Nov 2026: a mistyped password, deleted, was kept there).
+            Speech.asPrivate { Speech.speakText(word.isEmpty ? String(localized: "space", comment: "Spoken message") : word) }
         }
         script("terminal_clearLine", String(localized: "Clears what has been typed on the command line", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:control+u"], category: cat) { [weak self] g in
             g.send()
@@ -429,7 +431,7 @@ final class TerminalText: TurnOverObject {
     }
     private func sayCharacter(_ ch: String) {
         guard let first = ch.first, ch != "\n" else { Speech.speakText(String(localized: "blank", comment: "Spoken message")); return }
-        Speech.speakText(Symbols.name(of: first))
+        Speech.asPrivate { Speech.speakText(Symbols.name(of: first)) }   // deleted typing: private, as typed characters are
     }
 
     private func review(_ step: Int) {
