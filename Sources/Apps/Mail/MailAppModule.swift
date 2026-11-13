@@ -32,8 +32,59 @@ package final class MailAppModule: AppModule {
             let strips = SettingsPanePlugin.named(in: w).map(\.0)
             content = strips.first { g in var p: AXUIElement? = e, n = 0; while let x = p, n < 12 { if x.isSame(g) { return true }; p = x.element(kAXParentAttribute); n += 1 }; return false } ?? strips.first
         }
-        guard let c = content, let h = c.elements(kAXChildrenAttribute).first(where: { $0.string(kAXDescriptionAttribute) == "message headers" }) else { return nil }
+        guard let c = content else { return nil }
+        return headerArea(in: c)
+    }
+
+    /// The header text area of one message's "message content" group.
+    static func headerArea(in content: AXUIElement) -> AXUIElement? {
+        guard let h = content.elements(kAXChildrenAttribute).first(where: { $0.string(kAXDescriptionAttribute) == "message headers" }) else { return nil }
         return h.elements(kAXChildrenAttribute).first { $0.role == "AXTextArea" }
+    }
+
+    /// The header area found for the selected row, kept while that row (by its words) stays selected: the Tab
+    /// command's availability is asked on every key in the list, and the window was walked each time (a review,
+    /// 13 Nov 2026). A row whose message has not loaded yet is looked at again after a second.
+    static var headerCache: (row: AXUIElement, key: String, area: AXUIElement?, at: Date)?
+
+    /// From the message list: the header of the message the selected row shows. A conversation shows several
+    /// messages; the first shown was taken whichever row was chosen (a review, 13 Nov 2026), so the one whose sender
+    /// and subject match the row's is chosen.
+    static func headerAreaFromList(_ f: AXUIElement) -> AXUIElement? {
+        let table = f.string(kAXDescriptionAttribute) == "messages" ? f : MailMessageRow.isMessageRow(f) ? f.element(kAXParentAttribute) : nil
+        guard let table, let row = MailMessageRow.isMessageRow(f) ? f : table.elements(kAXSelectedRowsAttribute).first else { return headerArea(near: f) }
+        let key = MailUnread.key(row)
+        if let c = headerCache, c.row.isSame(row), c.key == key {
+            if let a = c.area, a.role != "?" { return a }
+            if c.area == nil, Date().timeIntervalSince(c.at) < 1 { return nil }
+        }
+        var area: AXUIElement?
+        if let w = SettingsPanePlugin.windowOf(f) {
+            let strips = SettingsPanePlugin.named(in: w).map(\.0)
+            let areas = strips.compactMap(headerArea(in:))
+            if areas.count > 1 {
+                let texts = key.components(separatedBy: "|")
+                let candidates = areas.map { a -> (from: String, subject: String) in
+                    let fields = headerFields(a)
+                    return (fields.first?.text ?? "", fields.count > 1 ? fields[1].text : "")
+                }
+                area = areas[bestHeader(sender: texts.first ?? "", subject: texts.count > 1 ? texts[1] : "", candidates: candidates)]
+            } else { area = areas.first }
+        }
+        headerCache = (row, key, area, Date())
+        return area
+    }
+
+    /// Which message's header matches a row: its sender in the From field counts most, the subject next; the first
+    /// shown when none match.
+    package static func bestHeader(sender: String, subject: String, candidates: [(from: String, subject: String)]) -> Int {
+        func has(_ a: String, _ b: String) -> Bool { !b.isEmpty && a.range(of: b, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
+        var best = 0, bestScore = 0
+        for (i, c) in candidates.enumerated() {
+            let score = (has(c.from, sender) ? 2 : 0) + (has(c.subject, subject) ? 1 : 0)
+            if score > bestScore { best = i; bestScore = score }
+        }
+        return best
     }
 
     /// The fields: label, words (names in place of their attachments) and where the line starts.
@@ -148,14 +199,23 @@ package final class MailAppModule: AppModule {
         // Return in the search field: Mail searches and says nothing; the keys stayed in the field and Tab went to the
         // toolbar (8 Oct 2026). Say how many results, and go to them.
         script("mail_submitSearch", String(localized: "Searching: Return searches, says how many results, and goes to them", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:enter"], category: "Mail") { [weak self] g in
-            guard let self else { g.send(); return }
+            guard let self, let f = API.focusObject?.element else { g.send(); return }
+            // The count from the message list itself, not from the window's title: the title's "12 results" is
+            // English only, and other languages heard nothing (a review, 13 Nov 2026). Up to 2 s for the list to change.
+            let table = self.messageTable(from: f)
+            let before = table.map(Self.rowCount) ?? -1
             g.send()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                guard let self else { return }
-                let title = AXUIElementCreateApplication(self.pid).element(kAXFocusedWindowAttribute)?.string(kAXTitleAttribute) ?? ""
-                if let r = title.range(of: #"\d[\d,]* results?"#, options: .regularExpression) { Speech.speakMessage(String(title[r])) }
-                else if title.lowercased().contains("search") { Speech.speakMessage(String(localized: "no results", comment: "Spoken message")) }
-                if let f = API.focusObject?.element { self.focusList("messages", from: f) }
+            guard let table else { return }
+            let pressed = InputManager.lastKeyDownAt
+            Poll.until(every: 0.1, limit: 2, waitNotice: 3, { Self.rowCount(table) != before }) { [weak self] _ in
+                guard let self, API.focusPid == self.pid, InputManager.lastKeyDownAt <= pressed else { return }
+                let n = Self.rowCount(table)
+                Log.io("mail: search done, \(n) rows (\(before) before)")
+                Speech.speakMessage(Self.resultsPhrase(n))
+                // Not while Mail's search suggestions are open: Return there chose one, and moving away closed them
+                // under the user (a review, 13 Nov 2026).
+                guard n > 0, !AXHandler.shared.isMenuOpen, let now = API.focusObject?.element else { return }
+                self.focusList("messages", from: now)
             }
         }.isAvailable = { API.focusObject?.role == .searchField }
         // Command Shift D sends: say so once the compose window has gone (nothing confirmed it; a tester, 8 Oct 2026).
@@ -163,8 +223,15 @@ package final class MailAppModule: AppModule {
             g.send()
             // Said as the compose window goes, before the window behind it is read: said 1.2 s later, it queued behind
             // that window and its message list, and the next key cut it off (12 Oct 2026: "it's not saying sent").
-            Self.sending = API.focusObject.flatMap { SettingsPanePlugin.windowOf($0.element) }.map { ($0, Date()) }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { Self.saySentIfGone() }
+            guard let w = API.focusObject.flatMap({ SettingsPanePlugin.windowOf($0.element) }) else { return }
+            // Watched until the window goes or Mail puts up an alert, up to 30 s: a big attachment or a slow server
+            // keeps it open longer than the 3 s once allowed, and "sent" was never said (a review, 13 Nov 2026).
+            let pid = w.pid, dialogs = Self.dialogCount(pid)
+            Self.sending = (w, Date(), dialogs)
+            Poll.until(every: 0.25, limit: Self.sendingLimit, waitNotice: Self.sendingLimit + 1, {
+                Self.sendOutcome(windowStillListed: AXUIElementCreateApplication(pid).elements(kAXWindowsAttribute).contains { CFEqual($0, w) },
+                                 alert: w.elements(kAXChildrenAttribute).contains { $0.role == "AXSheet" } || Self.dialogCount(pid) > dialogs) != .waiting
+            }) { _ in Self.saySentIfGone() }
         }.isAvailable = { Self.place.hasPrefix("compose:") }
         // Command ' and Command Option ' change the quote level of what is being written: say the level it is now
         // (nothing was said; a tester, 12 Oct 2026).
@@ -201,11 +268,11 @@ package final class MailAppModule: AppModule {
                 }
                 g.send(); return
             }
-            guard let area = Self.headerArea(near: f) else { g.send(); return }
+            guard let area = Self.place == "messages" ? Self.headerAreaFromList(f) : Self.headerArea(near: f) else { g.send(); return }
             self.goHeader(area, 0)
         }.isAvailable = {
             guard let f = API.focusObject?.element else { return false }
-            return Self.isHeaderArea(f) || (Self.place == "messages" && Self.headerArea(near: f) != nil)
+            return Self.isHeaderArea(f) || (Self.place == "messages" && Self.headerAreaFromList(f) != nil)
         }
         script("mail_headerPrevious", String(localized: "Reading a message: the previous header field", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Mail") { [weak self] g in
             guard let self, let f = API.focusObject?.element else { g.send(); return }
@@ -255,6 +322,249 @@ package final class MailAppModule: AppModule {
                 Speech.speakMessage(said)
             }
         }
+        // Delete, archive, junk, flag and Move Again in the message list: the row the selection lands on is read (a
+        // tester, 13 Nov 2026: nothing was said after Delete). Mail posts no selection news once its list has gone
+        // quiet (SelectableList.quietUntil), so the row is looked for here.
+        script("mail_listAction", String(localized: "In the message list: deletes, archives, moves to junk, flags or moves the message, and reads the message selected after", comment: "A command, as the key list and keyboard help say it"),
+               gestures: ["kb:backspace", "kb:delete", "kb:command+backspace", "kb:control+command+a", "kb:shift+command+j", "kb:shift+command+l", "kb:option+command+t"],
+               category: "Mail") { [weak self] g in
+            guard let self, let f = API.focusObject?.element, let table = Self.listOf(f) else { g.send(); return }
+            self.actOnMessage(table, g)
+        }.isAvailable = { Self.place == "messages" && !AXHandler.shared.isMenuOpen && !TurnOverMenu.shared.isOpen }
+
+        // MARK: Address suggestions (a tester, 13 Nov 2026: Mail's list of addresses under To was never read, and Tab
+        // went to the next field without taking the suggestion). Declared last, so they come first for Tab and Return.
+        script("mail_suggestionMove", String(localized: "Writing an address: Up and Down move through Mail's suggestions and read them", comment: "A command, as the key list and keyboard help say it"),
+               gestures: ["kb:upArrow", "kb:downArrow"], category: "Mail") { [weak self] g in
+            guard let self, let s = Self.suggestions else { g.send(); return }
+            let list = s.list, before = Self.selectedSuggestion(list)?.index
+            g.send()
+            let pressed = InputManager.lastKeyDownAt
+            Poll.until(every: 0.03, limit: 0.4, waitNotice: 1, { Self.selectedSuggestion(list)?.index != before }) { [weak self] _ in
+                guard let self, Self.inAddressField, InputManager.lastKeyDownAt <= pressed else { return }
+                self.saySuggestion(list, withPlace: true, again: true)
+            }
+        }.isAvailable = { Self.suggestionsOpen() }
+        script("mail_acceptSuggestion", String(localized: "Writing an address: Tab or Return takes Mail's suggestion, and says the name added", comment: "A command, as the key list and keyboard help say it"),
+               gestures: ["kb:tab", "kb:enter"], category: "Mail") { [weak self] g in
+            guard let self, let field = API.focusObject?.element else { g.send(); return }
+            self.acceptSuggestion(field, g)
+        }.isAvailable = { Self.suggestionsOpen() }
+        script("mail_closeSuggestions", String(localized: "Writing an address: Escape closes Mail's suggestions", comment: "A command, as the key list and keyboard help say it"),
+               gestures: ["kb:escape"], category: "Mail") { g in
+            g.send()
+            Self.suggestions = nil; Self.suggestionSaid = nil
+        }.isAvailable = { Self.suggestionsOpen() }
+    }
+
+    // MARK: Acting on the message list
+
+    /// The message list `e` is or is in.
+    static func listOf(_ e: AXUIElement) -> AXUIElement? {
+        e.string(kAXDescriptionAttribute) == "messages" ? e : MailMessageRow.isMessageRow(e) ? e.element(kAXParentAttribute) : nil
+    }
+
+    /// When Mail's own selection news for a message row last came (or TurnOver's in its place).
+    static var rowEventAt = Date.distantPast
+
+    private func actOnMessage(_ table: AXUIElement, _ g: KeyboardGesture) {
+        let before = table.elements(kAXSelectedRowsAttribute).first
+        let beforeKey = before.map(MailUnread.key) ?? ""
+        // The rows either side, noted before Mail selects one and marks it read.
+        MailUnread.noteNeighbours(table, of: before)
+        let flag = g.keyName.lowercased() == "l"   // the row stays; it is read again with its flag
+        g.send()
+        let pressed = InputManager.lastKeyDownAt, since = Date()
+        Poll.until(every: 0.04, limit: flag ? 0.3 : 0.6, waitNotice: 1, {
+            guard !flag, let now = table.elements(kAXSelectedRowsAttribute).first else { return false }
+            return !(before.map { CFEqual($0, now) } ?? false) || MailUnread.key(now) != beforeKey
+        }) { [weak self] moved in
+            guard let self, API.focusPid == self.pid, Self.place == "messages", InputManager.lastKeyDownAt <= pressed else { return }
+            // Mail said so itself, and that was read.
+            if Self.rowEventAt > since { return }
+            guard let now = table.elements(kAXSelectedRowsAttribute).first else {
+                Log.io("mail: \(g.keyName) in the list; nothing selected after it")
+                return
+            }
+            if !moved, !flag, MailUnread.key(now) == beforeKey { Log.io("mail: \(g.keyName) in the list; the selection did not move"); return }
+            Log.io("mail: \(g.keyName) in the list; reading the row selected now")
+            Self.rowEventAt = Date()
+            Speech.cancel()
+            EventHandler.queue(Event(.selection, ObjectFactory.make(now)))
+        }
+    }
+
+    // MARK: Address suggestions
+
+    static let addressPlaces: Set<String> = ["compose:Mail.toField", "compose:Mail.ccField", "compose:Mail.bccField", "compose:Mail.replyToField"]
+    static var inAddressField: Bool { addressPlaces.contains(place) }
+    /// Mail's list of suggested addresses as last found, and the window it is in (nil: a part of the field itself).
+    static var suggestions: (list: AXUIElement, window: AXUIElement?)?
+    /// The suggestion said last, so typing another letter that leaves it highlighted says nothing more.
+    static var suggestionSaid: (text: String, at: Date)?
+    private var suggestionLook = 0
+    private var suggestionShapeLogged = Date.distantPast
+    private static let listRoles: Set<String> = ["AXTable", "AXList", "AXOutline"]
+
+    /// The list is still up: in an address field, its window still one of Mail's and on screen, with rows. Asked on
+    /// every Tab, Return and arrow there, so three questions at most.
+    static func suggestionsOpen() -> Bool {
+        guard inAddressField, let s = suggestions else { return false }
+        if let w = s.window {
+            guard AXUIElementCreateApplication(w.pid).elements(kAXWindowsAttribute).contains(where: { $0.isSame(w) }) else { suggestions = nil; return false }
+            if let size = w.attr(kAXSizeAttribute) { var z = CGSize.zero; axValue(size, .cgSize, &z); if z.height < 4 { return false } }
+        }
+        guard suggestionCount(s.list) > 0 else { return false }
+        return true
+    }
+
+    nonisolated static func suggestionRows(_ list: AXUIElement) -> [AXUIElement] {
+        let rows = list.elements(kAXRowsAttribute)
+        return rows.isEmpty ? list.elements(kAXChildrenAttribute).filter { $0.role != "AXScrollBar" } : rows
+    }
+    nonisolated static func suggestionCount(_ list: AXUIElement) -> Int {
+        var n: CFIndex = 0
+        if AXUIElementGetAttributeValueCount(list, kAXRowsAttribute as CFString, &n) == .success, n > 0 { return n }
+        AXUIElementGetAttributeValueCount(list, kAXChildrenAttribute as CFString, &n)
+        return n
+    }
+
+    /// The highlighted suggestion: the list's selected row (or child), or the one marked selected.
+    nonisolated static func selectedSuggestion(_ list: AXUIElement) -> (row: AXUIElement, index: Int, count: Int)? {
+        let rows = suggestionRows(list)
+        guard let sel = list.elements(kAXSelectedRowsAttribute).first ?? list.elements(kAXSelectedChildrenAttribute).first
+                ?? rows.first(where: { ($0.attr(kAXSelectedAttribute) as? Bool) == true }) else { return nil }
+        return (sel, rows.firstIndex { CFEqual($0, sel) } ?? 0, rows.count)
+    }
+
+    /// A suggestion's words: the texts in its row (name, address), each once.
+    nonisolated static func suggestionText(_ row: AXUIElement) -> String {
+        var parts: [String] = []
+        var queue = [(row, 0)], seen = 0
+        while !queue.isEmpty, seen < 30 {
+            let (e, d) = queue.removeFirst(); seen += 1
+            for k in [kAXValueAttribute, kAXTitleAttribute, kAXDescriptionAttribute] {
+                if let t = e.attr(k) as? String { parts.append(t) }
+            }
+            if d < 3 { queue.append(contentsOf: e.elements(kAXChildrenAttribute).map { ($0, d + 1) }) }
+        }
+        return joinedParts(parts)
+    }
+
+    /// Texts joined for speech: blanks dropped, and each said once (a cell and its text hold the same words).
+    package nonisolated static func joinedParts(_ parts: [String]) -> String {
+        var out: [String] = []
+        for p in parts {
+            let t = p.trimmingCharacters(in: .whitespacesAndNewlines)
+            if t.isEmpty || out.contains(where: { $0 == t || $0.contains(t) }) { continue }
+            out.removeAll { t.contains($0) }
+            out.append(t)
+        }
+        return out.joined(separator: ", ")
+    }
+
+    /// The name in a suggestion's words ("Ann Smith, ann@example.com": "Ann Smith").
+    package nonisolated static func namePart(_ suggestion: String) -> String {
+        suggestion.components(separatedBy: ", ").first?.trimmingCharacters(in: .whitespaces) ?? ""
+    }
+
+    /// The names an address field holds as tokens: its parts' words.
+    nonisolated static func tokenNames(_ field: AXUIElement) -> [String] {
+        field.elements(kAXChildrenAttribute).compactMap { c -> String? in
+            let t = (c.string(kAXDescriptionAttribute) ?? c.string(kAXTitleAttribute) ?? c.attr(kAXValueAttribute) as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? nil : t
+        }
+    }
+
+    /// Mail's suggestion list for the address field `field`: a list with rows in a window of Mail's other than the
+    /// one being written in (an untitled window comes and goes as the address fields take the keyboard; seen in the
+    /// log, 13 Nov 2026), or a list inside the field. Its shape (roles and counts only) is logged, for the live check.
+    private func findSuggestions(field: AXUIElement) -> (list: AXUIElement, window: AXUIElement?)? {
+        let compose = SettingsPanePlugin.windowOf(field)
+        var shape: [String] = []
+        for w in AXUIElementCreateApplication(pid).elements(kAXWindowsAttribute) where !(compose.map { w.isSame($0) } ?? false) {
+            let sub = w.string(kAXSubroleAttribute) ?? "-"
+            let titled = !(w.string(kAXTitleAttribute) ?? "").isEmpty
+            // The main viewer, another message: titled standard windows.
+            if sub == "AXStandardWindow", titled { shape.append("\(sub) titled"); continue }
+            var queue = [(w, 0)], seen = 0, roles: [String: Int] = [:]
+            while !queue.isEmpty, seen < 60 {
+                let (e, d) = queue.removeFirst(); seen += 1
+                let r = e.role
+                roles[r, default: 0] += 1
+                if Self.listRoles.contains(r), e.string(kAXDescriptionAttribute) != "messages", Self.suggestionCount(e) > 0 {
+                    logSuggestionShape("in a window (\(w.role)/\(sub), titled \(titled)) at depth \(d): \(r)/\(e.string(kAXSubroleAttribute) ?? "-")", list: e)
+                    return (e, w)
+                }
+                if d < 6 { queue.append(contentsOf: e.elements(kAXChildrenAttribute).map { ($0, d + 1) }) }
+            }
+            shape.append("\(w.role)/\(sub) titled \(titled): \(roles.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))")
+        }
+        for c in field.elements(kAXChildrenAttribute) where Self.listRoles.contains(c.role) && Self.suggestionCount(c) > 0 {
+            logSuggestionShape("inside the field: \(c.role)", list: c)
+            return (c, nil)
+        }
+        if Date().timeIntervalSince(suggestionShapeLogged) > 3 {
+            suggestionShapeLogged = Date()
+            let kids = field.elements(kAXChildrenAttribute).map(\.role)
+            Log.io("mail: no address suggestions found; field \(field.role) with \(kids.count) parts (\(Set(kids).sorted().joined(separator: ", "))); other windows: \(shape.isEmpty ? "none" : shape.joined(separator: "; "))")
+        }
+        return nil
+    }
+
+    private func logSuggestionShape(_ where_: String, list: AXUIElement) {
+        guard Date().timeIntervalSince(suggestionShapeLogged) > 3 else { return }
+        suggestionShapeLogged = Date()
+        let sel = Self.selectedSuggestion(list)
+        let rowRoles = sel.map { $0.row.elements(kAXChildrenAttribute).map(\.role).joined(separator: ", ") } ?? "none selected"
+        Log.io("mail: address suggestions \(where_), \(Self.suggestionCount(list)) rows, selected \(sel.map { String($0.index + 1) } ?? "none"); the row's parts: \(rowRoles)")
+    }
+
+    /// Typing in an address field: once it pauses, the suggestion Mail highlights is said (again only when it changes).
+    private func lookForSuggestionsSoon() {
+        suggestionLook += 1
+        let n = suggestionLook
+        for delay in [0.35, 0.9] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, n == suggestionLook, Self.inAddressField, API.focusPid == pid, let f = API.focusObject?.element else { return }
+                // (The second look only for a list slow to come.)
+                if delay > 0.5, Self.suggestions != nil { return }
+                guard let found = findSuggestions(field: f) else { Self.suggestions = nil; Self.suggestionSaid = nil; return }
+                Self.suggestions = found
+                saySuggestion(found.list, withPlace: false, again: false)
+            }
+        }
+    }
+
+    private func saySuggestion(_ list: AXUIElement, withPlace: Bool, again: Bool) {
+        guard let sel = Self.selectedSuggestion(list) else { return }
+        let text = Self.suggestionText(sel.row)
+        guard !text.isEmpty else { return }
+        let said = withPlace ? "\(text), \(Phrases.position(sel.index + 1, of: sel.count))" : text
+        if !again, let s = Self.suggestionSaid, s.text == said || (!withPlace && s.text.hasPrefix(text)) { return }
+        Self.suggestionSaid = (said, Date())
+        Speech.cancel()
+        Speech.redactedInLog("address suggestion") { Speech.speakMessage(said) }
+    }
+
+    private func acceptSuggestion(_ field: AXUIElement, _ g: KeyboardGesture) {
+        let chosen = Self.suggestions.flatMap { Self.selectedSuggestion($0.list) }.map { Self.suggestionText($0.row) } ?? ""
+        let tokens = Self.tokenNames(field), value = field.string(kAXValueAttribute) ?? ""
+        Self.suggestions = nil; Self.suggestionSaid = nil
+        g.send()
+        let pressed = InputManager.lastKeyDownAt
+        Poll.until(every: 0.05, limit: 0.8, waitNotice: 1, { Self.tokenNames(field) != tokens }) { changed in
+            guard InputManager.lastKeyDownAt <= pressed else { return }
+            let now = Self.tokenNames(field)
+            var added = now
+            for t in tokens { if let i = added.firstIndex(of: t) { added.remove(at: i) } }
+            // No token seen, but the field changed: the suggestion's name, as Mail took it.
+            let name = added.last ?? ((field.string(kAXValueAttribute) ?? "") != value ? Self.namePart(chosen) : "")
+            Log.io("mail: suggestion taken with \(g.keyName); \(changed ? "a new token (\(now.count) now)" : "no new token seen")\(name.isEmpty ? ", nothing to say" : "")")
+            guard !name.isEmpty else { return }
+            Speech.redactedInLog("address") { Speech.speakMessage(name) }
+        }
     }
 
     // Tab between the mailbox list and the message list. Mail puts its mailbox list in the Tab order only while
@@ -267,9 +577,25 @@ package final class MailAppModule: AppModule {
     /// A message being written: its header in the order a person expects. Mail's own Tab skips the three pop-ups
     /// (Priority, From, Signature), so the From address could not be changed from the keyboard (5 Oct 2026).
     /// A compose window's fields as last found, by identifier.
-    static var composeFields: (window: AXUIElement, at: Date, byId: [String: AXUIElement])?
+    static var composeFields: (window: AXUIElement, at: Date, byId: [String: AXUIElement], parts: Int)?
     static let composeOrder = ["Mail.toField", "Mail.ccField", "Mail.bccField", "Mail.replyToField", "Mail.subjectField",
                                "popup_priority", "popup_from", "popup_signature", "body"]
+
+    /// How many parts the header holds around its fields (the children of the To field's row, and of the container
+    /// above it, as one number): a field shown with View is a new part there. -1 when no field is known.
+    static func headerPartCount(_ byId: [String: AXUIElement]) -> Int {
+        guard let field = byId["Mail.toField"] ?? byId["Mail.subjectField"], let row = field.element(kAXParentAttribute) else { return -1 }
+        var a: CFIndex = 0, b: CFIndex = 0
+        AXUIElementGetAttributeValueCount(row, kAXChildrenAttribute as CFString, &a)
+        if let up = row.element(kAXParentAttribute) { AXUIElementGetAttributeValueCount(up, kAXChildrenAttribute as CFString, &b) }
+        return a * 1000 + b
+    }
+
+    /// Whether the compose fields last found must be looked for again: the field TurnOver is on is a header field
+    /// they don't hold, or the header's parts have changed in number since.
+    package static func composeCacheMisses(fieldID: String, fieldCached: Bool, partsThen: Int, partsNow: Int) -> Bool {
+        (composeOrder.contains(fieldID) && !fieldCached) || partsThen != partsNow
+    }
 
     private func notePlace(_ e: AXUIElement) {
         var p = ""
@@ -288,7 +614,14 @@ package final class MailAppModule: AppModule {
         // The window's fields, kept a few seconds: the walk of up to 300 parts, at Mail's pace, made each Tab lag (a
         // tester, 13 Nov 2026: "the tab focus was extremely laggy").
         var byId: [String: AXUIElement] = [:]
-        if let c = Self.composeFields, c.window.isSame(w), Date().timeIntervalSince(c.at) < 8, !c.byId.values.contains(where: { $0.role == "?" }) {
+        // Walked again when a field shown since is missing from it (View, Bcc Address Field, or Reply-To: the new field
+        // was skipped until the cache ran out, a review, 13 Nov 2026): the field Tab is on is a header field not
+        // in it, or the header holds a different number of parts than when it was walked.
+        let onNow = SettingsPanePlugin.heldRow ?? from
+        let onID = onNow.string(kAXIdentifierAttribute) ?? ""
+        if let c = Self.composeFields, c.window.isSame(w), Date().timeIntervalSince(c.at) < 8, !c.byId.values.contains(where: { $0.role == "?" }),
+           !Self.composeCacheMisses(fieldID: onID, fieldCached: c.byId.values.contains { $0.isSame(onNow) },
+                                    partsThen: c.parts, partsNow: Self.headerPartCount(c.byId)) {
             byId = c.byId
         } else {
             var queue = [w]; var seen = 0
@@ -299,7 +632,7 @@ package final class MailAppModule: AppModule {
                 if e.role == "AXToolbar" { continue }
                 queue.append(contentsOf: e.elements(kAXChildrenAttribute))
             }
-            Self.composeFields = (w, Date(), byId)
+            Self.composeFields = (w, Date(), byId, Self.headerPartCount(byId))
         }
         // Only what is showing (Cc, Bcc, Reply To and Priority come and go with View, Header Fields).
         let present = Self.composeOrder.filter { id in
@@ -379,6 +712,32 @@ package final class MailAppModule: AppModule {
         }
     }
 
+    /// The message list in the window `from` is in.
+    private func messageTable(from: AXUIElement) -> AXUIElement? {
+        guard let w = from.role == "AXWindow" ? from : SettingsPanePlugin.windowOf(from) else { return nil }
+        var queue = [w]; var seen = 0
+        while !queue.isEmpty, seen < 400 {
+            let e = queue.removeFirst(); seen += 1
+            if e.role == "AXTable", e.string(kAXDescriptionAttribute) == "messages" { return e }
+            if e.role == "AXToolbar" || e.role == "AXWebArea" { continue }
+            queue.append(contentsOf: e.elements(kAXChildrenAttribute))
+        }
+        return nil
+    }
+
+    /// A list's rows, counted without fetching them.
+    nonisolated static func rowCount(_ table: AXUIElement) -> Int {
+        var n: CFIndex = 0
+        return AXUIElementGetAttributeValueCount(table, kAXRowsAttribute as CFString, &n) == .success ? n : 0
+    }
+
+    /// What a search found, as said.
+    package static func resultsPhrase(_ n: Int) -> String {
+        n == 0 ? String(localized: "no results", comment: "Spoken message")
+            : n == 1 ? String(localized: "1 result", comment: "A Mail search found one message")
+            : String(localized: "\(String(n)) results", comment: "A Mail search: how many messages it found")
+    }
+
     private func focusList(_ wanted: String, from: AXUIElement) {
         guard let w = from.role == "AXWindow" ? from : SettingsPanePlugin.windowOf(from) else { return }
         var queue = [w]; var seen = 0; var target: AXUIElement?
@@ -400,23 +759,49 @@ package final class MailAppModule: AppModule {
         }
     }
 
-    /// The window a message was being written in when Command Shift D was pressed, and when, until "sent" is said.
-    static var sending: (window: AXUIElement, at: Date)?
+    /// The window a message was being written in when Command Shift D was pressed, when, and how many dialogs Mail
+    /// had open then, until "sent" is said.
+    static var sending: (window: AXUIElement, at: Date, dialogs: Int)?
+    /// How long a send is watched for.
+    nonisolated static let sendingLimit: TimeInterval = 30
+    package nonisolated enum SendOutcome: Equatable { case waiting, sent, alert }
+    /// The window gone: sent. Still there with an alert on it (no address, the server refused): not sent, and the
+    /// alert reads itself.
+    package nonisolated static func sendOutcome(windowStillListed: Bool, alert: Bool) -> SendOutcome {
+        !windowStillListed ? .sent : alert ? .alert : .waiting
+    }
+    nonisolated static func dialogCount(_ pid: pid_t) -> Int {
+        AXUIElementCreateApplication(pid).elements(kAXWindowsAttribute).filter { $0.string(kAXSubroleAttribute) == "AXDialog" }.count
+    }
     /// "Sent" once that window has gone (Mail closes it as the message goes; a missing address leaves it open with
     /// an alert, and nothing is said).
     static func saySentIfGone() {
         guard let s = sending else { return }
-        guard Date().timeIntervalSince(s.at) < 3 else { sending = nil; return }
-        let windows = AXUIElementCreateApplication(s.window.pid).elements(kAXWindowsAttribute)
-        guard !windows.contains(where: { $0.isSame(s.window) }) else { return }
-        sending = nil
-        Speech.speakMessage(String(localized: "sent", comment: "Spoken message"))
+        guard Date().timeIntervalSince(s.at) < sendingLimit + 1 else { sending = nil; return }
+        let pid = s.window.pid
+        let outcome = sendOutcome(windowStillListed: AXUIElementCreateApplication(pid).elements(kAXWindowsAttribute).contains { $0.isSame(s.window) },
+                                  alert: s.window.elements(kAXChildrenAttribute).contains { $0.role == "AXSheet" } || dialogCount(pid) > s.dialogs)
+        switch outcome {
+        case .waiting: return
+        case .alert:
+            // Closed later without sending (the draft kept), it must not be taken for sent.
+            sending = nil
+            Log.io("mail: an alert on the message being sent; not said as sent")
+        case .sent:
+            sending = nil
+            Speech.speakMessage(String(localized: "sent", comment: "Spoken message"))
+        }
     }
 
     package override func handleEvent(_ event: Event, next: () -> Void) {
         // After Command Shift D: "sent" before the window and focus behind the compose window are read.
         if Self.sending != nil, [.foreground, .gainFocus].contains(event.kind) { Self.saySentIfGone() }
-        if event.kind == .gainFocus { notePlace(event.obj.element) }
+        if event.kind == .gainFocus {
+            notePlace(event.obj.element)
+            if !Self.inAddressField { Self.suggestions = nil; Self.suggestionSaid = nil }
+        }
+        // Typing an address: Mail's suggestions are looked for once the typing pauses.
+        if event.kind == .typedCharacter, event.obj.pid == pid, Self.inAddressField { lookForSuggestionsSoon() }
         // Another message chosen: the header field TurnOver was on belongs to the one before.
         if event.kind == .selection, Self.headerAt != nil, !Self.isHeaderArea(event.obj.element) { Self.headerAt = nil }
         // The header text area taking the keyboard for a field TurnOver has just said: not read again whole.
@@ -439,7 +824,24 @@ package final class MailAppModule: AppModule {
             let el = event.obj.element
             let table = MailMessageRow.isMessageRow(el) ? el.element(kAXParentAttribute) : (el.string(kAXDescriptionAttribute) == "messages" ? el : nil)
             if let table { MailUnread.snapshot(table) }
+            if event.kind == .selection, table != nil { Self.rowEventAt = Date() }
         }
+    }
+
+    /// Mail's suggestion list moving its highlight (where it says so): the suggestion is read. Only while an address
+    /// field has the keyboard, and never for the message list.
+    package override func listSelectionChanged(_ list: AXUIElement) -> Bool {
+        guard Self.inAddressField, API.focusPid == pid, Self.listRoles.contains(list.role), list.string(kAXDescriptionAttribute) != "messages" else { return false }
+        if let s = Self.suggestions, s.list.isSame(list) {
+            saySuggestion(list, withPlace: true, again: false)
+            return true
+        }
+        // A list in a window other than the one being written in: the suggestions, come before the typing paused.
+        guard let field = API.focusObject?.element, let fw = SettingsPanePlugin.windowOf(field), let lw = list.element(kAXWindowAttribute), !lw.isSame(fw) else { return false }
+        logSuggestionShape("found by its selection news (\(lw.string(kAXSubroleAttribute) ?? "-"))", list: list)
+        Self.suggestions = (list, lw)
+        saySuggestion(list, withPlace: false, again: false)
+        return true
     }
 
     package override func objectClass(for element: AXUIElement, role: Role, subrole: String?) -> TurnOverObject.Type? {
@@ -534,6 +936,23 @@ enum MailUnread {
         let k = key(row)
         lock.lock(); defer { lock.unlock() }
         return !k.isEmpty && unread.contains(k)
+    }
+
+    /// Before a key that moves the selection for Mail (Delete, Archive): the rows either side of `row`, noted unread
+    /// now, on the main thread, as the key waits. Only noted, never forgotten: a look run after Mail had moved on would
+    /// find the row it lands on read already.
+    static func noteNeighbours(_ table: AXUIElement, of row: AXUIElement?) {
+        guard let i = row.flatMap({ ($0.attr(kAXIndexAttribute) as? NSNumber)?.intValue }) else { return }
+        var count: CFIndex = 0
+        guard AXUIElementGetAttributeValueCount(table, kAXRowsAttribute as CFString, &count) == .success else { return }
+        for j in [i - 1, i + 1] where j >= 0 && j < count {
+            var v: CFArray?
+            guard AXUIElementCopyAttributeValues(table, kAXRowsAttribute as CFString, j, 1, &v) == .success,
+                  let r = (v as? [AXUIElement])?.first, MailMessageRow.isUnread(r) else { continue }
+            let k = key(r)
+            guard !k.isEmpty else { continue }
+            lock.lock(); unread.insert(k); lock.unlock()
+        }
     }
 
     /// The first row and the rows either side of the selection.

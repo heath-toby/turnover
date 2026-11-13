@@ -164,10 +164,18 @@ open class SelectableList: TurnOverObject {
         // arrow waited for news that never came, the keys queued behind, and the watchdog gave the Mac to VoiceOver):
         // for twenty seconds it isn't waited for. The row is read a moment after the key, the keyboard not held.
         if let q = Self.quietUntil, q.list.isSame(element), Date() < q.until {
-            let list = element, key = selectionKey
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
-                guard let self, !EventHandler.isPending(.selection) else { return }
-                if let now = list.elements(key).first, before.map({ !$0.isSame(now) }) ?? true { self.speakItem(now) }
+            // Looked at off the main thread for up to 0.4 s: one look at 0.06 s missed a Mail that was still moving,
+            // and the row was never said (a review, 13 Nov 2026). Read as a selection event, so the app module sees
+            // it too (Mail notes which rows nearby are unread before it marks them read); a late real event for the
+            // same row is the same news (event_selection's own check). A newer key has the last word.
+            let list = element, key = selectionKey, pressed = InputManager.lastKeyDownAt
+            Poll.until(every: 0.03, limit: 0.4, {
+                guard let now = list.elements(key).first else { return false }
+                return before.map { !CFEqual($0, now) } ?? true
+            }) { [weak self] moved in
+                guard let self, moved, InputManager.lastKeyDownAt <= pressed, !EventHandler.isPending(.selection),
+                      let now = list.elements(key).first, before.map({ !$0.isSame(now) }) ?? true else { return }
+                self.readQuietMove(now)
             }
             return
         }
@@ -277,6 +285,13 @@ open class SelectableList: TurnOverObject {
         Tones.focusTick()
         Speech.cancel()
         Speech.speakMessage(parts.joined(separator: ", "))
+    }
+
+    /// A move in a quiet list, read through the event chain as the app's own news would be: the app module's
+    /// handler runs (Mail's unread notes), and the object reads it, nameless wrappers by what they hold.
+    private func readQuietMove(_ row: AXUIElement) {
+        Speech.cancel()
+        EventHandler.queue(Event(.selection, ObjectFactory.make(row)))
     }
 
     /// Speak the selected row, as a selection event would.

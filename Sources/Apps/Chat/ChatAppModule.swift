@@ -113,7 +113,10 @@ final class ChatAppModule: AppModule {
             }.isAvailable = { [weak self] in
                 guard let self else { return false }
                 let ok = API.focusPid == pid && !AXHandler.shared.isMenuOpen && !TurnOverMenu.shared.isOpen && !view.inSheet
-                if !ok { Log.io("chat_react not available: focus pid \(API.focusPid ?? -1) vs \(pid), menu \(AXHandler.shared.isMenuOpen), TurnOver menu \(TurnOverMenu.shared.isOpen), sheet \(view.inSheet)") }
+                // Logged when it changes, not on every evaluation: the key list and every Command T asked again,
+                // filling the log while unavailable (a review, 13 Nov 2026).
+                let why = ok ? "" : "focus pid \(API.focusPid ?? -1) vs \(pid), menu \(AXHandler.shared.isMenuOpen), TurnOver menu \(TurnOverMenu.shared.isOpen), sheet \(view.inSheet)"
+                if why != reactLogged { reactLogged = why; Log.io(ok ? "chat_react available again" : "chat_react not available: \(why)") }
                 return ok
             }
         }
@@ -192,4 +195,6 @@ final class ChatAppModule: AppModule {
         next()
     }
     private var lastSheetTitle: String?
+    /// Why chat_react was last unavailable ("" while available), so the log says only changes.
+    private var reactLogged = ""
 }
