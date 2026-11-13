@@ -168,12 +168,16 @@ extension SettingsPanePlugin {
     /// Tab or Shift Tab on a toolbar item: on to the window's next or previous control outside the toolbar.
     func toolbarLeave(_ g: KeyboardGesture, forward: Bool) {
         guard let cur = API.focusObject?.element, let scope = Self.scopeOf(cur) else { g.send(); return }
-        let all = Self.controls(in: scope, toolbars: true, unfocusable: true)
+        // The window's stops from a moment ago where they're still the window's (a walk costs 100 ms or more).
+        var all: [AXUIElement]
+        if let c = Self.trapList, c.window.isSame(scope), Date().timeIntervalSince(c.at) < 3, !c.controls.contains(where: { $0.role == "?" }) { all = c.controls }
+        else { all = Self.controls(in: scope, toolbars: true, unfocusable: true) }
         // The toolbar's stop is the item just used (remembered as the focus landed).
         // The item itself, or whichever of the toolbar's items stands for it (Font Book's Hide Sidebar was missing from
         // the window's list, and Tab fell through to the app's own, on along the toolbar, 13 Nov 2026).
-        let items = Self.toolbarItems(around: cur)?.items ?? []
-        guard let here = all.firstIndex(where: { $0.isSame(cur) }) ?? all.firstIndex(where: { a in items.contains { $0.isSame(a) } }), all.count > 1 else {
+        var at = all.firstIndex(where: { $0.isSame(cur) })
+        if at == nil { let items = Self.toolbarItems(around: cur)?.items ?? []; at = all.firstIndex(where: { a in items.contains { $0.isSame(a) } }) }
+        guard let here = at, all.count > 1 else {
             Log.io("toolbar: the item isn't among the window's \(all.count) stops; Tab sent on"); g.send(); return
         }
         var n = ((forward ? here + 1 : here - 1) + all.count) % all.count
