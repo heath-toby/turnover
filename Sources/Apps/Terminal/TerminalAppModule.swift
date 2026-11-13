@@ -15,6 +15,7 @@
 import Foundation
 import AppKit
 import ApplicationServices
+import Carbon
 
 final class TerminalAppModule: AppModule {
     static let bundleID = "com.apple.Terminal"
@@ -178,7 +179,22 @@ final class TerminalText: TurnOverObject {
         if ch == "\r" || ch == "\n" { s.enterAt = Date(); s.typed = "" }
         else if ch == "\u{8}" { if !s.typed.isEmpty { s.typed.removeLast() } }
         else { s.typed.append(ch) }
+        // At a password prompt (sudo, ssh, a passphrase): never the character, "star" as NVDA says in a password field.
+        // Terminal echoes nothing there, so the cursor's line still ends with the prompt (a review, 13 Nov 2026: the
+        // password was spoken aloud).
+        if ch != "\r", ch != "\n", Self.atPasswordPrompt(cursorLine()?.1) {
+            Speech.speakMessage(String(localized: "star", comment: "A typed character hidden, as in a password field"))
+            return
+        }
         Speech.speakTypedCharacter(ch, inEditable: true)
+    }
+
+    /// A line that asks for a password, or secure input on (Terminal's Secure Keyboard Entry, a prompt's own).
+    static func atPasswordPrompt(_ line: String?) -> Bool {
+        if IsSecureEventInputEnabled() { return true }
+        guard let l = line?.trimmingCharacters(in: .whitespaces).lowercased() else { return false }
+        return l.hasSuffix("password:") || l.hasSuffix("passphrase:") || l.hasSuffix("password for") || l.contains("passphrase for")
+            || l.hasSuffix("pin:") || (l.contains("password") && l.hasSuffix(":"))
     }
 
     override func event_caret() {}   // the cursor moves with every byte of output: the value change speaks

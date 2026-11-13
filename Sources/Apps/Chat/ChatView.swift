@@ -811,7 +811,9 @@ public final class ChatView {
     public func readLatest(_ n: Int) {
         let list = messages().filter { !Self.words($0).isEmpty && $0.role != "AXHeading" && !Self.isTimeStamp($0) }
         guard list.count >= n else { Speech.speakMessage(list.isEmpty ? String(localized: "no messages", comment: "A chat app's list is empty") : String(localized: "only \(String(list.count)) messages", comment: "Fewer messages than asked for: how many there are")); return }
-        Speech.speakText(Self.words(list[list.count - n]))
+        // Each press the one heard now, not queued behind the last (a review, 13 Nov 2026); in the log, its length.
+        Speech.cancel()
+        Speech.redactedInLog("message") { Speech.speakText(Self.words(list[list.count - n])) }
     }
 
     /// Messages' nameless groups that hold only a time stamp.
@@ -824,7 +826,11 @@ public final class ChatView {
     private var watch: Timer?
     private var lastSeen: String?
     private var lastTitle: String?
-    private var composerHadText = Date.distantPast
+    /// What the box last held, and what it held when it emptied (sent): a message is the user's own only if it holds
+    /// those words, sent a moment ago. Any message within 3 s of the box having text was taken as one's own, so a
+    /// message that came in while the user typed was never said (a review, 13 Nov 2026).
+    private var composerText = ""
+    private var justSent: (text: String, at: Date)?
 
     /// While the app is in front: read each new message that arrives in the open conversation (not the one just sent).
     public func startWatching() {
@@ -844,20 +850,31 @@ public final class ChatView {
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
         let title = find(spec.titleID).map(Self.words)
         if title != lastTitle { lastTitle = title; lastSeen = latestWords(); return }   // another conversation opened
-        if let c = composer, let v = c.attr(kAXValueAttribute) as? String, !v.isEmpty { composerHadText = Date() }
+        let boxText = (composer?.attr(kAXValueAttribute) as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !boxText.isEmpty { composerText = boxText }
+        else if !composerText.isEmpty { justSent = (composerText, Date()); composerText = "" }
         guard let now = latestWords(), now != lastSeen else { return }
         let previous = lastSeen
         lastSeen = now
         guard let previous else { return }   // a conversation just opened: nothing new in it
         // The same message with a new status (Sent, then Delivered, then Read: WhatsApp read your own message back,
-        // 7 Oct 2026), and your own messages, are not news.
+        // 7 Oct 2026) is not news.
         if Self.withoutStatus(now) == Self.withoutStatus(previous) { return }
-        if now.hasPrefix("Your message") { Log.io("chat: your own message"); return }
-        // Sent from here a moment ago (the box had text and is now empty): it is your own message.
-        if Date().timeIntervalSince(composerHadText) < 3 { Log.io("chat: a message was sent"); return }
+        // Every message after the one last heard, up to five: a burst was only its last (a review, 13 Nov 2026).
+        let all = messages().filter { !Self.isTimeStamp($0) && $0.role != "AXHeading" }.map(Self.words)
+        let from = all.lastIndex { Self.withoutStatus($0) == Self.withoutStatus(previous) }.map { $0 + 1 } ?? max(0, all.count - 1)
+        var fresh = Array(all[min(from, all.count)...].suffix(5))
+        if fresh.isEmpty { fresh = [now] }
+        fresh.removeAll { m in
+            if m.hasPrefix("Your message") { return true }
+            // Sent from here a moment ago: the box emptied, and the message holds its words.
+            if let js = justSent, Date().timeIntervalSince(js.at) < 5, m.contains(String(js.text.prefix(40))) { return true }
+            return false
+        }
+        if fresh.isEmpty { Log.io("chat: a message was sent"); justSent = nil; return }
         if SayAll.isRunning { return }
-        Log.io("chat: a new message arrived")
-        Speech.speakText(now)
+        Log.io("chat: \(fresh.count) new message(s) arrived")
+        Speech.redactedInLog("message") { for m in fresh { Speech.speakText(m) } }
     }
 
     /// A message's words without its delivery status at the end ("…, 14:53, Sent to Alex, Delivered").
