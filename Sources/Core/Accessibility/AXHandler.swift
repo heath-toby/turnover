@@ -189,6 +189,9 @@ public final class AXHandler {
     var notificationCheck: DispatchWorkItem?
     var backgroundRecheckPending = false
     var navigationCheckPending = false
+    /// The page's own web area finished loading while a navigation check was pending: the check that coalesces the
+    /// page's news knows it, whichever news started it (the reload otherwise went unsaid, a review, 13 Nov 2026).
+    var loadCompleteSeen = false
     /// When the last open menu closed, and in which process (menu-to-menu moves pass through no menu at all).
     var lastMenuClosed: (pid_t, Date)?
     /// When a menu last closed, and in which app; kept, unlike lastMenuClosed (main thread).

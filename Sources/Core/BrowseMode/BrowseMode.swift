@@ -135,6 +135,9 @@ public final class BrowseModeDocument: ScriptableObject {
         if !first, Self.isSamePage(now, lastURL) {
             lastURL = now
             if Self.urlBase(announcedURL) == Self.urlBase(now) { announcedURL = now }   // not announced again as a page when the focus follows
+            // The page's own script moving its anchor under a say all of it: not read again there (its offsets would
+            // mean other text); the next key reads it (a review, 13 Nov 2026).
+            if !byKey, SayAll.isReading(self) { buffer.isDirty = true; return false }
             rebuildKeepingPlace()
             guard let frag = Self.samePageFragment(link: now, page: now) else {
                 Log.io("browse mode: the same page without its anchor; the reading stays")
@@ -286,8 +289,24 @@ public final class BrowseModeDocument: ScriptableObject {
     /// said, as a page arriving says it. A reload was silent, and the reading kept its old offset in the new copy
     /// (a review, 13 Nov 2026).
     public func pageLoadCompleted() {
-        rebuildKeepingPlace()   // notes a copy of a gone page (pageGoneAt)
-        guard Date().timeIntervalSince(pageGoneAt) < 30 else { Log.io("browse mode: page finished loading; read again"); return }
+        // A reload is told by the copy's elements gone, asked before anything is read again.
+        if !buffer.lines.isEmpty, pageIsGone() { pageGoneAt = Date() }
+        guard Date().timeIntervalSince(pageGoneAt) < 30 else {
+            // Only changed: not read again under a say all of this page (its offsets would mean other text), nor more
+            // often than a key may (a slow page held the main thread, a review, 13 Nov 2026). The next key reads it.
+            if SayAll.isReading(self) || !mayRebuildNow() { buffer.isDirty = true; Log.io("browse mode: page finished loading; read again at the next key"); return }
+            rebuildKeepingPlace()
+            Log.io("browse mode: page finished loading; read again")
+            return
+        }
+        // A reload: the copy a say all reads is of the page gone.
+        if SayAll.isReading(self) { SayAll.stop() }
+        rebuildKeepingPlace()
+        sayReloaded()
+    }
+
+    /// A reload noticed (pageGoneAt): said by its title, as a page arriving says it.
+    func sayReloaded() {
         pageGoneAt = .distantPast
         Log.io("browse mode: the page was reloaded; read again at \(position)")
         guard !passThrough else { return }
