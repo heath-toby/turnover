@@ -691,7 +691,8 @@ public final class MediaView {
                 startShelf(t, at: e)
                 // Pressed, the header opens the whole shelf: its See All.
                 // (Music's header is a button with no press of its own, only scroll-to-visible: clicked, see press.)
-                seeAll = pressable(e) || role == "AXButton" ? e : first(in: e, depth: 3) { $0.role == "AXButton" && pressable($0) }
+                // (Not Top Results: its header is a button too, and opens nothing, 13 Nov 2026.)
+                seeAll = id.contains("top-search") ? nil : pressable(e) || role == "AXButton" ? e : first(in: e, depth: 3) { $0.role == "AXButton" && pressable($0) }
                 return
             }
             if role == "AXList", sub == "AXSectionList" {
@@ -950,6 +951,7 @@ public final class MediaView {
 
     public func move(_ delta: Int) {
         if let c = catalog, catalogDrives, pane == .page { c.move(delta); return }
+        if stillOpening() { return }
         guard rebuildOrQueue(waitForLoading: true, retry: { [weak self] in self?.move(delta) }) else { return }
         let startsAtHeading = pane == .page && jumpedToHeading == navigationIntent
         navigationIntent &+= 1
@@ -1156,6 +1158,7 @@ public final class MediaView {
 
     /// The previous or next shelf of the page (in the sidebar, the previous or next group heading).
     public func jumpShelf(_ delta: Int) {
+        if stillOpening() { return }
         guard rebuildOrQueue(waitForLoading: true, retry: { [weak self] in self?.jumpShelf(delta) }) else { return }
         navigationIntent &+= 1
         if pane != .page { move(delta * 5); return }
@@ -1422,7 +1425,21 @@ public final class MediaView {
             return
         }
         nowPlayingBefore = playingText()
+        pageOpening = Date(); loadingKeys = 0
         waitForNewPage(different: before)
+    }
+
+    /// A page asked for by Return and not read yet: the arrows say "loading", not the page before (Music's See All
+    /// took five seconds to come, and the arrows read the old page meanwhile, as if nothing had been pressed: a
+    /// tester, 13 Nov 2026).
+    private var pageOpening: Date?
+    private var loadingKeys = 0
+    private func stillOpening() -> Bool {
+        guard let t = pageOpening else { return false }
+        guard Date().timeIntervalSince(t) < 8 else { pageOpening = nil; return false }
+        loadingKeys += 1
+        Speech.speakMessage(String(localized: "loading", comment: "A page asked for is still coming"))
+        return true
     }
 
     private func selectSidebar(_ item: Item, window: AXUIElement?, before: String, keys: Int, allowAlreadyOpen: Bool) {
@@ -1683,6 +1700,8 @@ public final class MediaView {
             guard let built = result.built else { return }
             // A page still loading (no shelves yet, 7 Oct 2026): wait for it, rather than read an empty page.
             let bodyPending = requiredBodyChange.map { Self.bodySignature(built.shelves) == $0 || built.shelves.allSatisfy { $0.items.isEmpty } } ?? false
+            let waitingOn = (signature(of: built) == before || (built.shelves.isEmpty && tries > 0) || bodyPending) && tries > 0
+            if !waitingOn { pageOpening = nil }   // come, or given up: the arrows are the page's again
             if signature(of: built) == before || (built.shelves.isEmpty && tries > 0) || bodyPending {
                 if tries > 0 { waitForNewPage(different: before, tries: tries - 1, goingBack: goingBack, focusPage: focusPage,
                                               generation: session, keys: originalKeys, requiredBodyChange: requiredBodyChange,
@@ -1710,7 +1729,9 @@ public final class MediaView {
             apply(built)
             // Later user navigation owns the pane/cursor. The new snapshot is still useful, but a slow page
             // result must not move focus or announce over a more recent key (including arrival retry chains).
-            guard keyCount() == originalKeys else { return }
+            // Keys answered "loading" while it came don't count: the page is what they were waiting for.
+            guard keyCount() - loadingKeys == originalKeys else { loadingKeys = 0; return }
+            loadingKeys = 0
             pane = .page
             // After a search the keyboard is still in the search field, where the arrows are the field's: give it to
             // the results, so Down reads them.
