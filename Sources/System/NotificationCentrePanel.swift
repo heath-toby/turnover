@@ -115,6 +115,7 @@ public enum NotificationCentrePanel {
     static func watchClose(_ centre: pid_t) {
         watching += 1
         let n = watching
+        var seenCentre = false   // (a close counts only after the panel was seen in front: a review, 13 Nov 2026)
         func look() {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 guard n == watching, open, openPid == centre else { return }
@@ -123,7 +124,8 @@ public enum NotificationCentrePanel {
                 guard let app = sys.element(kAXFocusedApplicationAttribute) else { look(); return }
                 var pid: pid_t = 0
                 AXUIElementGetPid(app, &pid)
-                if pid == centre || pid == 0 || pid == getpid() { look(); return }
+                if pid == centre { seenCentre = true }
+                if pid == centre || pid == 0 || pid == getpid() || !seenCentre { look(); return }
                 Log.io("notification centre: panel closed (another application has the focus)")
                 open = false
                 afterClose(centre)

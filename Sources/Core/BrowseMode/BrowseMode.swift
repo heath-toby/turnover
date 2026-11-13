@@ -205,7 +205,9 @@ public final class BrowseModeDocument: ScriptableObject {
     func announcePage() {
         announcedURL = url
         if BrowseModeHandler.wasAnnounced(webArea, url: url), Date().timeIntervalSince(pageGoneAt) > 30 {
-            Log.io("browse mode: back on a page announced before; its line is said, not the page")
+            Log.io("browse mode: back on a page announced before; its title and line are said, not a say all")
+            let title = pageTitle()
+            if !title.isEmpty { Speech.speakMessage(title) }
             if let info = makeTextInfo(.bookmark(Bookmark(start: position, end: position))) { info.expand(.line); speak(info, unit: .line) }
             return
         }

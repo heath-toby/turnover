@@ -297,8 +297,10 @@ public final class SettingsPanePlugin: GlobalPlugin {
             // 13 Nov 2026).
             guard !all.isEmpty else { return }
             let keyAt = InputManager.lastKeyDownAt, from = current
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                guard InputManager.lastKeyDownAt == keyAt, let f = API.focusObject?.element, f.isSame(from) else { return }
+            // (By the app's own focus, after 0.6 s: news late or set aside must not make it two moves, a review.)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                guard InputManager.lastKeyDownAt == keyAt, let f = API.focusObject?.element, f.isSame(from),
+                      AXUIElementCreateApplication(from.pid).element(kAXFocusedUIElementAttribute).map({ $0.isSame(from) }) ?? true else { return }
                 let cf = TurnOverObject.frame(from)
                 func after(_ e: AXUIElement) -> Bool {
                     guard let c = cf, let ef = TurnOverObject.frame(e) else { return false }

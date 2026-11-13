@@ -231,9 +231,11 @@ extension BrowseModeDocument {
                     // The focus taken without news of it (Mail's message: a nameless group reported while the page
                     // still said it had the focus, and the first Tab said nothing, a tester, 13 Nov 2026): the line read.
                     let target = y, keyAt = InputManager.lastKeyDownAt
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-                        guard let self, API.focusTreeInterceptor === self, InputManager.lastKeyDownAt == keyAt, position == at,
-                              !(API.focusObject.map { $0.isSameElement(as: target) } ?? false) else { return }
+                    // (After 0.6 s, and not if the focus news came for the link, its child or its parent: a page under
+                    // load read the link twice, a review, 13 Nov 2026.)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                        guard let self, API.focusTreeInterceptor === self, InputManager.lastKeyDownAt == keyAt, position == at else { return }
+                        if let f = API.focusObject?.element, f.isSame(target) || SettingsPanePlugin.within(f, target) || SettingsPanePlugin.within(target, f) { return }
                         Log.io("browse mode: no focus news from the link; its line read")
                         speakUnit(.line)
                     }

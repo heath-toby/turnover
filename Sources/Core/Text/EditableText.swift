@@ -373,8 +373,8 @@ open class EditableText: TurnOverObject {
             }
             // Home, End, Control Home, Control End (Command and the arrows) where the caret already is: read there, no
             // edge, as NVDA (a sweep, 13 Nov 2026: Home at a line's start and Control Home at the top said nothing).
-            let jump = (gesture.modifiers == [.command] && ["leftArrow", "rightArrow", "upArrow", "downArrow"].contains(gesture.keyName))
-                || (gesture.modifiers.isEmpty && ["home", "end"].contains(gesture.keyName))
+            // (Not a bare Home or End: in a Cocoa text view they only scroll, and the caret hasn't moved. A review.)
+            let jump = gesture.modifiers == [.command] && ["leftArrow", "rightArrow", "upArrow", "downArrow"].contains(gesture.keyName)
             if jump {
                 caretMoved(speak: ["upArrow", "downArrow"].contains(gesture.keyName) ? .line : .character, gesture: gesture, info: newInfo)
                 return

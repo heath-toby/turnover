@@ -34,6 +34,7 @@ package final class MailAppModule: AppModule {
     /// The message's stops, top to bottom (then left to right): its controls, the header's fields as one stop, the
     /// row of buttons level with Reply as one, and the message's text.
     static func messageStops(_ content: AXUIElement) -> [MessageStop] {
+        if let k = stopsKept, k.content.isSame(content), Date().timeIntervalSince(k.at) < 0.5 { return k.stops }
         var placed: [(MessageStop, CGRect)] = []
         let kids = content.elements(kAXChildrenAttribute)
         if let area = headerArea(in: content), let f = TurnOverObject.frame(area) { placed.append((.fields(area), f)) }
@@ -57,7 +58,40 @@ package final class MailAppModule: AppModule {
             queue += e.elements(kAXChildrenAttribute)
         }
         if let web = messageBody(in: content), let f = TurnOverObject.frame(web) { placed.append((.body(web), f)) }
-        return placed.sorted { a, b in abs(a.1.minY - b.1.minY) > 4 ? a.1.minY < b.1.minY : a.1.minX < b.1.minX }.map(\.0)
+        // In rows of 6 points, then left to right: a strict order, the same for the availability check and the key.
+        let out = placed.sorted { a, b in
+            let ra = Int((a.1.minY / 6).rounded(.down)), rb = Int((b.1.minY / 6).rounded(.down))
+            return ra != rb ? ra < rb : a.1.minX < b.1.minX
+        }.map(\.0)
+        stopsKept = (content, Date(), out)
+        return out
+    }
+    /// The stops last worked out, kept half a second: asked whether the key is Mail's, then again to handle it.
+    private static var stopsKept: (content: AXUIElement, at: Date, stops: [MessageStop])?
+
+    /// The window's messages (a conversation shows several), top to bottom.
+    static func messages(around content: AXUIElement) -> [AXUIElement] {
+        guard let w = SettingsPanePlugin.windowOf(content) else { return [content] }
+        let all = SettingsPanePlugin.named(in: w).map(\.0).filter { isContentGroup($0) }
+        guard all.contains(where: { $0.isSame(content) }) else { return [content] }
+        return all.sorted { (TurnOverObject.frame($0)?.minY ?? 0) < (TurnOverObject.frame($1)?.minY ?? 0) }
+    }
+
+    /// On from stop `i` of `content`'s stops: its next, else the next message's first, else the window's toolbar.
+    /// Back: its previous, else the previous message's last (its text), else the message list.
+    func step(from i: Int, of stops: [MessageStop], in content: AXUIElement, forward: Bool, from f: AXUIElement) {
+        let j = forward ? i + 1 : i - 1
+        if stops.indices.contains(j) { go(stops[j], forward: forward, in: content); return }
+        let all = Self.messages(around: content)
+        if let k = all.firstIndex(where: { $0.isSame(content) }), all.indices.contains(forward ? k + 1 : k - 1) {
+            let other = all[forward ? k + 1 : k - 1]
+            let theirs = Self.messageStops(other)
+            if let s = forward ? theirs.first : theirs.last {
+                Log.io("mail: on to the \(forward ? "next" : "previous") message of the conversation")
+                go(s, forward: forward, in: other); return
+            }
+        }
+        if forward { if !toWindowToolbar(from: f, last: false) { Tones.edge() } } else { focusList("messages", from: f) }
     }
 
     static func stopIndex(of f: AXUIElement, in stops: [MessageStop]) -> Int? {
@@ -78,13 +112,14 @@ package final class MailAppModule: AppModule {
         case .toolbar(let row): SettingsPanePlugin.focus(SettingsPanePlugin.toolbarStop(content, row) ?? row[0])
         case .body(let web):
             Log.io("mail: Tab into the message")
+            Self.messageFocusWasIn = nil
             // (A quick Tab from the buttons: the moment their landing sets other focus news aside must not swallow
             // this one; the message took the keys and nothing was said, a tester, 13 Nov 2026.)
             SettingsPanePlugin.expected = nil; SettingsPanePlugin.ignoreOthersUntil = .distantPast
             _ = web.set(kAXFocusedAttribute, kCFBooleanTrue)
             AXHandler.shared.focusChanged(web, pid: pid)
         case .control(let c):
-            Self.headerAt = nil
+            Self.headerAt = nil; Self.messageFocusWasIn = nil
             SettingsPanePlugin.focus(c)
             // A banner's words (a mailing list's: "This message is from a mailing list."), once, coming into it.
             var x = c.element(kAXParentAttribute), hops = 0
@@ -115,7 +150,10 @@ package final class MailAppModule: AppModule {
     }
 
     /// The last focus was in a message (its web area or a link in it).
-    static var focusWasInMessage = false
+    /// The message whose text (or a link in it) last had the focus, by Mail's own news; nil once anything else had.
+    /// Only Mail's Tab going round inside that message is taken on to the toolbar (not a move to the next message in a
+    /// conversation, nor TurnOver's own move: a review, 13 Nov 2026).
+    static var messageFocusWasIn: AXUIElement?
     static func isHeadersGroup(_ g: AXUIElement) -> Bool {
         g.string(kAXDescriptionAttribute) == "message headers" || g.string(kAXIdentifierAttribute) == "message_header"
     }
@@ -246,6 +284,7 @@ package final class MailAppModule: AppModule {
         guard fields.indices.contains(index) else { Tones.edge(); return }
         let f = fields[index]
         Self.headerAt = (area, index, Date())
+        Self.messageFocusWasIn = nil
         _ = area.set(kAXFocusedAttribute, kCFBooleanTrue)
         var r = CFRange(location: f.start, length: 0)
         if let v = AXValueCreate(.cfRange, &r) { _ = area.set(kAXSelectedTextRangeAttribute, v) }
@@ -379,8 +418,7 @@ package final class MailAppModule: AppModule {
                 if k + 1 < Self.headerFields(area).count { self.goHeader(area, k + 1); return }
                 Self.headerAt = nil
             }
-            guard i + 1 < stops.count else { g.send(); return }
-            self.go(stops[i + 1], forward: true, in: content)
+            self.step(from: i, of: stops, in: content, forward: true, from: f)
         }.isAvailable = {
             guard let f = API.focusObject?.element else { return false }
             if Self.place == "messages", !Self.isHeaderArea(f), Self.contentGroup(of: f) == nil { return Self.headerAreaFromList(f) != nil }
@@ -397,9 +435,8 @@ package final class MailAppModule: AppModule {
                 if k > 0 { self.goHeader(area, k - 1); return }
                 Self.headerAt = nil
             }
-            guard i > 0 else { self.focusList("messages", from: f); return }
-            Log.io("mail: Shift Tab to the message's part \(i) of \(stops.count)")
-            self.go(stops[i - 1], forward: false, in: content)
+            Log.io("mail: Shift Tab from the message's part \(i + 1) of \(stops.count)")
+            self.step(from: i, of: stops, in: content, forward: false, from: f)
         }.isAvailable = {
             guard let f = API.focusObject?.element else { return false }
             if Self.atMessageStart() { return true }
@@ -859,10 +896,11 @@ package final class MailAppModule: AppModule {
     /// message, back to its first Play button, a tester, 13 Nov 2026); Shift Tab before its first, to the part above it.
     package override func tabPastPage(_ webArea: AXUIElement, forward: Bool) -> Bool {
         guard !Self.compose(webArea), let content = Self.contentGroup(of: webArea) else { return false }
-        if forward { return toWindowToolbar(from: webArea, last: false) }
         let stops = Self.messageStops(content)
-        guard let i = stops.firstIndex(where: { if case .body = $0 { return true }; return false }), i > 0 else { return false }
-        go(stops[i - 1], forward: false, in: content)
+        guard let i = stops.firstIndex(where: { if case .body(let w) = $0 { return w.isSame(webArea) }; return false }) else {
+            return forward ? toWindowToolbar(from: webArea, last: false) : false
+        }
+        step(from: i, of: stops, in: content, forward: forward, from: webArea)
         return true
     }
 
@@ -946,7 +984,8 @@ package final class MailAppModule: AppModule {
         // as Tab goes on round the window (the mailboxes are next from there).
         if event.kind == .gainFocus, event.obj.pid == pid, Self.isHeaderButton(event.obj.element),
            InputManager.lastKeyIdentifier == "kb:tab", Date().timeIntervalSince(InputManager.lastKeyDownAt) < 1.5,
-           Self.focusWasInMessage,
+           let was = Self.messageFocusWasIn, Self.contentGroup(of: event.obj.element).map({ $0.isSame(was) }) == true,
+           !(SettingsPanePlugin.expected.map { $0.isSame(event.obj.element) } ?? false),
            let w = SettingsPanePlugin.windowOf(event.obj.element),
            let tb = w.elements(kAXChildrenAttribute).first(where: { $0.role == "AXToolbar" }),
            let (_, items) = SettingsPanePlugin.toolbarItems(around: tb), let stop = SettingsPanePlugin.toolbarStop(tb, items) {
@@ -957,7 +996,7 @@ package final class MailAppModule: AppModule {
         if event.kind == .gainFocus, event.obj.pid == pid, event.obj.element.role != "AXScrollBar" {
             // (Noted here: by the time the next focus is handled, the focus object has already moved on.)
             let e = event.obj.element
-            Self.focusWasInMessage = e.role == "AXWebArea" || SettingsPanePlugin.isInWeb(e)
+            Self.messageFocusWasIn = (e.role == "AXWebArea" || SettingsPanePlugin.isInWeb(e)) ? Self.contentGroup(of: e) : nil
         }
         if event.kind == .gainFocus {
             notePlace(event.obj.element)

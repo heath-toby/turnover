@@ -250,7 +250,10 @@ public final class MediaView {
     /// The sidebar is being read after the page (three to four seconds in Music). Tab stops on it meanwhile and says
     /// "loading", then reads its item when it comes: Tab passed it by on the first round, as if there were none
     /// (a sweep, 13 Nov 2026: page, player, toolbar, page).
-    private var sidebarComing = false
+    private var sidebarComing = false { didSet { if sidebarComing { sidebarComingAt = Date() } } }
+    /// (A read can end without its completion, the window changed or the session gone: after eight seconds the flag
+    /// no longer counts, or every round of Tab stopped on an empty sidebar for good. A review, 13 Nov 2026.)
+    private var sidebarComingAt = Date.distantPast
     private var waitingInSidebar = false
     private func sidebarArrived() {
         guard waitingInSidebar else { return }
@@ -1300,7 +1303,7 @@ public final class MediaView {
         for _ in 0..<Self.paneCount {
             p = (p + delta + Self.paneCount) % Self.paneCount
             if !items(of: Pane(rawValue: p)!).isEmpty { break }
-            if Pane(rawValue: p) == .sidebar, sidebarComing { break }
+            if Pane(rawValue: p) == .sidebar, sidebarComing, Date().timeIntervalSince(sidebarComingAt) < 8 { break }
         }
         pane = Pane(rawValue: p)!
         waitingInSidebar = pane == .sidebar && sidebar.isEmpty

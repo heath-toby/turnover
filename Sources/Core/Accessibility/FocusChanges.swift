@@ -591,7 +591,11 @@ extension AXHandler {
     /// is given it back; otherwise the app's focused window.
     func ruleApplicationKeepsPlace(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
         guard target.role == "AXApplication" else { return .go(target) }
-        if let f = API.focusObject, f.pid == pid, f.element.role != "?", f.element.role != "AXApplication", f.element.element(kAXWindowAttribute) != nil {
+        // Only in the app's focused (or main) window: reported while windows were switching, the old control would
+        // raise the old window again (a review, 13 Nov 2026).
+        let front = target.element(kAXFocusedWindowAttribute) ?? target.element(kAXMainWindowAttribute)
+        if let f = API.focusObject, f.pid == pid, f.element.role != "?", f.element.role != "AXApplication",
+           let fw = f.element.element(kAXWindowAttribute), front.map({ $0.isSame(fw) }) ?? false {
             Log.io("focus on the application itself; \(f.axRole) keeps the place")
             if f.element.role != "AXWebArea", !SettingsPanePlugin.isInWeb(f.element) { _ = f.element.set(kAXFocusedAttribute, kCFBooleanTrue) }
             return .ignore

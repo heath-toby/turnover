@@ -163,7 +163,7 @@ open class TurnOverObject: ScriptableObject {
         // A text area alone in its scroll area is labelled beside the scroll area (Contacts' card: "Notes" before it;
         // the note was "edit blank", a sweep, 13 Nov 2026).
         if parent.role == "AXScrollArea", parent.elements(kAXChildrenAttribute).count == 1,
-           let outer = parent.element(kAXParentAttribute), let sf = Self.frame(parent) { parent = outer; me = sf }
+           let outer = parent.element(kAXParentAttribute), let sf = Self.frame(parent), sf.height < 120 { parent = outer; me = sf }   // (a small one: a tall text view's "left" reached any text beside it)
         guard let texts = Self.siblingTexts(in: parent) else { return nil }
         var left: (String, CGFloat)?, above: (String, CGFloat)?
         for (t, f) in texts {
