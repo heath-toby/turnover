@@ -68,8 +68,14 @@ extension SettingsPanePlugin {
     /// A Tab or Shift Tab the app had: where it landed, and whether the landings show a short loop.
     static func watchTabLoop(_ g: KeyboardGesture) {
         guard g.keyName == "tab", g.modifiers.subtracting(.shift).isEmpty else { tabLandings = nil; return }
-        let forward = !g.modifiers.contains(.shift), pressed = Date()
+        // A held Tab's repeats, and a Tab pressed again before this one's landing is read, sample the focus mid-move:
+        // the same few places seen twice made a false loop, and the window kept TurnOver's Tab for the app's life (a
+        // review, 13 Nov 2026). Only a Tab left to land counts.
+        guard !g.isRepeat else { tabLandings = nil; return }
+        let forward = !g.modifiers.contains(.shift), pressed = Date(), keyAt = InputManager.lastKeyDownAt
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            // (Skipped landings start the count again: every third place of a long round looks like a short one.)
+            guard InputManager.lastKeyDownAt == keyAt else { tabLandings = nil; return }
             guard let f = API.focusObject else { return }
             noteLanding(f.element, forward: forward, pressed: pressed)
         }
