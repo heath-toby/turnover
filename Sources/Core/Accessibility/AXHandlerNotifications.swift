@@ -367,6 +367,32 @@ extension AXHandler {
         }
     }
 
+    /// Before each key: TurnOver's focus is another ordinary app's while this one is in front. An app launched without
+    /// a word of its focus (Weather, an iPad app, came forward from Finder, and Tab ran Finder's commands on its window
+    /// behind, a sweep, 13 Nov 2026): the front app's focus is read, so the key is looked up there. Not an app whose
+    /// focus has the keys while another stays in front (hasKeysBehindFront: Quick Access, a helper, the Dock,
+    /// Spotlight). Not throttled with checkFocusAtKey, which runs after every key and kept this from the next one
+    /// typed within a second (a review, 13 Nov 2026). Cheap unless it is so; when it is, every question to the front
+    /// app has a quarter of a second, as an app still launching can hold one for six (the default) with the key
+    /// waiting.
+    public func focusBehindFrontApp() {
+        guard running, activePid > 0, let f = API.focusObject, f.pid != activePid, f.pid != getpid(),
+              !isMenuOpen, MenuNavigationPlugin.heldBar == nil, MenuNavigationPlugin.heldStatus == nil,
+              let other = NSRunningApplication(processIdentifier: f.pid), other.activationPolicy == .regular,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == activePid, !hasKeysBehindFront(other) else { return }
+        Log.io("key: TurnOver's focus is \(other.localizedName ?? "another app")'s, behind the app in front; the front app's focus read")
+        let app = AXUIElementCreateApplication(activePid)
+        AXUIElementSetMessagingTimeout(app, 0.25)
+        if let real = app.element(kAXFocusedUIElementAttribute) {
+            AXUIElementSetMessagingTimeout(real, 0.25)
+            if real.role != "?" { focusChanged(real, pid: activePid); return }
+        }
+        if let w = app.element(kAXFocusedWindowAttribute) ?? app.element(kAXMainWindowAttribute) {
+            AXUIElementSetMessagingTimeout(w, 0.25)
+            focusChanged(w, pid: activePid)
+        }
+    }
+
     /// Any key: if TurnOver's focus has died (its window closed, a view rebuilt) or come loose from any window, with no
     /// news of the app's new focus, the app's real focus is read, as after Command W. Only Command W checked this, and
     /// a window closed by Escape, a button or the app itself left the arrows reading the dead element (a review, 13 Nov
@@ -382,19 +408,6 @@ extension AXHandler {
         // Loose from its window: only in the app in front (a control TurnOver holds or made keeps its place: the app
         // must name another focus, below).
         let loose = !dead && f.pid == activePid && !windowless.contains(role) && f.element.element(kAXWindowAttribute) == nil
-        // Another ordinary app's focus while this one is in front: an app launched without a word of its focus (Weather,
-        // an iPad app, came forward from Finder, and Tab ran Finder's commands on its window behind, a sweep, 13 Nov
-        // 2026). Not the Dock, Notification Centre, a system prompt or Spotlight: those are no ordinary apps, and the
-        // focus is theirs while another stays in front.
-        if !dead, f.pid != activePid, f.pid != getpid(), let other = NSRunningApplication(processIdentifier: f.pid), other.activationPolicy == .regular,
-           NSWorkspace.shared.frontmostApplication?.processIdentifier == activePid {
-            Log.io("key: TurnOver's focus is \(other.localizedName ?? "another app")'s, behind the app in front; the front app's focus read")
-            let app = AXUIElementCreateApplication(activePid)
-            AXUIElementSetMessagingTimeout(app, 0.25)
-            if let real = app.element(kAXFocusedUIElementAttribute), real.role != "?" { refocus(pid: activePid) }
-            else if let w = app.element(kAXFocusedWindowAttribute) ?? app.element(kAXMainWindowAttribute) { focusChanged(w, pid: activePid) }
-            return
-        }
         guard dead || loose else { return }
         // Only when the app names a live focus of its own elsewhere: else there is nothing better to read, and reading
         // the same again at every key would be noise.

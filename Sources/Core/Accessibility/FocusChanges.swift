@@ -91,16 +91,24 @@ extension AXHandler {
     /// (An application coming to the front is let through: it is frontmost before the activation news arrives.)
     func ruleBackgroundApplication(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
         if pid != activePid, let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular,
-           !isHelperOfActiveApp(app), !AXHandler.systemUIAgents.contains(app.bundleIdentifier ?? ""),
-           NSWorkspace.shared.frontmostApplication?.processIdentifier != pid,
-           // Unless it says it has the keys: 1Password's Quick Access is a panel that takes the keyboard while the
-           // app before stays active, and its search and results were silent (12 Nov 2026). The application element
-           // says it is frontmost then; a page reloading behind another app doesn't.
-           (AXUIElementCreateApplication(pid).attr(kAXFrontmostAttribute) as? Bool) != true {
+           NSWorkspace.shared.frontmostApplication?.processIdentifier != pid, !hasKeysBehindFront(app) {
             Log.io("focus from \(app.localizedName ?? "pid \(pid)") in the background; ignored")
             return .ignore
         }
         return .go(target)
+    }
+
+    /// An app not in front whose focus is still where the keys go: a helper of the app in front, the Dock, Spotlight
+    /// and the like, or an app that says it has the keys. 1Password's Quick Access is a panel that takes the keyboard
+    /// while the app before stays active, and its search and results were silent (12 Nov 2026); its application
+    /// element says it is frontmost then, a page reloading behind another app doesn't. One answer for the focus rule
+    /// and the check before each key (focusBehindFrontApp): the key check had none of these, and moved TurnOver off
+    /// Quick Access at every key (a review, 13 Nov 2026). A quarter of a second at most for the question.
+    func hasKeysBehindFront(_ app: NSRunningApplication) -> Bool {
+        if isHelperOfActiveApp(app) || AXHandler.systemUIAgents.contains(app.bundleIdentifier ?? "") { return true }
+        let element = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(element, 0.25)
+        return (element.attr(kAXFrontmostAttribute) as? Bool) == true
     }
 
     /// Just after a sheet opened: the app's focus on its window behind it is not where the keys go (NewDialogs).
