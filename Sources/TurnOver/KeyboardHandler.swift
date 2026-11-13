@@ -370,10 +370,17 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         return nil
     }
 
+    /// Key-downs whose release the tap was waiting for: forgotten when releases may have gone by unseen.
+    private func forgetHeldKeys() {
+        quarantined.removeAll(); remapped.removeAll(); arrowHeld = nil
+    }
+
     private func tapEvent(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         guard let generation = layer?.generation, isRequested(generation) else { return Unmanaged.passUnretained(event) }
         if Self.bypass, type != .tapDisabledByTimeout, type != .tapDisabledByUserInput {
-            if !quarantined.isEmpty { quarantined.removeAll() }   // their key-ups pass now; none must be swallowed later
+            // Their key-ups pass now, untouched: none must be swallowed or translated later, and a held Quick Nav
+            // arrow is no longer held (remapped and arrowHeld were kept: a review, 13 Nov 2026).
+            forgetHeldKeys()
             return Unmanaged.passUnretained(event)
         }
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
@@ -385,6 +392,9 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
                 CFRunLoopStop(CFRunLoopGetCurrent())
                 return Unmanaged.passUnretained(event)
             }
+            // While the tap was off, key-ups went by unseen: a code kept here would swallow or translate the next
+            // real release of that key (a review, 13 Nov 2026).
+            forgetHeldKeys()
             // Three times in ten seconds: say so, once a minute (the team review: a failure that leaves the user
             // without keys is told, not only logged, 8 Oct 2026).
             let now = Date()
@@ -583,6 +593,10 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             quarantined.insert(code)
             return nil
         case .passed:
+            // This press goes to the app, so its release must too. A code taken on an earlier press (Down held in a
+            // list that put the focus in a field; Tab into a secure field, whose release the tap never sees) swallowed
+            // the next release, and the app saw the key held (a review, 13 Nov 2026).
+            quarantined.remove(code)
             if code == 48, event.flags.contains(.maskCommand) { clearLeftoverModifiers(before: "Command Tab") }
             return passOrRedirect(event)
         }
