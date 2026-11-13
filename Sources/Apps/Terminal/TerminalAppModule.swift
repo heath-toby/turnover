@@ -292,8 +292,11 @@ final class TerminalText: TurnOverObject {
         // A full-screen program redrawing its input box as you type (Claude Code: the line typed so far and the box's
         // rules, read after every letter, a tester, 13 Nov 2026): just after a typed key, the cursor's own line (the box
         // being typed in) isn't output. Only that line: short real output ("done", a y/n prompt's answer) is kept (a review).
-        if InputManager.lastKeyWasTyped, Date().timeIntervalSince(InputManager.lastKeyDownAt) < 0.6, let (_, cur) = cursorLine() {
-            out = TerminalRules.withoutEcho(out, cursorLine: cur)
+        // (Not after Return: a program's prompt arrives on the cursor's line, "Password:", and was lost. An echo ends
+        // with the character just typed; a prompt doesn't. A review, 13 Nov 2026.)
+        let key = InputManager.lastKeyIdentifier.replacingOccurrences(of: "kb:", with: "").replacingOccurrences(of: "shift+", with: "")
+        if InputManager.lastKeyWasTyped, key.count == 1, Date().timeIntervalSince(InputManager.lastKeyDownAt) < 0.6, let (_, cur) = cursorLine() {
+            out = TerminalRules.withoutEcho(out, cursorLine: cur, typed: key)
         }
         guard !out.isEmpty else { return }
         // The same output again a moment later: iTerm2 moves its cursor after the text arrives, so the next change
@@ -467,12 +470,14 @@ package enum TerminalRules {
 
     /// Output without the lines that are the cursor's own line redrawn, whole or its end (the text typed so far in a
     /// program's input box, rules and frames aside). Pure.
-    package nonisolated static func withoutEcho(_ text: String, cursorLine: String) -> String {
+    package nonisolated static func withoutEcho(_ text: String, cursorLine: String, typed: String) -> String {
         let cur = withoutRules(cursorLine).trimmingCharacters(in: .whitespaces)
-        guard !cur.isEmpty else { return text }
+        guard !cur.isEmpty, !typed.isEmpty else { return text }
         return text.split(separator: "\n", omittingEmptySubsequences: false).filter { line in
             let t = line.trimmingCharacters(in: .whitespaces)
-            return t.isEmpty || !(t == cur || cur.hasSuffix(t))
+            // Only a line ending with the character just typed is its echo (a prompt doesn't end so).
+            let echo = (t == cur || cur.hasSuffix(t)) && t.lowercased().hasSuffix(typed.lowercased())
+            return t.isEmpty || !echo
         }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

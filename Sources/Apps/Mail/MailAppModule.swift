@@ -288,7 +288,7 @@ package final class MailAppModule: AppModule {
     static func compose(_ e: AXUIElement) -> Bool { place.hasPrefix("compose:") || (e.role == "AXWebArea" && EditableWebArea.isEditable(e)) }
 
     /// What browse mode's Tab stops on in a message (one set, for Tab and Shift Tab alike: a review, 13 Nov 2026).
-    static let messageControlRoles: Set<String> = ["AXLink", "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXComboBox", "AXSlider", "AXMenuButton", "AXDisclosureTriangle"]
+    static let messageControlRoles = BrowseModeDocument.lastControlRoles
 
     static func atMessageStart() -> Bool {
         // (By the focus, not the place noted: the message's body is drawn by Mail's web content process, whose
@@ -482,7 +482,10 @@ package final class MailAppModule: AppModule {
             guard let self, let f = API.focusObject?.element else { g.send(); return }
             if Self.focusInMessageList() {
                 // (A conversation: its first message, top to bottom; a review, 13 Nov 2026.)
-                guard let matched = Self.headerAreaFromList(f)?.element(kAXParentAttribute)?.element(kAXParentAttribute) else { g.send(); return }
+                // (No message to go into: loading, several selected, none: on round, not Mail's own Tab. A review.)
+                guard let matched = Self.headerAreaFromList(f)?.element(kAXParentAttribute)?.element(kAXParentAttribute) else {
+                    if !self.toWindowToolbar(from: f, last: false) { Tones.edge() }; return
+                }
                 let content = Self.messages(around: matched).first ?? matched
                 // (A message with nothing to stop on yet, still loading: on round, not Mail's own Tab, a review.)
                 guard let first = Self.messageStops(content).first else { if !self.toWindowToolbar(from: f, last: false) { Tones.edge() }; return }
@@ -499,7 +502,7 @@ package final class MailAppModule: AppModule {
             self.step(from: i, of: stops, in: content, forward: true, from: f)
         }.isAvailable = {
             guard let f = API.focusObject?.element else { return false }
-            if Self.focusInMessageList() { return Self.headerAreaFromList(f) != nil }
+            if Self.focusInMessageList() { return true }
             guard !SettingsPanePlugin.isInWeb(f), f.role != "AXWebArea", let content = Self.contentGroup(of: f) else { return false }
             return Self.stopIndex(of: f, in: Self.messageStops(content)) != nil
         }
@@ -539,8 +542,9 @@ package final class MailAppModule: AppModule {
             Self.headerAt = nil
             self.leaveMessage(from: f, g)
         }.isAvailable = {
+            // (A message whose browse mode hasn't come yet counts too: Escape there did nothing, a review.)
             guard let f = API.focusObject?.element, !Self.place.hasPrefix("compose:"), !AXHandler.shared.isMenuOpen,
-                  f.role != "AXWebArea", !SettingsPanePlugin.isInWeb(f) else { return false }
+                  API.focusTreeInterceptor == nil || (f.role != "AXWebArea" && !SettingsPanePlugin.isInWeb(f)) else { return false }
             return Self.contentGroup(of: f) != nil
         }
         script("mail_getNewMail", String(localized: "Checks for new mail and says so", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:command+shift+n"], category: "Mail") { g in

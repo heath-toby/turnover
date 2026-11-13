@@ -202,6 +202,8 @@ public final class BrowseModeDocument: ScriptableObject {
     public var noAutoRead = false
     /// The page was entered from below while still empty: when it arrives, the reading starts at its last control.
     public var startAtLastControl = false
+    /// What Tab stops on in a page, for "its last control" (one set: Mail's Shift Tab too).
+    public static let lastControlRoles: Set<String> = ["AXLink", "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXComboBox", "AXSlider", "AXMenuButton", "AXDisclosureTriangle"]
     /// The page last announced (its title and its reading), so a page is announced once as it arrives.
     var announcedURL = ""
 
@@ -211,6 +213,7 @@ public final class BrowseModeDocument: ScriptableObject {
         announcedURL = url
         if BrowseModeHandler.wasAnnounced(webArea, url: url), Date().timeIntervalSince(pageGoneAt) > 30 {
             Log.io("browse mode: back on a page announced before; its title and line are said, not a say all")
+            noAutoRead = false
             let title = pageTitle()
             if !title.isEmpty { Speech.speakMessage(title) }
             if let info = makeTextInfo(.bookmark(Bookmark(start: position, end: position))) { info.expand(.line); speak(info, unit: .line) }
@@ -224,7 +227,8 @@ public final class BrowseModeDocument: ScriptableObject {
             // whole message read out (8 Oct 2026).
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 guard let self, API.focusTreeInterceptor === self else { return }
-                if self.noAutoRead { self.noAutoRead = false; return }   // (once: a later page here is read as ever)
+                // (Once: a later page here is read as ever. The reading was placed: its line, a review, 13 Nov 2026.)
+                if self.noAutoRead { self.noAutoRead = false; self.speakUnit(.line); return }
                 SayAll.readText(from: self.rootObject)
             }
         } else if let info = makeTextInfo(.bookmark(Bookmark(start: position, end: position))) {
@@ -279,7 +283,7 @@ public final class BrowseModeDocument: ScriptableObject {
         if startAtLastControl {
             // Entered from below before it had loaded (Mail's Shift Tab): its last control, not its top.
             startAtLastControl = false; noAutoRead = true
-            position = buffer.find(from: buffer.text.length, forward: false, roles: Self.controlRoles.union(["AXDisclosureTriangle"]))?.offset ?? position
+            position = buffer.find(from: buffer.text.length, forward: false, roles: Self.lastControlRoles)?.offset ?? position
         }
         VoiceOverSounds.play("WebAreaLoaded.aiff")   // VoiceOver's "web area loaded", the sound its list has for a page
         Log.io("browse mode: page arrived — resuming at \(position)\(saved == nil ? "" : " (saved \(saved!.offset))")")
