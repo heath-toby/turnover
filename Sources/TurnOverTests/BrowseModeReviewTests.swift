@@ -140,6 +140,10 @@ func browseModeReviewTests() {
         check(!BrowseModeDocument.isSamePage("https://example.com/b#x", "https://example.com/a#x"), "another page with an anchor")
         check(!BrowseModeDocument.isSamePage("https://example.com/a", "https://example.com/a"), "unchanged")
         check(!BrowseModeDocument.isSamePage("https://example.com/a#b", ""), "the first look")
+        check(!BrowseModeDocument.isSamePage("https://mail.example.com/mail/u/0/#inbox/FMfcg", "https://mail.example.com/mail/u/0/#inbox"), "a route: a message opened")
+        check(!BrowseModeDocument.isSamePage("https://example.com/app/", "https://example.com/app/#/a"), "a route gone: the app's start")
+        check(!BrowseModeDocument.isSamePage("https://example.com/app/#!/b", "https://example.com/app/#!/a"), "a hash-bang route")
+        check(BrowseModeDocument.isSamePage("https://example.com/a#section-2", "https://example.com/a#section-1"), "plain anchors still are")
     }
 
     test("browse mode review: focus mode for a list box or grid, not for a plain list or table that took the focus (NVDA)") {

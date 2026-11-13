@@ -149,7 +149,10 @@ public final class BrowseModeDocument: ScriptableObject {
                 position = at
                 Log.io("browse mode: to the page's anchor")
                 speakUnit(.line)
-            } else if followWebKitSelection(force: true) {
+            } else if followWebKitSelection() {
+                // Only if WebKit's selection moved (an anchor by name, not id: the browser went there). Forced, an
+                // unchanged selection anywhere on the page was taken for the anchor and the reading jumped to it for a
+                // fragment that names no anchor (a review, 13 Nov 2026).
                 Log.io("browse mode: to the page's anchor, by WebKit's selection")
                 speakUnit(.line)   // (moved silently before: a review, 13 Nov 2026)
             }
@@ -195,9 +198,17 @@ public final class BrowseModeDocument: ScriptableObject {
     }
 
     /// Whether `now` is the page at `last` with another anchor, or with its anchor added or gone: the same address
-    /// before the "#". Pure.
+    /// before the "#". A fragment with "/" or "!" in it is a route, not an anchor: a web app's view (Gmail's #inbox to
+    /// #inbox/FM…, app/#/a back to app/) is a new page, announced and read from its top; taken for the same page, the
+    /// new view was neither (a review, 13 Nov 2026). Pure.
     package static func isSamePage(_ now: String, _ last: String) -> Bool {
-        now != last && !now.isEmpty && !last.isEmpty && urlBase(now) == urlBase(last) && (now.contains("#") || last.contains("#"))
+        guard now != last, !now.isEmpty, !last.isEmpty, urlBase(now) == urlBase(last), now.contains("#") || last.contains("#") else { return false }
+        return !isRoute(now) && !isRoute(last)
+    }
+    /// The address's fragment is a web app's route (#/inbox, #!/a, #inbox/FM…). Pure.
+    package static func isRoute(_ url: String) -> Bool {
+        guard let hash = url.firstIndex(of: "#") else { return false }
+        return url[url.index(after: hash)...].contains { $0 == "/" || $0 == "!" }
     }
 
     /// The address this page arrived at by Back or Forward, for the place it resumes at once it has loaded.
