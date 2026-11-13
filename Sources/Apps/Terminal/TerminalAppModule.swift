@@ -375,17 +375,16 @@ final class TerminalText: TurnOverObject {
             }
         }
         // Left and Right go to the shell; then the character under the cursor is read, as in an edit field.
-        // At the start of what was typed (Left) or past its end (Right) the shell cannot move: a bump, as an edit
-        // field gives, and the key is kept from the shell.
+        // Always sent: at column 0 or a line's end the key still means something to nano, vim or a program's input
+        // box, which the shell's prompt doesn't describe (a review, 13 Nov 2026: Left at column 0 and Right at the
+        // end never reached them). A bump, as an edit field gives, only when the cursor didn't move.
         for key in ["leftArrow", "rightArrow"] {
             script("terminal_\(key)", String(localized: "Moves the shell's cursor and reads the character there", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:\(key)"], category: cat) { [weak self] g in
-                if let self, let c = self.cursor, key == "leftArrow" ? self.atInputStart(c) : self.atInputEnd(c) {
-                    Tones.edge()
-                    return
-                }
+                let before = self?.cursor
                 g.send()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                     guard let self, let c = self.cursor else { return }
+                    if c == before { Tones.edge(); return }
                     guard let ch = self.character(at: c) else { return }
                     Speech.speakText(ch.isEmpty || ch == "\n" ? "blank" : ch, symbolLevel: .all)
                 }
@@ -415,11 +414,6 @@ final class TerminalText: TurnOverObject {
         if before.isEmpty { return true }
         let p = state.prompt.trimmingCharacters(in: .whitespaces)
         return !p.isEmpty && before.trimmingCharacters(in: .whitespaces) == p
-    }
-    /// Nothing after the cursor on its line (spaces typed at the end still count: Right can move over them).
-    private func atInputEnd(_ c: Int) -> Bool {
-        guard let l = lineIndex(at: c), let r = lineRange(l) else { return false }
-        return string(c, r.location + r.length - c).trimmingCharacters(in: .newlines).isEmpty
     }
     private func sayCharacter(_ ch: String) {
         guard let first = ch.first, ch != "\n" else { Speech.speakText(String(localized: "blank", comment: "Spoken message")); return }
