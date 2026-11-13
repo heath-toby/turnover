@@ -521,8 +521,12 @@ extension BrowseModeDocument {
     /// VoiceOver's find-by-kind on a page: WebKit's search key from where the reading is, then read it there.
     public func searchKey(_ key: String, spoken: String, forward: Bool) {
         guard ensureContent() else { return }
-        if buffer.isDirty { buffer.build() }
-        let from = lastQuickNavTarget ?? (buffer.segment(at: position)?.element ?? buffer.lineIndex(at: position).flatMap { buffer.lines[$0].element }) ?? bridge.webArea
+        rebuildIfCheap()
+        // From the last target only while the reading is still on it: arrows since, or a new page, had it search from
+        // a stale place (a review, 13 Nov 2026).
+        let here = buffer.segment(at: position)?.element ?? buffer.lineIndex(at: position).flatMap { buffer.lines[$0].element }
+        let last = lastQuickNavTarget.flatMap { t in t.role != "?" && buffer.offset(of: t) == position ? t : nil }
+        let from = last ?? here ?? bridge.webArea
         var found = bridge.search(key: key, from: from, forward: forward, limit: 1).first
         var at = found.flatMap { buffer.offset(of: $0) }
         // A run of styled text inside a paragraph: the buffer knows the paragraph.

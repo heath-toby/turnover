@@ -154,6 +154,9 @@ extension AXHandler {
                         guard let d2 = API.focusTreeInterceptor, d2 === d, !ScriptHandler.isScriptRunning else { return }
                         if d2.refreshIfNavigated(announce: !d2.passThrough) { Log.io("browse mode: page changed under the document (\(name))") }
                         else if d2.loadedAfterBlank(announce: !d2.passThrough) { Log.io("browse mode: page finished loading (\(name))") }
+                        // Read while still loading, now finished: read again, the reading kept where it is, so say all
+                        // and the arrows have the whole page (a review, 13 Nov 2026).
+                        else if name == "AXLoadComplete" { d2.rebuildKeepingPlace(); Log.io("browse mode: page finished loading; read again") }
                     }
                 }
             }

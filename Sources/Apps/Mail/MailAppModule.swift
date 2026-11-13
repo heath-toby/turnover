@@ -539,21 +539,30 @@ enum MailUnread {
     /// The first row and the rows either side of the selection.
     static func snapshot(_ table: AXUIElement) {
         queue.async {
-            let rows = table.elements(kAXRowsAttribute)
-            guard !rows.isEmpty else { return }
-            let selected = table.elements(kAXSelectedRowsAttribute).first.flatMap { s in rows.firstIndex(where: { $0.isSame(s) }) }
+            // The rows wanted, by index, not all 23,000 of a big mailbox fetched on every move: Mail answers on its own
+            // main thread, so the whole fetch held up the next row's name too (a review, 13 Nov 2026).
+            var count: CFIndex = 0
+            guard AXUIElementGetAttributeValueCount(table, kAXRowsAttribute as CFString, &count) == .success, count > 0 else { return }
+            func row(_ i: Int) -> AXUIElement? {
+                guard i >= 0, i < count else { return nil }
+                var v: CFArray?
+                guard AXUIElementCopyAttributeValues(table, kAXRowsAttribute as CFString, i, 1, &v) == .success else { return nil }
+                return (v as? [AXUIElement])?.first
+            }
+            let selected = table.elements(kAXSelectedRowsAttribute).first.flatMap { ($0.attr(kAXIndexAttribute) as? NSNumber)?.intValue }
             var indices: Set<Int> = [0]
-            if let i = selected { indices.formUnion([i - 1, i + 1].filter { rows.indices.contains($0) }) }
+            if let i = selected { indices.formUnion([i - 1, i + 1].filter { $0 >= 0 && $0 < count }) }
             for i in indices {
-                let k = key(rows[i])
+                guard let r = row(i) else { continue }
+                let k = key(r)
                 guard !k.isEmpty else { continue }
-                let isUnread = MailMessageRow.isUnread(rows[i])
+                let isUnread = MailMessageRow.isUnread(r)
                 lock.lock(); if isUnread { unread.insert(k) } else if i != selected { unread.remove(k) }; lock.unlock()
                 if isUnread { Log.io("mail: row \(i) is unread") }
             }
             // The row just read is read now.
-            if let i = selected, !MailMessageRow.isUnread(rows[i]) {
-                let k = key(rows[i]); lock.lock(); unread.remove(k); lock.unlock()
+            if let i = selected, let r = row(i), !MailMessageRow.isUnread(r) {
+                let k = key(r); lock.lock(); unread.remove(k); lock.unlock()
             }
         }
     }

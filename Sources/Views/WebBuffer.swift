@@ -1033,10 +1033,20 @@ public final class BufferTextInfo: TextInfo {
         let news = movementNews(entering: entering)
         prefix = news.leaving + prefix + [news.table, news.cell].compactMap { $0 }
         if line.isControl {
+            // Read live: a field typed in, a choice made, a box ticked since the page was read said its old state
+            // (a review, 13 Nov 2026; NVDA's buffer is live). One question set per line spoken.
+            var lineFields = line.fields
+            var liveName: String?
+            if let el = line.element, WebBuffer.controlRoles.contains(el.role) {
+                let obj = ObjectFactory.make(el)
+                let label = obj.name.isEmpty ? (obj.value ?? "") : obj.name
+                lineFields = Speech.objectPropertiesSpeech(obj, reason: .focus).filter { $0 != label }
+                if !label.isEmpty { liveName = label }
+            }
             // "button Create", then its states and value (NVDA's control field, role first).
-            let role = line.fields.first.map { [$0] } ?? []
-            let rest = Array(line.fields.dropFirst())
-            let name = textRange(start, end).trimmingCharacters(in: .whitespacesAndNewlines)
+            let role = lineFields.first.map { [$0] } ?? []
+            let rest = Array(lineFields.dropFirst())
+            let name = liveName ?? textRange(start, end).trimmingCharacters(in: .whitespacesAndNewlines)
             // VoiceOver's order: "Create, button", then its states.
             if config.documentFormatting.rolesAfterText {
                 return (prefix, ([name] + role.map { Speech.ui($0) } + rest).filter { !$0.isEmpty }.joined(separator: ", "))

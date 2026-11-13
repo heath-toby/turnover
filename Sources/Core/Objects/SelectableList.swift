@@ -39,7 +39,7 @@ open class SelectableList: TurnOverObject {
         if Poll.pumping(every: 0.01, limit: 0.5, { EventHandler.isPending(.gainFocus) || EventHandler.isPending(.selection) || EventHandler.isPending(.foreground) || EventHandler.isPending(.valueChange) }) { return }
         // The row TurnOver walked to, when the list won't select (Freeform's boards).
         let walked = virtualRow.flatMap { i -> AXUIElement? in let rows = rowsAndKey.0; return rows.indices.contains(i) ? rows[i] : nil }
-        guard let row = element.elements(rowsAndKey.1).first ?? walked else { return }
+        guard let row = element.elements(selectionKey).first ?? walked else { return }
         func pressable(_ e: AXUIElement) -> Bool {
             var names: CFArray?
             return AXUIElementCopyActionNames(e, &names) == .success && ((names as? [String]) ?? []).contains(kAXPressAction as String)
@@ -64,6 +64,15 @@ open class SelectableList: TurnOverObject {
         }
         if let after, after != before { Speech.speakMessage(after ? String(localized: "expanded", comment: "Spoken message") : String(localized: "collapsed", comment: "Spoken message")); return }
         if !moved { Tones.edge(keySent: true) }   // nothing to open or close here
+    }
+
+    /// Which attribute holds the selection, asked without fetching the rows: Mail's message list is 23,000 rows,
+    /// and every arrow fetched them all two or three times just to know this (a review, 13 Nov 2026).
+    private var selectionKey: String {
+        var n: CFIndex = 0
+        if AXUIElementGetAttributeValueCount(element, kAXRowsAttribute as CFString, &n) == .success, n > 0 { return kAXSelectedRowsAttribute }
+        if ["AXOutline", "AXTable"].contains(element.role) { return kAXSelectedRowsAttribute }
+        return kAXSelectedChildrenAttribute
     }
 
     /// The rows, and whatever holds the selection: a table's rows, or a plain list's children.
@@ -136,7 +145,7 @@ open class SelectableList: TurnOverObject {
             return
         }
         // Nothing selected yet: either arrow starts at the top, not at the far end where Mail puts Up.
-        if (key == "upArrow" || key == "downArrow"), g.modifiers.isEmpty, element.elements(rowsAndKey.1).isEmpty, selectEnd(first: true) {
+        if (key == "upArrow" || key == "downArrow"), g.modifiers.isEmpty, element.elements(selectionKey).isEmpty, selectEnd(first: true) {
             if !waitForSelection() { readSelection() }
             return
         }
@@ -149,13 +158,13 @@ open class SelectableList: TurnOverObject {
             return
         }
         if virtualRow != nil, g.modifiers.isEmpty, ["upArrow", "downArrow", "home", "end"].contains(key) { moveVirtually(key); return }
-        let before = element.elements(rowsAndKey.1).first
+        let before = element.elements(selectionKey).first
         g.send()
         // A list whose app has stopped saying its selection moved (Mail after its compose window, 13 Nov 2026: every
         // arrow waited for news that never came, the keys queued behind, and the watchdog gave the Mac to VoiceOver):
         // for twenty seconds it isn't waited for. The row is read a moment after the key, the keyboard not held.
         if let q = Self.quietUntil, q.list.isSame(element), Date() < q.until {
-            let list = element, key = rowsAndKey.1
+            let list = element, key = selectionKey
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
                 guard let self, !EventHandler.isPending(.selection) else { return }
                 if let now = list.elements(key).first, before.map({ !$0.isSame(now) }) ?? true { self.speakItem(now) }
@@ -164,11 +173,11 @@ open class SelectableList: TurnOverObject {
         }
         if waitForSelection() { return }   // the selection event reads the row
         // A collection may move its selection a little later still.
-        if axSubrole == "AXCollectionList" { _ = Poll.pumping(every: 0.03, limit: 0.4) { EventHandler.isPending(.selection) || self.element.elements(self.rowsAndKey.1).first.map { b in before.map { !$0.isSame(b) } ?? true } == true }
+        if axSubrole == "AXCollectionList" { _ = Poll.pumping(every: 0.03, limit: 0.4) { EventHandler.isPending(.selection) || self.element.elements(self.selectionKey).first.map { b in before.map { !$0.isSame(b) } ?? true } == true }
             if EventHandler.isPending(.selection) { return } }
         // The selection moved and nothing said so (SwiftUI's collections post no event: Shortcuts, 12 Nov 2026): read
         // the item now selected.
-        if let now = element.elements(rowsAndKey.1).first, before.map({ !$0.isSame(now) }) ?? true {
+        if let now = element.elements(selectionKey).first, before.map({ !$0.isSame(now) }) ?? true {
             Log.io("list: the selection moved without an event; reading it, and not waiting in this list for a while")
             Self.quietUntil = (element, Date().addingTimeInterval(20))
             speakItem(now)
@@ -182,7 +191,7 @@ open class SelectableList: TurnOverObject {
         }
         // A list that ignores the arrows and has nothing selected (Safari's Feature Flags: 228 rows, every arrow did
         // nothing, 4 Oct 2026): TurnOver walks its rows itself, as VoiceOver does, from now on in this list.
-        if g.modifiers.isEmpty, ["upArrow", "downArrow"].contains(key), element.elements(rowsAndKey.1).isEmpty, !rowsAndKey.0.isEmpty {
+        if g.modifiers.isEmpty, ["upArrow", "downArrow"].contains(key), element.elements(selectionKey).isEmpty, !rowsAndKey.0.isEmpty {
             Log.io("list: the list does not move its selection; TurnOver walks the rows itself")
             virtualRow = -1
             moveVirtually(key)
@@ -237,8 +246,9 @@ open class SelectableList: TurnOverObject {
     /// A row without one keeps Space for the application.
     /// The check box in the selected row, if it has one (a bounded walk: twenty elements at most).
     private func selectedRowCheckBox() -> AXUIElement? {
-        let rows = rowsAndKey.0
-        guard let row = virtualRow.flatMap({ rows.indices.contains($0) ? rows[$0] : nil }) ?? element.elements(rowsAndKey.1).first else { return nil }
+        // (The rows fetched only for a row TurnOver walked to: every Space in a list fetched them all, a review.)
+        let walked = virtualRow.flatMap { i -> AXUIElement? in let rows = rowsAndKey.0; return rows.indices.contains(i) ? rows[i] : nil }
+        guard let row = walked ?? element.elements(selectionKey).first else { return nil }
         var queue = row.elements(kAXChildrenAttribute); var n = 0
         while !queue.isEmpty, n < 20 { let e = queue.removeFirst(); n += 1; if e.role == "AXCheckBox" { return e }; queue.append(contentsOf: e.elements(kAXChildrenAttribute)) }
         return nil
@@ -255,9 +265,15 @@ open class SelectableList: TurnOverObject {
     private func speakItem(_ row: AXUIElement) {
         let target = ObjectFactory.make(row).name.isEmpty ? (TurnOverObject.namedInside(row) ?? row) : row
         TurnOverObject.noteSelectionSpoken(row)
-        let rows = rowsAndKey.0
         var parts = Speech.objectPropertiesSpeech(ObjectFactory.make(target), reason: .focus).filter { !Phrases.isPosition($0) }
-        if let i = rows.firstIndex(where: { $0.isSame(row) }) { parts.append(Phrases.position(i + 1, of: rows.count)) }
+        // Its place by its own index and the count where the list gives them (no fetch of every row); else found.
+        var n: CFIndex = 0
+        if let i = row.int(kAXIndexAttribute), AXUIElementGetAttributeValueCount(element, kAXRowsAttribute as CFString, &n) == .success, n > 0 {
+            parts.append(Phrases.position(i + 1, of: n))
+        } else {
+            let rows = rowsAndKey.0
+            if let i = rows.firstIndex(where: { $0.isSame(row) }) { parts.append(Phrases.position(i + 1, of: rows.count)) }
+        }
         Tones.focusTick()
         Speech.cancel()
         Speech.speakMessage(parts.joined(separator: ", "))
@@ -265,7 +281,7 @@ open class SelectableList: TurnOverObject {
 
     /// Speak the selected row, as a selection event would.
     private func readSelection() {
-        guard let row = element.elements(rowsAndKey.1).first else { Speech.speakMessage(String(localized: "nothing selected", comment: "Spoken message")); return }
+        guard let row = element.elements(selectionKey).first else { Speech.speakMessage(String(localized: "nothing selected", comment: "Spoken message")); return }
         EventHandler.queue(Event(.selection, ObjectFactory.make(row)))
     }
 }

@@ -125,6 +125,22 @@ public final class BrowseModeDocument: ScriptableObject {
         let now = url
         guard now != lastURL else { return false }
         let first = lastURL.isEmpty
+        // The same page, another anchor (a contents link, a footnote, "Jump to content"): to the target, read there,
+        // not the page again from the top with its title (a review, 13 Nov 2026; NVDA moves to the target).
+        func base(_ u: String) -> String { u.components(separatedBy: "#").first ?? u }
+        if !first, base(now) == base(lastURL), let frag = now.components(separatedBy: "#").dropFirst().first, !frag.isEmpty {
+            lastURL = now
+            if base(announcedURL) == base(now) { announcedURL = now }   // not announced again as a page when the focus follows
+            rebuildKeepingPlace()
+            if let at = anchorOffset(frag) {
+                position = at
+                Log.io("browse mode: to the page's anchor")
+                speakUnit(.line)
+            } else if followWebKitSelection(force: true) {
+                Log.io("browse mode: to the page's anchor, by WebKit's selection")
+            }
+            return false
+        }
         lastURL = now
         if !first {
             buffer.newPage()   // "page read in part" once per page, not per web area (Safari reuses one)
@@ -143,6 +159,23 @@ public final class BrowseModeDocument: ScriptableObject {
         GoogleDocs.checkSoon(self)
         if !first, buffer.lines.isEmpty, webArea.role != "AXWebArea" { followReplacedRoot(tries: 10) }
         return true
+    }
+
+    /// Where an element with this id (an anchor's target) begins: its line, or a line just inside it.
+    func anchorOffset(_ id: String) -> Int? {
+        let wanted = id.removingPercentEncoding ?? id
+        var checked = 0
+        for line in buffer.lines {
+            guard let e = line.element else { continue }
+            var x: AXUIElement? = e
+            for _ in 0..<3 {
+                guard let y = x, checked < 6000 else { break }
+                checked += 1
+                if y.string("AXDOMIdentifier") == wanted { return line.start }
+                x = y.element(kAXParentAttribute)
+            }
+        }
+        return nil
     }
 
     /// A module's page emptied as it moved on (Kindle's sign-in steps: Continue empties the old frame and a new one
