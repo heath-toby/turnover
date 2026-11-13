@@ -366,6 +366,13 @@ public enum Speech {
         if reason == .focus, words.isEmpty, obj.element.role == "AXGroup" && obj.element.elements(kAXChildrenAttribute).isEmpty || obj.element.role == "AXScrollArea" && words.isEmpty && reason == .focus {
             words = obj.element.string(kAXRoleDescriptionAttribute) ?? ""
         }
+        // Any focus Tab just reached says at least what it is (Compressor's viewer, a nameless group with things in
+        // it: the sound and nothing else, 13 Nov 2026). Only after Tab: an app passes its focus through such groups
+        // on its own.
+        if reason == .focus, words.isEmpty, ["kb:tab", "kb:shift+tab"].contains(InputManager.lastKeyIdentifier),
+           Date().timeIntervalSince(InputManager.lastKeyDownAt) < 1 {
+            words = obj.element.string(kAXRoleDescriptionAttribute) ?? obj.role.displayString
+        }
         // The same focus reported twice within half a second says it once (Excel after Return and Up: "12, A1" twice;
         // the stress test of 17 Oct 2026). Compared once the words are whole: compared on the object alone, two
         // "list view" outlines in a row (Finder opening a folder) looked the same with different rows selected.
