@@ -173,7 +173,10 @@ final class FinderAppModule: AppModule {
     /// words, and the window's title.
     private static func selectedIdentity(_ pid: pid_t) -> (window: String, row: AXUIElement, name: String)? {
         guard let f = AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute) else { return nil }
-        let selected = f.elements(kAXSelectedRowsAttribute) + f.elements(kAXSelectedChildrenAttribute)
+        // The rows if there are any, else the children: a list view reports its one selected row under both, and the
+        // two made a count of 2, so a single selection read as none (a review, 13 Nov 2026).
+        let rows = f.elements(kAXSelectedRowsAttribute)
+        let selected = rows.isEmpty ? f.elements(kAXSelectedChildrenAttribute) : rows
         guard selected.count == 1, let row = selected.first else { return nil }
         // (List view's names are text fields in cells; icon view's items carry a title.)
         var name = row.elements(kAXChildrenAttribute).flatMap { [$0] + $0.elements(kAXChildrenAttribute) }
