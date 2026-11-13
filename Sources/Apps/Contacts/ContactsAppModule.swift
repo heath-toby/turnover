@@ -18,14 +18,24 @@ final class ContactsAppModule: AppModule {
 
     required init(pid: pid_t, bundleIdentifier: String, appName: String) {
         super.init(pid: pid, bundleIdentifier: bundleIdentifier, appName: appName)
-        script("contacts_toCard", String(localized: "From the list to the person's card", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Contacts") { [weak self] _ in
-            guard let self, let card = self.card() else { Log.io("contacts: no card to go to"); Tones.edge(); return }
+        script("contacts_toCard", String(localized: "From the list to the person's card", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Contacts") { [weak self] g in
+            // No card shown: editing one (Command L), its fields are Contacts' own to Tab through.
+            guard let self else { return }
+            guard let card = self.card() else {
+                // Editing (Command L): Contacts' own Tab only went between the search and the list, never to the
+                // fields (13 Nov 2026). Into the first field.
+                if let w = self.window(), let field = Self.editFields(in: w).first {
+                    Log.io("contacts: editing; to the first field"); SettingsPanePlugin.focus(field); return
+                }
+                Log.io("contacts: no card to go to"); g.send(); return
+            }
             Log.io("contacts: to the card")
             self.go(to: 0, in: card)
         }.isAvailable = { [weak self] in self?.inList() == true }
         for forward in [true, false] {
             script(forward ? "contacts_cardNext" : "contacts_cardPrevious", forward ? String(localized: "In a card: the next part (the name, the actions, the details list, the note, the buttons)", comment: "A command, as the key list and keyboard help say it") : String(localized: "In a card: the previous part", comment: "A command, as the key list and keyboard help say it"), gestures: [forward ? "kb:tab" : "kb:shift+tab"], category: "Contacts") { [weak self] g in
-                guard let self, let card = self.card() else { g.send(); return }
+                guard let self else { return }
+            guard let card = self.card() else { g.send(); return }
                 let stops = Self.stops(in: card)
                 // The detail left from, to come back to.
                 if let r = SettingsPanePlugin.heldRow, r.string(kAXIdentifierAttribute) == "ContactCardDetailsView" { Self.lastDetail = r }
@@ -56,6 +66,26 @@ final class ContactsAppModule: AppModule {
                   let field = self.searchField(in: w) else { g.send(); return }
             _ = field.set(kAXFocusedAttribute, kCFBooleanTrue)
         }.isAvailable = { [weak self] in self?.inList() == true }
+    }
+
+    /// A card being edited: its fields, the name's then each detail's (an AppKit form beside the list).
+    static func editFields(in w: AXUIElement) -> [AXUIElement] {
+        var out: [AXUIElement] = []
+        var stack: [(AXUIElement, Int)] = [(w, 0)], seen = 0
+        while let (e, d) = stack.popLast(), seen < 400 {
+            seen += 1
+            let r = e.role
+            if r == "AXOutline" || r == "AXToolbar" || e.string(kAXSubroleAttribute) == "AXSearchField" { continue }
+            if ["AXTextField", "AXPopUpButton", "AXCheckBox"].contains(r) { out.append(e); continue }
+            if d < 8 { stack.append(contentsOf: e.elements(kAXChildrenAttribute).reversed().map { ($0, d + 1) }) }
+        }
+        var framed: [(AXUIElement, CGRect)] = []
+        for e in out { if let f = TurnOverObject.frame(e) { framed.append((e, f)) } }
+        framed.sort { a, b in
+            let ay = a.1.minY, by = b.1.minY
+            return abs(ay - by) > 4 ? ay < by : a.1.minX < b.1.minX
+        }
+        return framed.map { $0.0 }
     }
 
     // MARK: The card's stops
