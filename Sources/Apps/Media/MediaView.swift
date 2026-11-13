@@ -1021,7 +1021,7 @@ public final class MediaView {
             return
         }
         index[pane] = new
-        announce(crossedFrom: old)
+        announce(crossedFrom: old, userMove: true)
     }
 
     /// Music and TV show a page's later shelves only as it scrolls: at the end of what is known, scroll on by most
@@ -1216,7 +1216,7 @@ public final class MediaView {
         guard !all.isEmpty else { return }
         let old = index[pane] ?? 0
         index[pane] = last ? all.count - 1 : 0
-        announce(crossedFrom: old)
+        announce(crossedFrom: old, userMove: true)
     }
 
     /// The previous or next shelf of the page (in the sidebar, the previous or next group heading).
@@ -1236,7 +1236,7 @@ public final class MediaView {
         }
         let old = cur
         index[.page] = first
-        announce(crossedFrom: old, forceShelf: true)
+        announce(crossedFrom: old, forceShelf: true, userMove: true)
     }
 
     public func letter(_ ch: Character) {
@@ -1253,7 +1253,7 @@ public final class MediaView {
         guard let hit = order.prefix(5000).first(where: { key($0).lowercased().hasPrefix(lower) }) else { Tones.edge(); return }
         let old = cur
         index[pane] = hit
-        announce(crossedFrom: old)
+        announce(crossedFrom: old, userMove: true)
     }
 
     /// Music's Recently Searched heading is shelf context, separate from the items the arrows visit (macOS 27.2,
@@ -1334,7 +1334,11 @@ public final class MediaView {
         announce(crossedFrom: -1, forceShelf: pane == .page)
     }
 
-    private func announce(crossedFrom old: Int, forceShelf: Bool = false) {
+    /// `userMove`: the user's own arrows, End, shelf jump or letter brought the item. Only those select a library row
+    /// in Music: arriving in the app, a pane switch, a landing after Back or a page load, and the player's refresh
+    /// read the item without moving Music's focus. Command-Tab back into Music with its search field focused moved
+    /// the focus to the songs table and replaced the selection (a review, 13 Nov 2026).
+    private func announce(crossedFrom old: Int, forceShelf: Bool = false, userMove: Bool = false) {
         let all = items(of: pane)
         guard let i = index[pane], all.indices.contains(i) else { return }
         let item = all[i]
@@ -1361,7 +1365,7 @@ public final class MediaView {
         // outside the item pieces; Number in list must not be hardcoded back on here (#187, 29 Oct 2026).
         parts += Speech.arranged(pieces, by: config.presentation.verbosity(for: bundleIdentifier))
         Speech.speakItem(parts.joined(separator: ", "), processed: true)
-        if item.tableRow { selectTableRow(item) }
+        if userMove, item.tableRow, !appTextFieldFocused { selectTableRow(item) }
         // Object navigation starts from the item Tab or the arrows reached (a tester, 12 Nov 2026).
         ObjectNavigator.shared.focusMoved(to: item.element, pid: item.element.pid)
         Hints.schedule(hint(for: item))
@@ -1376,6 +1380,14 @@ public final class MediaView {
         ownRowSelectionAt = Date()   // (its selection news is the arrows' echo: the item was just said)
         if (table.attr(kAXFocusedAttribute) as? Bool) != true { _ = table.set(kAXFocusedAttribute, kCFBooleanTrue) }
         if table.set(kAXSelectedRowsAttribute, [item.element] as CFArray) != .success { Log.io("media: the library row refused the selection") }
+    }
+
+    /// Music's own focus is in a text or search field: the arrows read the songs, but taking the table's focus would
+    /// pull the user out of what they type (a review, 13 Nov 2026).
+    private var appTextFieldFocused: Bool {
+        guard let f = AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute) else { return false }
+        if f.string(kAXSubroleAttribute) == "AXSearchField" { return true }
+        return ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"].contains(f.role)
     }
 
     private var ownRowSelectionAt = Date.distantPast
