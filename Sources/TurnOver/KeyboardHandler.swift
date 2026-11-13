@@ -69,7 +69,7 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
     private var echoCode: Int64 = -1
     private var echoAt: UInt64 = 0
     private var echoCount = 0
-    private var controlAlone = false
+    private var loneControl = LoneModifier()
     private var loneShift = LoneModifier()
     /// Option pressed and released with nothing else, quickly: left Option is the Windows key (the Dock),
     /// right Option the Applications key (Control+Return, the context menu).
@@ -209,7 +209,7 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         // would swallow the next real key-up, and the app would see a key held down (a code review, 14 Oct 2026).
         quarantined.removeAll(); remapped.removeAll(); capsDown = false; chordFired = false; keypadZeroDown = false
         Self.capsHeld.value = false
-        controlAlone = false; loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
+        loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(kIOHIDSystemClass))
         if service != 0 {
             let r = IOServiceOpen(service, mach_task_self_, UInt32(kIOHIDParamConnectType), &mine.connect)
@@ -308,7 +308,9 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             capsDown = false; Self.capsHeld.value = false
             setLock(realCapsOn)
             let sinceLastUp = Double(stamp &- lastCapsUp) * Self.machToNs / 1_000_000
-            lastCapsUp = stamp
+            // A press that made a chord starts no double tap: a lone tap just after Caps Lock H toggled the real
+            // Caps Lock (a review, 13 Nov 2026).
+            lastCapsUp = chordFired ? 0 : stamp
             if !chordFired && sinceLastUp < 350 {
                 realCapsOn.toggle()
                 setLock(realCapsOn)
@@ -413,7 +415,7 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         // VoiceOver seemed not to answer its key (25 Oct 2026). TurnOver has no command on it.
         if (type == .keyDown || type == .keyUp), Self.isVoiceOverToggle(code: code, flags: event.flags) {
             // A modifier pressed with it isn't a modifier pressed alone: no Dock or menu when it is let go.
-            controlAlone = false; loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
+            loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
             return Unmanaged.passUnretained(event)
         }
         // A direct app in front (Command Control Comma, D): every key goes to it alone, before TurnOver's commands and
@@ -434,19 +436,21 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             if code == 57 { return settings.capsIsTurnOver ? nil : Unmanaged.passUnretained(event) }   // caps lock's own event: nobody sees it while it is the TurnOver key
             // Control pressed and released alone stops speech (NVDA: the control key cancels).
             let ctrl = event.flags.contains(.maskControl)
+            // Let go within LoneModifier's time, as the other lone keys: with no limit, Control held a while (to
+            // Control-click, whose click this tap never sees) paused or stopped speech as it came up (a review,
+            // 13 Nov 2026).
             if code == 59 || code == 62 {
-                if ctrl { controlAlone = true }
-                else if controlAlone {
+                if ctrl { loneControl.down(alone: true, secureInput: false) }
+                else if loneControl.up(secureInput: false) {
                     // In keyboard help, Control is only named. Mac style: VoiceOver's pause and resume. Windows style:
                     // NVDA's stop (Shift pauses there, below) (12 Oct 2026).
-                    controlAlone = false
                     let stop = settings.windowsKeys
                     if !InputManager.isInputHelpActive { onMain { if stop { SayAll.stop(); Speech.cancel() } else { Speech.togglePause() } } }
                 }
-            } else { controlAlone = false }
+            } else { loneControl.cancel() }
             // While secure input is on no key between is heard, so Shift, Command and Option are not pressed alone then
-            // (LoneModifier). Control, above, is left as it was: it is all there is to quiet speech then, and left out as
-            // well it couldn't, while Chrome held secure input (1 Nov 2026).
+            // (LoneModifier). Control, above, is never set aside for it (secureInput: false): it is all there is to
+            // quiet speech then, and left out as well it couldn't, while Chrome held secure input (1 Nov 2026).
             let secure = IsSecureEventInputEnabled()
             // Shift pressed and released alone, Windows style: NVDA's pause and resume.
             if code == 56 || code == 60 {
@@ -500,7 +504,7 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             if !event.flags.contains(.maskAlternate) { optionCode = 0 }
             return Unmanaged.passUnretained(event)
         }
-        controlAlone = false; loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
+        loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
         if let r = keypad(type, event, code, settings) { return r }
         if let r = quickNavArrow(type, event, code, settings) { return r }
         if type == .keyUp {
