@@ -9,6 +9,7 @@
 // - A button named only for what it does ("Edit…") says the row it stands in first: "Input Sources, British – PC,
 //   German and 2 others, Edit… button".
 import Foundation
+import AppKit
 import ApplicationServices
 
 enum PaneContext {
@@ -57,6 +58,23 @@ enum PaneContext {
         return t
     }
 
+    /// A pane that is a property page: in System Settings, a dialog, a sheet, or an app's settings window. Contacts'
+    /// card is drawn as a form too, and was "Contacts property page" (a sweep, 13 Nov 2026).
+    static func isSettings(_ pane: AXUIElement) -> Bool {
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.systempreferences" { return true }
+        var x: AXUIElement? = pane.element(kAXParentAttribute), hops = 0
+        while let y = x, hops < 10 {
+            if y.role == "AXSheet" { return true }
+            if y.role == "AXWindow" {
+                if ["AXDialog", "AXSystemDialog"].contains(y.string(kAXSubroleAttribute) ?? "") { return true }
+                let t = y.string(kAXTitleAttribute) ?? ""
+                return ["Settings", "Preferences", "Options"].contains { t.localizedCaseInsensitiveContains($0) }
+            }
+            x = y.element(kAXParentAttribute); hops += 1
+        }
+        return false
+    }
+
     /// The pane's description: in its first section, a line of text straight under the first control's label that
     /// labels nothing itself (Location Services: "Allow the applications and services below…").
     static func description(_ pane: AXUIElement) -> String? {
@@ -93,7 +111,7 @@ enum PaneContext {
         let oldPane = old.flatMap { pane(of: $0) }
         let sec = section(of: new, in: p)
         if oldPane.map({ !$0.isSame(p) }) ?? true {
-            if let name = paneName(p) { out.append(String(localized: "\(name) property page", comment: "Coming into a settings pane: %@ is its name (NVDA's property page)")) }
+            if isSettings(p), let name = paneName(p) { out.append(String(localized: "\(name) property page", comment: "Coming into a settings pane: %@ is its name (NVDA's property page)")) }
             if let d = description(p) { out.append(d) }
             if let s = sec, let n = sectionName(s, in: p) { out.append(String(localized: "\(n) grouping", comment: "Coming into a section of a settings pane: %@ is its heading")) }
         } else if let s = sec, let o = old, let os = section(of: o, in: p), !os.isSame(s), let n = sectionName(s, in: p) {

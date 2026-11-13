@@ -16,11 +16,22 @@ package final class MailAppModule: AppModule {
     static var headerAt: (area: AXUIElement, index: Int, at: Date)?
 
     static func isHeaderArea(_ e: AXUIElement) -> Bool {
-        e.role == "AXTextArea" && e.element(kAXParentAttribute)?.string(kAXDescriptionAttribute) == "message headers"
+        e.role == "AXTextArea" && e.element(kAXParentAttribute).map(isHeadersGroup) == true
+    }
+    /// A message's header group, and the group holding it with the message's buttons. Two layouts: groups described
+    /// "message headers" in "message content" (a conversation, 12 Nov 2026), or, for a single message, groups named by
+    /// the message ("…, Headers") with identifiers message_header in message_view (macOS 27.2, 13 Nov 2026).
+    /// The last focus was in a message (its web area or a link in it).
+    static var focusWasInMessage = false
+    static func isHeadersGroup(_ g: AXUIElement) -> Bool {
+        g.string(kAXDescriptionAttribute) == "message headers" || g.string(kAXIdentifierAttribute) == "message_header"
+    }
+    static func isContentGroup(_ g: AXUIElement) -> Bool {
+        g.string(kAXDescriptionAttribute) == "message content" || g.string(kAXIdentifierAttribute) == "message_view"
     }
     /// One of the header's buttons (the toolbar under the fields).
     static func isHeaderButton(_ e: AXUIElement) -> Bool {
-        ["AXButton", "AXMenuButton"].contains(e.role) && e.element(kAXParentAttribute)?.string(kAXDescriptionAttribute) == "message content"
+        ["AXButton", "AXMenuButton"].contains(e.role) && e.element(kAXParentAttribute).map(isContentGroup) == true
     }
     /// The header text area of the message `e` is in or beside (the first message shown).
     static func headerArea(near e: AXUIElement) -> AXUIElement? {
@@ -38,7 +49,7 @@ package final class MailAppModule: AppModule {
 
     /// The header text area of one message's "message content" group.
     static func headerArea(in content: AXUIElement) -> AXUIElement? {
-        guard let h = content.elements(kAXChildrenAttribute).first(where: { $0.string(kAXDescriptionAttribute) == "message headers" }) else { return nil }
+        guard let h = content.elements(kAXChildrenAttribute).first(where: isHeadersGroup) else { return nil }
         return h.elements(kAXChildrenAttribute).first { $0.role == "AXTextArea" }
     }
 
@@ -157,24 +168,29 @@ package final class MailAppModule: AppModule {
         ObjectNavigator.shared.focusMoved(to: area, pid: pid)
     }
 
-    /// Each message's header buttons: the row of buttons standing directly in its "message content" group.
+    /// Each message's header buttons: the row of buttons, Reply among them, standing loose in a container inside the
+    /// "message content" area. That area was a group holding them (12 Nov 2026); for a single message it is now a
+    /// scroll area with a group per message holding them, and Tab went button by button again (a sweep, 13 Nov 2026).
     static func headerStrips(in window: AXUIElement) -> [(AXUIElement, CGRect)] {
         var out: [(AXUIElement, CGRect)] = []
-        var stack: [(AXUIElement, Int)] = [(window, 0)], visited = 0
-        while let (e, d) = stack.popLast(), visited < 300 {
+        var stack: [(AXUIElement, Int, Bool)] = [(window, 0, false)], visited = 0
+        while let (e, d, inMessage) = stack.popLast(), visited < 300 {
             visited += 1
             let r = e.role
-            if r == "AXGroup", e.string(kAXDescriptionAttribute) == "message content" {
-                let buttons = e.elements(kAXChildrenAttribute).filter { ["AXButton", "AXMenuButton"].contains($0.role) }
+            let here = inMessage || e.string(kAXDescriptionAttribute) == "message content"
+            let kids = e.elements(kAXChildrenAttribute)
+            if here {
+                let buttons = kids.filter { ["AXButton", "AXMenuButton"].contains($0.role) }
                     .compactMap { b in TurnOverObject.frame(b).map { (b, $0) } }
                 // The row: the buttons level with Reply.
-                guard let reply = buttons.first(where: { $0.0.string(kAXDescriptionAttribute) == "Reply" }) else { continue }
-                let row = buttons.filter { abs($0.1.midY - reply.1.midY) < 4 }
-                if row.count >= 3 { out.append((e, row.map(\.1).reduce(row[0].1) { $0.union($1) })) }
-                continue
+                if let reply = buttons.first(where: { $0.0.string(kAXDescriptionAttribute) == "Reply" }) {
+                    let row = buttons.filter { abs($0.1.midY - reply.1.midY) < 4 }
+                    if row.count >= 3 { out.append((e, row.map(\.1).reduce(row[0].1) { $0.union($1) })) }
+                    continue
+                }
             }
-            if d > 8 || ["AXTable", "AXOutline", "AXToolbar", "AXWebArea", "AXList"].contains(r) { continue }
-            stack.append(contentsOf: e.elements(kAXChildrenAttribute).map { ($0, d + 1) })
+            if d > 9 || ["AXTable", "AXOutline", "AXToolbar", "AXWebArea", "AXList"].contains(r) { continue }
+            stack.append(contentsOf: kids.map { ($0, d + 1, here) })
         }
         return out
     }
@@ -796,6 +812,24 @@ package final class MailAppModule: AppModule {
     package override func handleEvent(_ event: Event, next: () -> Void) {
         // After Command Shift D: "sent" before the window and focus behind the compose window are read.
         if Self.sending != nil, [.foreground, .gainFocus].contains(event.kind) { Self.saySentIfGone() }
+        // Tab from the end of a message: Mail goes round inside the message, back up to its own buttons, and Tab went
+        // header, buttons, message, buttons again (a sweep, 13 Nov 2026). TurnOver goes on to the window's toolbar,
+        // as Tab goes on round the window (the mailboxes are next from there).
+        if event.kind == .gainFocus, event.obj.pid == pid, Self.isHeaderButton(event.obj.element),
+           InputManager.lastKeyIdentifier == "kb:tab", Date().timeIntervalSince(InputManager.lastKeyDownAt) < 1.5,
+           Self.focusWasInMessage,
+           let w = SettingsPanePlugin.windowOf(event.obj.element),
+           let tb = w.elements(kAXChildrenAttribute).first(where: { $0.role == "AXToolbar" }),
+           let (_, items) = SettingsPanePlugin.toolbarItems(around: tb), let stop = SettingsPanePlugin.toolbarStop(tb, items) {
+            Log.io("mail: Tab from the end of the message; on to the window's toolbar")
+            SettingsPanePlugin.focus(stop)
+            return
+        }
+        if event.kind == .gainFocus, event.obj.pid == pid, event.obj.element.role != "AXScrollBar" {
+            // (Noted here: by the time the next focus is handled, the focus object has already moved on.)
+            let e = event.obj.element
+            Self.focusWasInMessage = e.role == "AXWebArea" || SettingsPanePlugin.isInWeb(e)
+        }
         if event.kind == .gainFocus {
             notePlace(event.obj.element)
             if !Self.inAddressField { Self.suggestions = nil; Self.suggestionSaid = nil }

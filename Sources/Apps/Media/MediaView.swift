@@ -231,10 +231,14 @@ public final class MediaView {
                 loadingMore = false
                 runQueued()
                 guard result?.built?.sidebar.isEmpty == true, sidebar.isEmpty else { return }
+                sidebarComing = true
                 read(.build(keepSidebar: false, detectVideo: false), capturedWindow: window) { [weak self] full in
-                    guard let self, let b = full?.built, !b.sidebar.isEmpty else { return }
+                    guard let self else { return }
+                    sidebarComing = false
+                    guard let b = full?.built, !b.sidebar.isEmpty else { return }
                     apply(b)   // (the same page: merged, the reading where it is; the sidebar and the page's title now in)
                     Log.io("media: the sidebar read after the page, \(b.sidebar.count) items")
+                    sidebarArrived()
                 }
             }
             return false
@@ -243,6 +247,18 @@ public final class MediaView {
         return false
     }
     private var refreshing = false
+    /// The sidebar is being read after the page (three to four seconds in Music). Tab stops on it meanwhile and says
+    /// "loading", then reads its item when it comes: Tab passed it by on the first round, as if there were none
+    /// (a sweep, 13 Nov 2026: page, player, toolbar, page).
+    private var sidebarComing = false
+    private var waitingInSidebar = false
+    private func sidebarArrived() {
+        guard waitingInSidebar else { return }
+        waitingInSidebar = false
+        guard pane == .sidebar else { return }
+        if index[.sidebar] == nil || index[.sidebar] == 0, let sel = sidebar.firstIndex(where: { $0.selected }) { index[.sidebar] = sel }
+        announce(crossedFrom: -1)
+    }
 
     /// Read the window in the background, then carry on (arriving in the app).
     public func refresh(keepSidebar: Bool = false, then: @escaping @MainActor @Sendable () -> Void) {
@@ -253,9 +269,13 @@ public final class MediaView {
             apply(result?.built); then()
             // (A second read only when the first came without a sidebar: none read yet.)
             guard !keepSidebar, result?.built?.sidebar.isEmpty == true else { return }
+            sidebarComing = true
             read(.build(keepSidebar: false, detectVideo: false)) { [weak self] full in
-                guard let self, let b = full?.built, !b.sidebar.isEmpty else { return }
+                guard let self else { return }
+                sidebarComing = false
+                guard let b = full?.built, !b.sidebar.isEmpty else { return }
                 apply(b)
+                sidebarArrived()
             }
         }
     }
@@ -1280,8 +1300,10 @@ public final class MediaView {
         for _ in 0..<Self.paneCount {
             p = (p + delta + Self.paneCount) % Self.paneCount
             if !items(of: Pane(rawValue: p)!).isEmpty { break }
+            if Pane(rawValue: p) == .sidebar, sidebarComing { break }
         }
         pane = Pane(rawValue: p)!
+        waitingInSidebar = pane == .sidebar && sidebar.isEmpty
         // Into the page by Tab: its shelves have the arrows, not the search's list of suggestions (a tester, 13 Nov
         // 2026: Down after Tab to the results went through the suggestions until Command Tab out and back).
         if pane == .page { catalogDrives = false }
@@ -1295,6 +1317,7 @@ public final class MediaView {
         case .toolbar: name = Role.toolBar.displayString
         }
         Speech.speakOnly(name)   // the area's name: the display shows its item
+        if waitingInSidebar { Speech.speakMessage(String(localized: "loading", comment: "A page asked for is still coming")); return }
         announce(crossedFrom: -1, forceShelf: pane == .page)
     }
 

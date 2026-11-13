@@ -159,7 +159,11 @@ open class TurnOverObject: ScriptableObject {
     /// windows only (a web page names its own controls), and only among a modest number of siblings.
     private func neighbourLabel() -> String? {
         guard [.popUpButton, .comboBox, .editableText, .slider, .spinButton, .menuButton, .checkBox, .radioButton].contains(role),
-              let parent = element.element(kAXParentAttribute), let me = Self.frame(element) else { return nil }
+              var parent = element.element(kAXParentAttribute), var me = Self.frame(element) else { return nil }
+        // A text area alone in its scroll area is labelled beside the scroll area (Contacts' card: "Notes" before it;
+        // the note was "edit blank", a sweep, 13 Nov 2026).
+        if parent.role == "AXScrollArea", parent.elements(kAXChildrenAttribute).count == 1,
+           let outer = parent.element(kAXParentAttribute), let sf = Self.frame(parent) { parent = outer; me = sf }
         guard let texts = Self.siblingTexts(in: parent) else { return nil }
         var left: (String, CGFloat)?, above: (String, CGFloat)?
         for (t, f) in texts {

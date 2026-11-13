@@ -195,7 +195,10 @@ extension BrowseModeDocument {
     /// top of a long post, 3 Oct 2026). If the caret has moved since the focus did, focus the next (or previous)
     /// link or control after (before) it; the focus event then reads it. Otherwise the browser's own Tab.
     func focusFromCaret(forward: Bool) -> Bool {
-        let safari = NSRunningApplication(processIdentifier: webArea.pid)?.bundleIdentifier?.hasPrefix("com.apple.Safari") == true
+        let bundle = NSRunningApplication(processIdentifier: webArea.pid)?.bundleIdentifier ?? ""
+        // (Mail's message too: its own Tab went from the top of a message to the scroll bar and out, past every link,
+        // a sweep, 13 Nov 2026.)
+        let safari = bundle.hasPrefix("com.apple.Safari") || bundle == "com.apple.mail"
         // (Safari's own Tab skips most of the page: there TurnOver's Tab goes on from the reading position even where
         // it is the focus's.)
         guard position != positionAtFocus || safari else { return false }

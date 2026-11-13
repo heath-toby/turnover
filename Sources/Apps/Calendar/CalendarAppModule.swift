@@ -466,7 +466,9 @@ final class CalendarAppModule: AppModule {
                 DispatchQueue.main.async { [weak self] in self?.sayEvent() }
                 return
             }
-            if Date().timeIntervalSince(lastOwnMove) < 1.0 { return }
+            // The echo of TurnOver's own move, but not a later key's: a second Tab within the second, from the day to
+            // its first event, was swallowed whole (a sweep, 13 Nov 2026: a tick and nothing said).
+            if Date().timeIntervalSince(lastOwnMove) < 1.0, InputManager.lastKeyDownAt <= lastOwnMove { return }
             // Arriving in the area (Command-1, 2 or 3, Tab from the sidebar, the app coming forward): the view and the
             // day in a line ("Week, Wednesday 30 September, 1 event") instead of "Week Calendar Area, grouping,
             // September 2026, group, Wednesday, list" and an event's whole sentence (17 Oct 2026).
