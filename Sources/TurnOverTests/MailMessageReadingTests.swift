@@ -97,4 +97,16 @@ func mailMessageReadingTests() {
         check(ChatView.watcherLooks(web: true, sinceKey: 0.1, sinceLastLook: 3), "every three seconds at least")
         check(ChatView.watcherLooks(web: true, sinceKey: 2, sinceLastLook: 1), "not typing: every second")
     }
+    test("chat: the message just sent is known by its whole words, and a reply holding them is still read") {
+        check(ChatView.isOwnMessage("ok", sent: "ok"), "the message alone")
+        check(ChatView.isOwnMessage("Toby, ok", sent: "ok"), "Discord's who, what")
+        check(ChatView.isOwnMessage("ok, 14:53", sent: "ok"), "WhatsApp's what, when")
+        check(ChatView.isOwnMessage("message, see you at\nsix, 14:53", sent: "see you at six"), "line breaks run together")
+        check(ChatView.isOwnMessage("see you at six, 14:53", sent: "see you\nat  six"), "a message of two lines sent")
+        check(!ChatView.isOwnMessage("Ann, ok thanks", sent: "ok"), "a reply holding the short text is not one's own")
+        check(!ChatView.isOwnMessage("Ann, hi there", sent: "hi"), "nor one starting with it")
+        check(!ChatView.isOwnMessage("Ann, ok", sent: ""), "nothing sent: nothing one's own")
+        let long = String(repeating: "a long message ", count: 5)
+        check(ChatView.isOwnMessage("Toby, " + String(long.prefix(45)) + "…", sent: long), "a long message shortened by the app")
+    }
 }
