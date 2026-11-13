@@ -405,16 +405,19 @@ extension AXHandler {
         let windowless: Set<String> = ["AXApplication", "AXMenuBar", "AXMenuBarItem", "AXMenu", "AXMenuItem", "AXDockItem", "AXWindow", "AXSheet"]
         let role = f.element.role
         let dead = role == "?"
-        // Loose from its window: only in the app in front (a control TurnOver holds or made keeps its place: the app
-        // must name another focus, below).
-        let loose = !dead && f.pid == activePid && !windowless.contains(role) && f.element.element(kAXWindowAttribute) == nil
+        // Loose from its window: only in the app in front (a control TurnOver made keeps its place: the app must name
+        // another focus, below). In no window up its parents either, not only by its own AXWindow, which many
+        // controls lack; and never a place TurnOver holds (Tab trap, toolbar, NewDialogs), whose app's focus is
+        // elsewhere by nature: those were dropped a second after they were reached (a review, 13 Nov 2026).
+        let loose = !dead && f.pid == activePid && !windowless.contains(role) && !SettingsPanePlugin.holdingVirtual
+            && SettingsPanePlugin.windowOf(f.element) == nil
         guard dead || loose else { return }
         // Only when the app names a live focus of its own elsewhere: else there is nothing better to read, and reading
         // the same again at every key would be noise.
         let app = AXUIElementCreateApplication(activePid)
         AXUIElementSetMessagingTimeout(app, 0.25)
         guard let real = app.element(kAXFocusedUIElementAttribute), !real.isSame(f.element), real.role != "?" else { return }
-        if loose, real.element(kAXWindowAttribute) == nil, real.role != "AXWindow" { return }
+        if loose, SettingsPanePlugin.windowOf(real) == nil, real.role != "AXWindow" { return }
         Log.io("key: TurnOver's focus is \(dead ? "gone" : "out of any window"); the app's focus read again")
         refocus(pid: activePid)
     }
