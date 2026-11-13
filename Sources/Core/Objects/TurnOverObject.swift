@@ -636,6 +636,8 @@ open class TurnOverObject: ScriptableObject {
     public static var selectionNote: String?
     private static var lastSelectionSpoken: (AXUIElement, Date)?
     public static func noteSelectionSpoken(_ e: AXUIElement) { lastSelectionSpoken = (e, Date()) }
+    /// Whether any selection was read since `date` (a key's own read already done).
+    public static func selectionSpoken(since date: Date) -> Bool { lastSelectionSpoken.map { $0.1 >= date } ?? false }
     open func event_textChange() {}
     open func event_alert() { Speech.speakObject(self, reason: .focus) }
     /// NVDA: a live region's new text is spoken, politely (queued) or assertively (interrupting).

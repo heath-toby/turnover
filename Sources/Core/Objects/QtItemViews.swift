@@ -9,6 +9,8 @@ import ApplicationServices
 
 enum QtItemViews {
     private static var qt: [pid_t: Bool] = [:]
+    /// The app quit: a new process with its number is asked again (a review, 13 Nov 2026).
+    static func forget(pid: pid_t) { qt[pid] = nil }
     /// Built with Qt: its bundle carries Qt's core framework.
     static func isQt(_ pid: pid_t) -> Bool {
         if let known = qt[pid] { return known }

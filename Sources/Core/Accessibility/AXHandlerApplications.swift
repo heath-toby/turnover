@@ -114,6 +114,16 @@ extension AXHandler {
         ForeignChildren.forget(pid)
         AppModuleHandler.shared.remove(pid: pid)
         BrowseModeHandler.shared.forget(pid: pid)
+        // What TurnOver worked out about the process, kept by its number: a new process given the number would have
+        // inherited it, Catalyst, Chromium, Qt, its bundle and profiles and all (a review, 13 Nov 2026).
+        SettingsPanePlugin.forget(pid: pid)
+        QtItemViews.forget(pid: pid)
+        Speech.forgetBundle(of: pid)
+        ProfileStore.shared.forget(pid: pid)
+        AppMenuKeys.forget(pid: pid)
+        EmptyWindowNotice.forget(pid: pid)
+        AppWake.forget(pid: pid)
+        lastNewsAt[pid] = nil; lastMoveNewsAt[pid] = nil; lastStructureAt[pid] = nil
         if API.focusObject?.pid == pid { API.setFocusObject(nil, ancestors: []) }
         if activePid == pid { activePid = 0 }
     }

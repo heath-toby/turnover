@@ -53,6 +53,9 @@ public enum Speech {
 
     /// Stop now (NVDA: cancelSpeech). Every gesture does this before its script runs.
     public static func cancel() {
+        // Focus words still unfinished are cut: the same words said again straight after are no repeat (see
+        // speakObject's half-second check).
+        if Date().timeIntervalSince(lastFocusWordsAt) < 0.5, focusWordsDone.value != focusWordsGeneration { lastFocusWordsCut = true }
         player?.cancel()
     }
 
@@ -322,6 +325,17 @@ public enum Speech {
     /// Speak an object the way NVDA does on focus: name, role, value, states, description, shortcut, position; then its text if it has any.
     private static var lastFocusWords = ""
     private static var lastFocusWordsAt = Date.distantPast
+    /// The last focus words were cancelled before they finished: the nine places that cancel and read the focus again
+    /// (the Tab trap round to the same control, a refocus) were silenced by the repeat check, and nothing at all was
+    /// heard (a review, 13 Nov 2026).
+    private static var lastFocusWordsCut = false
+    /// Which focus words were said last, and which last finished playing (set on the speech queue as they end).
+    private static var focusWordsGeneration = 0
+    nonisolated private static let focusWordsDone = Locked<Int>(0)
+    /// Whether focus words are the last ones over again: the same, within half a second, and those were heard whole.
+    package static func repeatsFocus(_ words: String, last: String, elapsed: TimeInterval, lastCut: Bool) -> Bool {
+        words == last && elapsed < 0.5 && !lastCut
+    }
     public static func speakObject(_ obj: TurnOverObject, reason: OutputReason) {
         var parts = objectPropertiesSpeech(obj, reason: reason)
         // A table or list that takes focus on macOS keeps its selection inside it: say the selected row too,
@@ -385,8 +399,9 @@ public enum Speech {
         // the stress test of 17 Oct 2026). Compared once the words are whole: compared on the object alone, two
         // "list view" outlines in a row (Finder opening a folder) looked the same with different rows selected.
         if reason == .focus {
-            if words == lastFocusWords, Date().timeIntervalSince(lastFocusWordsAt) < 0.5 { Log.io("focus: the same words again within 0.5 s; not repeated"); return }
-            lastFocusWords = words; lastFocusWordsAt = Date()
+            if repeatsFocus(words, last: lastFocusWords, elapsed: Date().timeIntervalSince(lastFocusWordsAt), lastCut: lastFocusWordsCut) { Log.io("focus: the same words again within 0.5 s; not repeated"); return }
+            lastFocusWords = words; lastFocusWordsAt = Date(); lastFocusWordsCut = false
+            focusWordsGeneration += 1
         }
         if reason == .focus, let until = dropForFocusUntil {
             dropForFocusUntil = nil
@@ -403,7 +418,12 @@ public enum Speech {
         // entered, TurnOver's own held place. Several apps read the control Tab reached with no sound (a tester,
         // 11 Nov 2026). (A focus event already played it; a burst is one sound.)
         if reason == .focus || reason == .focusEntered, !words.isEmpty, !Tones.tickedWithin(0.15) { Tones.focusTick() }
-        enqueue(words)
+        if reason == .focus {
+            let generation = focusWordsGeneration, done = focusWordsDone
+            enqueue(words, completion: { finished in if finished { done.value = generation } })
+        } else {
+            enqueue(words)
+        }
         if reason == .focus { Hints.schedule(Hints.forObject(obj)) }
     }
 
@@ -542,6 +562,8 @@ public enum Speech {
     /// every read and write is inside it, so the dictionary may be reached from any thread that speaks.
     nonisolated(unsafe) private static var bundleByPid: [pid_t: String] = [:]
     private static let bundleLock = NSLock()
+    /// The app quit: its number may be given to another (a review, 13 Nov 2026).
+    static func forgetBundle(of pid: pid_t) { bundleLock.lock(); bundleByPid[pid] = nil; bundleLock.unlock() }
     static func bundleIdentifier(of pid: pid_t) -> String? {
         bundleLock.lock(); defer { bundleLock.unlock() }
         if let b = bundleByPid[pid] { return b.isEmpty ? nil : b }

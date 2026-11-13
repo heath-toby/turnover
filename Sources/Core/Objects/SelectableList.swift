@@ -159,6 +159,7 @@ open class SelectableList: TurnOverObject {
         }
         if virtualRow != nil, g.modifiers.isEmpty, ["upArrow", "downArrow", "home", "end"].contains(key) { moveVirtually(key); return }
         let before = element.elements(selectionKey).first
+        let pressed = Date()
         g.send()
         // A list whose app has stopped saying its selection moved (Mail after its compose window, 13 Nov 2026: every
         // arrow waited for news that never came, the keys queued behind, and the watchdog gave the Mac to VoiceOver):
@@ -166,7 +167,9 @@ open class SelectableList: TurnOverObject {
         if let q = Self.quietUntil, q.list.isSame(element), Date() < q.until {
             let list = element, key = selectionKey
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
-                guard let self, !EventHandler.isPending(.selection) else { return }
+                // Not when the selection event came and was read before this look: the row was said twice (a review,
+                // 13 Nov 2026). Read for this key already.
+                guard let self, !EventHandler.isPending(.selection), !TurnOverObject.selectionSpoken(since: pressed) else { return }
                 if let now = list.elements(key).first, before.map({ !$0.isSame(now) }) ?? true { self.speakItem(now) }
             }
             return

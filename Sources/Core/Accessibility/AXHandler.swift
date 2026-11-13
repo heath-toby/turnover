@@ -208,6 +208,8 @@ public final class AXHandler {
     var menuGapTarget: AXUIElement?
     var lastAnnouncement = ("", Date.distantPast)
     var lastRefocus: (AXUIElement, Date)?
+    /// When the focus was last checked at a key (checkFocusAtKey: once a second at most).
+    var lastFocusCheckAt = Date.distantPast
 }
 
 extension AXHandler {

@@ -35,6 +35,11 @@ final class NotificationCentreNavigatorPlugin: GlobalPlugin {
         script("nc_leaveWidget", String(localized: "In a Notification Centre widget: back out of it", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:escape"], category: cat) { _ in
             NotificationCentreNavigator.leaveWidget()
         }.isAvailable = { NotificationCentreNavigator.active && NotificationCentreNavigator.inWidget }
+        API.focusChangeHandlers.append { _, new in
+            guard NotificationCentreNavigator.inWidget, !NotificationCentrePanel.isOpen,
+                  new?.pid != NotificationCentrePanel.centrePid() else { return }
+            NotificationCentreNavigator.forgetWidget()
+        }
     }
 }
 
@@ -51,6 +56,13 @@ enum NotificationCentreNavigator {
     /// opens its app at the line, Escape comes back out (a tester, 13 Nov 2026).
     private static var widget: (name: String, lines: [DesktopNavigator.Line], index: Int)?
     static var inWidget: Bool { widget != nil }
+    /// The panel closed, or the focus went elsewhere with it closed: out of any widget, so the next opening isn't still
+    /// inside the last one's lines (a review, 13 Nov 2026).
+    static func forgetWidget() {
+        guard widget != nil else { return }
+        Log.io("notification centre: out of the widget (the panel closed)")
+        widget = nil
+    }
 
     private static func enterWidget(_ item: Item, name: String) -> Bool {
         let ls = DesktopNavigator.widgetLines(item.element)

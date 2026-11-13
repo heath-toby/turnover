@@ -158,6 +158,10 @@ public enum InputManager {
 
         if gesture.modifiers == [.command], gesture.keyName == "w", let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { AXHandler.shared.afterWindowClose(pid: pid) }
+        } else if !gesture.isRepeat {
+            // Any other key: a focus that died with no news is found here, not only after Command W (a review, 13 Nov
+            // 2026). After the key, at most once a second (checkFocusAtKey).
+            DispatchQueue.main.async { AXHandler.shared.checkFocusAtKey() }
         }
         if ScreenRecognition.shared.isOpen {
             // A Command key (Command Tab, Command Space): the result closes and the key does what it always does.

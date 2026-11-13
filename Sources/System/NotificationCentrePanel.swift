@@ -71,7 +71,9 @@ public enum NotificationCentrePanel {
             Log.io("notification centre: panel \(isPanel ? "open" : "closed") (foreground window)")
         }
         let opened = isPanel && !open
+        let closed = !isPanel && open
         open = isPanel
+        if closed { afterClose(pid) }
         openPid = pid
         // Opened (Fn N, a click, TurnOver's own key): after the dialog's own words would start, TurnOver's summary by
         // app takes over and lands on the first app (NotificationCentreNavigator).
@@ -85,6 +87,24 @@ public enum NotificationCentrePanel {
             Speech.speakMessage(String(localized: "Notification Centre closed", comment: "Spoken message"))
         }
         cursorBackIfStranded()
+    }
+
+    /// The panel closed (Escape, the clock, a click elsewhere): out of any widget, and the focus back in the app in
+    /// front, read. The app's window coming back says its focus when the app reports one (AXHandler's window change),
+    /// and a cursor left in the panel goes back to the focus (cursorBackIfStranded); but when the panel had taken the
+    /// focus (Fn N) and the app says nothing more, TurnOver's focus was left on the panel's dead element, silent until
+    /// a key (the tester asked whether the focus returns, 13 Nov 2026). A moment later, then, if TurnOver's focus is
+    /// still Notification Centre's or gone, the app's own focus is asked for and read.
+    private static func afterClose(_ centre: pid_t) {
+        NotificationCentreNavigator.forgetWidget()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            guard !isOpen else { return }
+            let active = AXHandler.shared.activePid
+            guard active > 0, active != centre else { return }
+            if let f = API.focusObject, f.pid != centre, f.element.role != "?" { return }   // already back in the app
+            Log.io("notification centre: closed with TurnOver's focus still in it; the app's focus read")
+            AXHandler.shared.refocus(pid: active)   // (the review cursor follows the new focus)
+        }
     }
 
     /// The panel's window took the focus: open, and read by app (once for each opening).

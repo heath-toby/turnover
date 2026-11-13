@@ -560,6 +560,8 @@ public final class ProfileStore {
     nonisolated(unsafe) private var bundleCache: [pid_t: String] = [:]   // under `lock`
     /// The app a replayed screen stands for (a plugin's tests: every element of a replay has a pid of its own).
     nonisolated(unsafe) public var replayBundle: String?   // set and cleared by the test runner, main thread
+    /// The app quit: a new process given its number is not taken for it, profiles and all (a review, 13 Nov 2026).
+    nonisolated public func forget(pid: pid_t) { lock.lock(); bundleCache[pid] = nil; lock.unlock() }
     nonisolated public func bundle(of pid: pid_t) -> String {
         if pid >= 900_000, let b = replayBundle { return b }
         lock.lock(); if let b = bundleCache[pid] { lock.unlock(); return b }; lock.unlock()

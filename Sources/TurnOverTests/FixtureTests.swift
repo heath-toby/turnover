@@ -629,6 +629,10 @@ func focusRuleTests() {
         playing {
             // Set, not reported: the rules would set aside a focus another test has just reported.
             API.setFocusObject(ObjectFactory.make(AXReplay.element(1)), ancestors: [])
+            // The review cursor with it, as a real focus change has it: it was left on the focus rules' page, and the
+            // test passed only while those moves were taken for bounces of an earlier test's cursor (a review, 13 Nov
+            // 2026: a bounce is now only in the same app).
+            ObjectNavigator.shared.focusMoved(to: AXReplay.element(1), pid: 900_009)
             let style = config.general.keyboardStyle
             defer { config.general.keyboardStyle = style }
             @MainActor func command(_ key: String) -> String? { KeyboardGesture(identifier: key).flatMap { ScriptHandler.findScript(for: $0) }?.name }

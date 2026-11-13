@@ -44,12 +44,18 @@ public final class ObjectNavigator {
         cancelWindowSearch()
         guard tracksFocus else { return }
         // Choosing in a held list moves the app's focus (Finder shows the folder): the cursor stays in the list.
-        if heldList != nil, Date() < keepHoldUntil { return }
+        // Only that bounce: no key since, the same app and window. Command Tab away, or a Tab, within the two seconds
+        // was ignored too, and the cursor stayed in the list (a review, 13 Nov 2026).
+        if heldList != nil, let k = keepHold, Self.isBounce(since: k.at, limit: 2, lastKeyAt: InputManager.lastKeyDownAt, now: Date(),
+                                                          samePid: pid == k.pid, sameWindow: Self.sameWindow(e, k.window)) { return }
         // The focus TurnOver just put on the item the cursor landed on, and the app sent it on somewhere else (Safari's
         // toolbar buttons hand it back to the page): the cursor stays on the item. Following the bounce put the
         // cursor on the page, so VO-Right from the toolbar's first button bumped at an edge, or landed on the window's
         // close button (issue 106, 26 Oct 2026).
-        if let f = followed, Date().timeIntervalSince(f.at) < 1.5, !CFEqual(f.element, e) {
+        // Only such a bounce: no key pressed since, in the same app and window. Command Tab to another app or a
+        // deliberate Tab within the second and a half was ignored too (a review, 13 Nov 2026).
+        if let f = followed, Self.isBounce(since: f.at, limit: 1.5, lastKeyAt: InputManager.lastKeyDownAt, now: Date(),
+                                           samePid: pid == f.element.pid, sameWindow: Self.sameWindow(e, f.window)), !CFEqual(f.element, e) {
             var p: AXUIElement? = e; var hops = 0; var inside = false
             while let x = p, hops < 10 { if x.isSame(f.element) { inside = true; break }; p = x.element(kAXParentAttribute); hops += 1 }
             if !inside { Log.io("review: the focus moved on to \(e.role) after following the cursor; the cursor stays"); return }
@@ -65,13 +71,33 @@ public final class ObjectNavigator {
         default: return nil
         }
     }
-    private var keepHoldUntil = Date.distantPast
+    /// A row chosen in a held list: when, in which app and window (the app's own focus move that follows is kept out).
+    private var keepHold: (at: Date, pid: pid_t, window: AXUIElement?)?
+    private func keepHoldNow() {
+        let w = heldList.flatMap { $0.element(kAXWindowAttribute) }
+        keepHold = (Date(), heldList?.pid ?? 0, w)
+    }
 
-    /// The focus TurnOver gave to what its cursor landed on, and when.
-    private var followed: (element: AXUIElement, at: Date)?
+    /// The focus TurnOver gave to what its cursor landed on, and when, in which window.
+    private var followed: (element: AXUIElement, at: Date, window: AXUIElement?)?
+    private func noteFollowed(_ e: AXUIElement) { followed = (e, Date(), e.element(kAXWindowAttribute)) }
     public func isFollowedFocus(_ e: AXUIElement) -> Bool {
         guard let f = followed, Date().timeIntervalSince(f.at) < 1.5 else { return false }
         return CFEqual(f.element, e)
+    }
+
+    /// A focus move that is the app bouncing what TurnOver just did, not the user moving on: within `limit` of it,
+    /// with no key pressed since, in the same app and window.
+    /// (The window is asked last, and only when all else says bounce: this runs on every focus move.)
+    nonisolated package static func isBounce(since: Date, limit: TimeInterval, lastKeyAt: Date, now: Date, samePid: Bool, sameWindow: @autoclosure () -> Bool) -> Bool {
+        now.timeIntervalSince(since) < limit && lastKeyAt <= since && samePid && sameWindow()
+    }
+    /// The element's window is this one (asked only while a bounce is possible). No window known on either side: the
+    /// same, as before.
+    private static func sameWindow(_ e: AXUIElement, _ w: AXUIElement?) -> Bool {
+        guard let w else { return true }
+        guard let ew = e.element(kAXWindowAttribute) else { return true }
+        return CFEqual(ew, w)
     }
 
     /// The keyboard focus follows the cursor, as VoiceOver's and Narrator's do by default: landing on the sidebar (or
@@ -97,7 +123,7 @@ public final class ObjectNavigator {
             if ["AXOutline", "AXTable", "AXList"].contains(t.role) { hold(t) }
             return
         }
-        followed = (t, Date())
+        noteFollowed(t)
         let r = t.set(kAXFocusedAttribute, kCFBooleanTrue)
         Log.io("review: the focus follows the cursor to \(t.role) → \(r.rawValue)")
     }
@@ -182,15 +208,15 @@ public final class ObjectNavigator {
         let row = rows[i]
         let r = list.set(kAXSelectedRowsAttribute, [row] as CFArray)
         Log.io("review: held list, chose row \(i + 1) → \(r.rawValue)")
-        if r == .success { Tones.press(); keepHoldUntil = Date().addingTimeInterval(2); return }
+        if r == .success { Tones.press(); keepHoldNow(); return }
         // No rows to select (a plugin's held grid): the row pressed, or else its first button.
-        if AXUIElementPerformAction(row, kAXPressAction as CFString) == .success { Tones.press(); keepHoldUntil = Date().addingTimeInterval(2); return }
+        if AXUIElementPerformAction(row, kAXPressAction as CFString) == .success { Tones.press(); keepHoldNow(); return }
         var queue = row.elements(kAXChildrenAttribute); var seen = 0
         while !queue.isEmpty, seen < 60 {
             let x = queue.removeFirst(); seen += 1
             var acts: CFArray?; AXUIElementCopyActionNames(x, &acts)
             if ((acts as? [String]) ?? []).contains(kAXPressAction as String), AXUIElementPerformAction(x, kAXPressAction as CFString) == .success {
-                Log.io("review: held list, pressed row \(i + 1)'s \(x.role)"); Tones.press(); keepHoldUntil = Date().addingTimeInterval(2); return
+                Log.io("review: held list, pressed row \(i + 1)'s \(x.role)"); Tones.press(); keepHoldNow(); return
             }
             queue += x.elements(kAXChildrenAttribute)
         }
@@ -1239,7 +1265,7 @@ public final class ObjectNavigator {
         }
         guard let f = found, (f.attr(kAXFocusedAttribute) as? Bool) != true else { return }
         let r = f.set(kAXFocusedAttribute, kCFBooleanTrue)
-        if r == .success { followed = (f, Date()) }
+        if r == .success { noteFollowed(f) }
         Log.io("review: the keyboard put on the \(f.role) near the landing → \(r.rawValue)")
     }
 
