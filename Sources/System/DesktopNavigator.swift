@@ -231,10 +231,10 @@ package enum DesktopNavigator {
             }
             x = y.element(kAXParentAttribute); hops += 1
         }
-        guard let f = TurnOverObject.frame(e), f.width > 0, f.height > 0 else { return false }
+        // Only where the line really is (Mouse.clickIfOver: a window over the widget took the click, a review, 13 Nov 2026).
+        guard Mouse.clickIfOver(e) else { Log.io("widget: the line isn't under its frame; not clicked"); return false }
         Log.io("widget: clicked a line (\(e.role))")
         Tones.press()
-        Mouse.click(at: CGPoint(x: f.midX, y: f.midY), button: .left, count: 1)
         return true
     }
 

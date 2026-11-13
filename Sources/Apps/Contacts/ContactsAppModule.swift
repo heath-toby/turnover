@@ -193,10 +193,11 @@ final class ContactsAppModule: AppModule {
             Log.io("contacts: a detail's menu (\(custom == nil ? "AXShowMenu" : "its own action")) → \(r.rawValue)")
             return r == .success
         }
-        if e.string(kAXIdentifierAttribute) == "InlineActionsHStack", let f = TurnOverObject.frame(e) {
+        if e.string(kAXIdentifierAttribute) == "InlineActionsHStack" {
+            // Only where the icon really is (Mouse.clickIfOver): a stale or off-screen frame clicked whatever was there.
+            guard Mouse.clickIfOver(e) else { Log.io("contacts: the action icon isn't under its frame; not clicked"); return false }
             Log.io("contacts: an action icon clicked")
             Tones.press()
-            Mouse.click(at: CGPoint(x: f.midX, y: f.midY), button: .left, count: 1)
             return true
         }
         return false

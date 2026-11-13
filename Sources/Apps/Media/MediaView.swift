@@ -1488,15 +1488,14 @@ public final class MediaView {
             let canPress = ((acts as? [String]) ?? []).contains(kAXPressAction as String)
             var r: AXError = canPress ? AXUIElementPerformAction(target, kAXPressAction as CFString) : .actionUnsupported
             Log.io("media: press \(Log.words(String(item.label.prefix(50)))) → \(r.rawValue)")
-            if r != .success {
-                _ = AXUIElementPerformAction(target, "AXScrollToVisible" as CFString)
-                if let f = TurnOverObject.frame(target), f.width > 0, f.height > 0 {
-                    Mouse.click(at: CGPoint(x: f.midX, y: f.midY), button: .left, count: 1)
-                    Log.io("media: clicked it instead")
-                    Tones.press()
-                    r = .success
-                }
+            // Only where it really is once scrolled into sight (Mouse.clickIfOver checks the point; a review, 13 Nov 2026).
+            if r != .success, Mouse.clickIfOver(target) {
+                Log.io("media: clicked it instead")
+                Tones.press()
+                r = .success
             }
+            // Neither pressed nor clicked: no page is coming, so the arrows aren't held saying "loading".
+            guard r == .success else { Tones.edge(); Speech.speakMessage(String(localized: "could not open that", comment: "Spoken message")); return }
         } else {
             Speech.speakMessage(String(localized: "nothing to open", comment: "Spoken message")); return
         }
