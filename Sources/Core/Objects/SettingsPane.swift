@@ -140,7 +140,10 @@ public final class SettingsPanePlugin: GlobalPlugin {
         }
         // The last control in sight of a scroll area with more beyond it (a settings pane SwiftUI builds as it is
         // scrolled): a page further, and the window's controls walked again, before Tab goes round to the top.
-        if let h = here, let area = Self.scrollArea(of: all[h]), Self.canScroll(area, down: forward) {
+        // (Not a list's own scroll area: the list is one stop, its rows are its arrows'. Tab from the Open panel's
+        // sidebar scrolled the sidebar a page each time, 13 Nov 2026.)
+        if let h = here, !["AXOutline", "AXTable", "AXList", "AXBrowser", "AXGrid", "AXTextArea", "AXWebArea"].contains(all[h].role),
+           let area = Self.scrollArea(of: all[h]), Self.canScroll(area, down: forward) {
             let n = ((forward ? h + 1 : h - 1) + all.count) % all.count
             let leaves = Self.scrollArea(of: all[n]).map { !$0.isSame(area) } ?? true
             if leaves || (forward ? n < h : n > h), Self.scrollPage(area, down: forward) {

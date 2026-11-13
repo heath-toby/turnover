@@ -83,7 +83,11 @@ open class Dialog: TurnOverObject {
                     if !cells.isEmpty { texts.append(cells.joined(separator: " ")) }
                 }
             } else if Self.containerRoles.contains(r) {
-                queue.append(contentsOf: e.elements(kAXChildrenAttribute))
+                // Not a collection of items (the Apps launcher's icons, each with its name: every app was read as the
+                // dialog's message, 13 Nov 2026): more than ten children, most of them not text.
+                let kids = e.elements(kAXChildrenAttribute)
+                if kids.count > 10, kids.filter({ $0.role == "AXStaticText" }).count * 2 < kids.count { continue }
+                queue.append(contentsOf: kids)
             } else if let l = e.element(kAXTitleUIElementAttribute)?.string(kAXValueAttribute) { labels.insert(l.trimmingCharacters(in: .whitespacesAndNewlines)) }
         }
         return texts.filter { !labels.contains($0) }.joined(separator: ", ")
