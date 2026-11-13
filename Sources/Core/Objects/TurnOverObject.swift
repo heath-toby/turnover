@@ -116,6 +116,22 @@ open class TurnOverObject: ScriptableObject {
             if t.isEmpty, role == .menuItem, let v = element.string(kAXValueAttribute)?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty { return v }
             return t
         }
+        // A panel that can be pressed and names nothing of itself (Loopback's source blocks, Tab stops said as
+        // nothing, 13 Nov 2026): the first names inside it.
+        if axRole == "AXUnknown" || axRole == "AXGroup", (element.attr(kAXFocusedAttribute) as? Bool) == true {
+            var acts: CFArray?
+            if AXUIElementCopyActionNames(element, &acts) == .success, ((acts as? [String]) ?? []).contains(kAXPressAction) {
+                var names: [String] = []
+                var queue = element.elements(kAXChildrenAttribute).prefix(12).map { ($0, 1) }, seen = 0
+                while !queue.isEmpty, seen < 30, names.count < 2 {
+                    let (x, d) = queue.removeFirst(); seen += 1
+                    if let n = (x.string(kAXTitleAttribute) ?? x.string(kAXDescriptionAttribute))?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty {
+                        names.append(n)
+                    } else if d < 3 { queue += x.elements(kAXChildrenAttribute).prefix(12).map { ($0, d + 1) } }
+                }
+                return names.joined(separator: ", ")
+            }
+        }
         return ""
     }
 

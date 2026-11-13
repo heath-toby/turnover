@@ -213,11 +213,14 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // In a window whose Tab loops short, a one-line field gives Tab up too: a loop of fields alone (the Save sheet's
         // name and tags) never reached Where, Cancel or Save (11 Nov 2026). Tab in a one-line field only moves on.
         let oneLine = ["AXTextField", "AXSearchField"].contains(e.role)
-        let inTrap = catalyst || ((!keepsOwnTab(e) || oneLine) && inLoopWindow(e)) || !trapZones.isEmpty && !editable && {
+        let anyTrap = catalyst || ((!keepsOwnTab(e) || oneLine) && inLoopWindow(e)) || !trapZones.isEmpty && !editable && {
             var p: AXUIElement? = e.element(kAXParentAttribute); var hops = 0
             while let x = p, hops < 6 { if trapZones.contains(where: { $0.isSame(x) }) { return true }; p = x.element(kAXParentAttribute); hops += 1 }
             return false
         }()
+        // Never in a page: its Tab is browse mode's or the page's own (BT Cloud Work's settings page: TurnOver's Tab
+        // went to the page itself, again and again, 13 Nov 2026).
+        let inTrap = anyTrap && e.role != "AXWebArea" && !isInWeb(e)
         lock.lock(); let was = _inTrapZone; _inTrapZone = inTrap; lock.unlock()
         if was != inTrap { Log.io("tab trap: \(inTrap ? "in" : "out of") a remembered place (\(e.role) \"\(Log.words(e.string(kAXDescriptionAttribute) ?? e.string(kAXTitleAttribute) ?? ""))\")") }
     }
@@ -423,7 +426,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
             let trap = byTrap || inLoopWindow(target) || inTrapZone
             Log.io("settings: an iPad app; TurnOver's cursor moves, the app's focus is left alone")
             holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true, ownTab: !trap)
-            lock.lock(); _heldByTrap = trap; lock.unlock()
+            lock.lock(); _heldByTrap = trap && target.role != "AXWebArea" && !isInWeb(target); lock.unlock()   // a page keeps its own Tab (BT Cloud Work, 13 Nov 2026)
             return
         }
         _ = target.set(kAXFocusedAttribute, kCFBooleanTrue)
@@ -480,7 +483,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 // over from the held place: Shift Tab went to it and did nothing (11 Nov 2026).
                 let trap = byTrap || inLoopWindow(target) || inTrapZone
                 holdVirtual(target, speak: API.focusObject?.isSameElement(as: target) != true, ownTab: !trap)
-                lock.lock(); _heldByTrap = trap; lock.unlock()
+                lock.lock(); _heldByTrap = trap && target.role != "AXWebArea" && !isInWeb(target); lock.unlock()   // a page keeps its own Tab (BT Cloud Work, 13 Nov 2026)
             }
         }
     }
