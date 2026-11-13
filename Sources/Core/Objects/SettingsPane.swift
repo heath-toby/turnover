@@ -760,6 +760,18 @@ public final class SettingsPanePlugin: GlobalPlugin {
     static var sidewaysLists: [AXUIElement] = []
     /// Grids of same-size buttons taken as one stop (Chess's board), with how many columns: the arrows go both ways.
     static var gridLists: [(container: AXUIElement, columns: Int)] = []
+    /// How many columns, when the frames form a grid of five or more rows of five or more, every row as long; 0
+    /// otherwise. Rows by their middles, a few points apart at most: Chess's board is drawn in perspective, its squares
+    /// each a different size (13 Nov 2026). Pure.
+    package static func gridColumns(of frames: [CGRect]) -> Int {
+        guard frames.count >= 25 else { return 0 }
+        var bands: [(y: CGFloat, n: Int)] = []
+        for f in frames.sorted(by: { $0.midY < $1.midY }) {
+            if let last = bands.last, f.midY - last.y < 6 { bands[bands.count - 1].n += 1 } else { bands.append((f.midY, 1)) }
+        }
+        guard bands.count >= 5, let n = bands.first?.n, n >= 5, bands.allSatisfy({ $0.n == n }) else { return 0 }
+        return n
+    }
     static func gridColumns(_ container: AXUIElement) -> Int? { gridLists.first { CFEqual($0.container, container) }?.columns }
     static func isSideways(_ container: AXUIElement) -> Bool { sidewaysLists.contains { CFEqual($0, container) } }
 
@@ -813,15 +825,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
             // Or a grid of buttons, five or more rows of five or more, every row as long (Chess's board: 64 squares,
             // a Tab each, 13 Nov 2026): one stop, all four arrows across it. Calculator's twenty keys stay keys.
             var gridCols = 0
-            if !(column && wide && stacked), !sideways, !picture, members.count >= 25 {
-                // Rows by their middles, a few points apart at most: the board is drawn in perspective, its squares
-                // each a different size (13 Nov 2026).
-                var bands: [(y: CGFloat, n: Int)] = []
-                for m in members.sorted(by: { $0.1.midY < $1.1.midY }) {
-                    if let last = bands.last, m.1.midY - last.y < 6 { bands[bands.count - 1].n += 1 } else { bands.append((m.1.midY, 1)) }
-                }
-                if bands.count >= 5, let n = bands.first?.n, n >= 5, bands.allSatisfy({ $0.n == n }) { gridCols = n }
-            }
+            if !(column && wide && stacked), !sideways, !picture { gridCols = gridColumns(of: members.map { $0.1 }) }
             guard (column && wide && stacked) || sideways || picture || gridCols > 0 else { continue }
             if gridCols > 0 {
                 gridLists.removeAll { CFEqual($0.container, c) }

@@ -62,7 +62,7 @@ extension SettingsPanePlugin {
     }
 
     /// Whether a control sits in the toolbar's strip: inside the AXToolbar, or its middle within the strip.
-    static func inStrip(_ f: CGRect, of strip: CGRect) -> Bool {
+    package static func inStrip(_ f: CGRect, of strip: CGRect) -> Bool {
         strip.insetBy(dx: -1, dy: -1).contains(CGPoint(x: f.midX, y: f.midY)) && f.height <= strip.height + 2
     }
 
