@@ -164,7 +164,12 @@ extension SettingsPanePlugin {
         guard let cur = API.focusObject?.element, let scope = Self.scopeOf(cur) else { g.send(); return }
         let all = Self.controls(in: scope, toolbars: true, unfocusable: true)
         // The toolbar's stop is the item just used (remembered as the focus landed).
-        guard let here = all.firstIndex(where: { $0.isSame(cur) }), all.count > 1 else { g.send(); return }
+        // The item itself, or whichever of the toolbar's items stands for it (Font Book's Hide Sidebar was missing from
+        // the window's list, and Tab fell through to the app's own, on along the toolbar, 13 Nov 2026).
+        let items = Self.toolbarItems(around: cur)?.items ?? []
+        guard let here = all.firstIndex(where: { $0.isSame(cur) }) ?? all.firstIndex(where: { a in items.contains { $0.isSame(a) } }), all.count > 1 else {
+            Log.io("toolbar: the item isn't among the window's \(all.count) stops; Tab sent on"); g.send(); return
+        }
         var n = ((forward ? here + 1 : here - 1) + all.count) % all.count
         // Not back where the same key came from: Safari's own Tab goes from the address field into the toolbar, and
         // Tab from the toolbar went straight back to the field, never reaching the page (13 Nov 2026).
