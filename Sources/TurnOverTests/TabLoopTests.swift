@@ -35,6 +35,12 @@ func tabLoopTests() {
         expect(SettingsPanePlugin.listStillGood(age: 2, structureNewsSince: false, shapeChanged: true), false, "the window's children or the landing moved")
         expect(SettingsPanePlugin.listStillGood(age: 61, structureNewsSince: false, shapeChanged: false), false, "a minute at most")
     }
+    test("tab trap: please wait only for an app just launched or with no window") {
+        expect(SettingsPanePlugin.saysPleaseWait(launchedAgo: 2, hasWindow: true), true, "launched a moment ago")
+        expect(SettingsPanePlugin.saysPleaseWait(launchedAgo: 600, hasWindow: false), true, "no window at all")
+        expect(SettingsPanePlugin.saysPleaseWait(launchedAgo: 600, hasWindow: true), false, "a window with no controls (an image viewer)")
+        expect(SettingsPanePlugin.saysPleaseWait(launchedAgo: nil, hasWindow: true), false, "no launch date")
+    }
     test("tab loop: only sheets and dialogs are remembered by kind, not document windows") {
         expect(SettingsPanePlugin.loopKindApplies(role: "AXSheet", subrole: nil), true, "a Save sheet")
         expect(SettingsPanePlugin.loopKindApplies(role: "AXWindow", subrole: "AXDialog"), true, "a dialog")

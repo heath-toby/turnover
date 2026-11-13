@@ -207,6 +207,11 @@ public final class SettingsPanePlugin: GlobalPlugin {
         return nil
     }
 
+    /// Tab with nowhere to go: "please wait" for an app launched in the last ten seconds, or one with no window yet.
+    nonisolated public static func saysPleaseWait(launchedAgo: TimeInterval?, hasWindow: Bool) -> Bool {
+        !hasWindow || (launchedAgo.map { $0 < 10 } ?? false)
+    }
+
     func trapMove(_ g: KeyboardGesture, forward: Bool) {
         // An app's module that orders this Tab itself (Mail's message list to the header fields) keeps it.
         if let pid = API.focusPid, let s = AppModuleHandler.shared.appModule(for: pid).script(for: g) {
@@ -217,18 +222,23 @@ public final class SettingsPanePlugin: GlobalPlugin {
         guard let current = Self.virtual ?? API.focusObject?.element, let window = Self.scopeOf(current) else {
             // Nowhere to go from (the place and the focus both gone with the view they were in): the front window's
             // first control, or last for Shift Tab.
-            let front = NSWorkspace.shared.frontmostApplication.map { AXUIElementCreateApplication($0.processIdentifier) }
-            if let app = front, let w = app.element(kAXFocusedWindowAttribute) ?? app.element(kAXMainWindowAttribute) ?? app.elements(kAXWindowsAttribute).first,
-               let target = forward ? Self.controls(in: w, toolbars: true, unfocusable: true).first : Self.controls(in: w, toolbars: true, unfocusable: true).last {
+            let frontApp = NSWorkspace.shared.frontmostApplication
+            let front = frontApp.map { AXUIElementCreateApplication($0.processIdentifier) }
+            let w = front.flatMap { app in app.element(kAXFocusedWindowAttribute) ?? app.element(kAXMainWindowAttribute) ?? app.elements(kAXWindowsAttribute).first }
+            if let w, let target = forward ? Self.controls(in: w, toolbars: true, unfocusable: true).first : Self.controls(in: w, toolbars: true, unfocusable: true).last {
                 Log.io("tab trap: no place left to go from; to the window's \(forward ? "first" : "last") control")
                 Self.focus(target, byTrap: true)
                 Self.setTrapState(for: target)
                 return
             }
-            // An app still coming up (Weather's first Tab, its window not yet answering, said nothing, 13 Nov 2026).
-            Log.io("tab trap: no window with controls yet; the key goes on")
+            Log.io("tab trap: no window with controls; the key goes on")
             g.send()
-            Speech.speakMessage(String(localized: "please wait", comment: "Spoken message"), remember: false)
+            // An app still coming up (Weather's first Tab, its window not yet answering, said nothing, 13 Nov 2026).
+            // Only then: a window with no controls at all (an image viewer's) said "please wait" at every Tab (a
+            // review, 13 Nov 2026).
+            if Self.saysPleaseWait(launchedAgo: frontApp?.launchDate.map { Date().timeIntervalSince($0) }, hasWindow: w != nil) {
+                Speech.speakMessage(String(localized: "please wait", comment: "Spoken message"), remember: false)
+            }
             return
         }
         var all: [AXUIElement]
