@@ -1579,4 +1579,10 @@ func browseTextNavTests() {
         check(DesktopNavigator.keysOnlyOwn(arrived: 4, own: 4), "the same key asked again")
         check(!DesktopNavigator.keysOnlyOwn(arrived: 6, own: 4), "a key typed in the app in between")
     }
+    test("media: what plays, from the player's items") {
+        let e = AXUIElementCreateApplication(1)
+        expect(MediaView.playingText(of: [MediaView.Item(label: "Song, Artist", element: e)]), "Song, Artist", "the information area")
+        expect(MediaView.playingText(of: [MediaView.Item(label: "Nothing playing", element: e)]), "", "nothing playing is nothing")
+        expect(MediaView.playingText(of: []), "", "no player")
+    }
 }

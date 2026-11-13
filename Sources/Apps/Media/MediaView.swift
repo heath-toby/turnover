@@ -136,18 +136,21 @@ public final class MediaView {
         work.beginSession(); queued = []; loadingMore = false; refreshing = false; resolving = false
         jumpedToHeading = nil
         builtAt = .distantPast; pendingSidebarBody = nil
+        pageOpening = nil; loadingKeys = 0   // (a page asked for in an earlier session isn't waited for: a review, 13 Nov 2026)
     }
 
     public func stop() {
         shelfReadiness?.cancel(); shelfReadiness = nil
         work.stop(); queued = []; loadingMore = false; refreshing = false; resolving = false; pendingSidebarBody = nil
         catalogRequest = UUID(); catalog?.cancel(); catalog = nil; catalogDrives = false
+        pageOpening = nil; loadingKeys = 0
     }
 
     private func beginPageIntent() {
         shelfReadiness?.cancel(); shelfReadiness = nil
         work.beginSession(); queued = []; loadingMore = false; refreshing = false; resolving = false; pendingSidebarBody = nil
         jumpedToHeading = nil
+        pageOpening = nil; loadingKeys = 0   // (a newer intent: the last one's wait is over; a press sets it again after)
     }
     private var pendingSidebarBody: [String]?
 
@@ -1731,7 +1734,8 @@ public final class MediaView {
     private var nowPlayingBefore = ""
     private var playbackRequest = UUID()
     /// What the player's information area says, or "" when nothing is playing.
-    private func playingText() -> String {
+    private func playingText() -> String { Self.playingText(of: player) }
+    package nonisolated static func playingText(of player: [Item]) -> String {
         let t = player.first { $0.press == nil }?.label ?? ""
         return t == "Nothing playing" ? "" : t
     }
@@ -1777,19 +1781,34 @@ public final class MediaView {
         let window = modelWindow
         let originalKeys = keys ?? keyCount()
         delay(0.35) { [weak self] in
-            guard let self, isCurrent(session), acceptsWindow(window) else { return }
+            guard let self, isCurrent(session) else { return }
+            // (Every way out of the wait ends "loading" for the arrows: left set, play-only items and lost reads held
+            // them for eight seconds, a review, 13 Nov 2026.)
+            guard acceptsWindow(window) else { pageOpening = nil; return }
             // The sidebar kept as it is when this page wasn't chosen there (See All, an album, Back): Music's sidebar
             // takes three to four seconds to read, and every page opened waited for it (a read took 5.8 s, 13 Nov 2026).
             let keepSidebar = requiredBodyChange == nil && !sidebar.isEmpty
             read(.build(keepSidebar: keepSidebar, detectVideo: !goingBack), capturedWindow: window) { [weak self] result in
-            guard let self, isCurrent(session), let result else { return }
+            guard let self, isCurrent(session) else { return }
+            guard let result else { pageOpening = nil; return }
             if result.video {
+                pageOpening = nil
                 inVideo = true
                 guard keyCount() == originalKeys else { return }
                 Speech.speakMessage(String(localized: "video playing. Space plays and pauses; Escape leaves the video", comment: "Spoken message"))
                 return
             }
-            guard let built = result.built else { return }
+            guard let built = result.built else { pageOpening = nil; return }
+            // An item that only plays: no page is coming, and the player says so at once. The wait ends there, rather
+            // than eight more reads saying "loading" to the arrows (a review, 13 Nov 2026).
+            let nowPlaying = Self.playingText(of: built.player)
+            if pageOpening != nil, requiredBodyChange == nil, !goingBack, unchangedMessage == nil, signature(of: built) == before,
+               !nowPlaying.isEmpty, nowPlaying != nowPlayingBefore {
+                let quiet = keyCount() - loadingKeys == originalKeys
+                pageOpening = nil; loadingKeys = 0
+                if quiet { Speech.speakText(String(localized: "playing, \(nowPlaying)", comment: "Something started playing: %@ is its title")) }
+                return
+            }
             // A page still loading (no shelves yet, 7 Oct 2026): wait for it, rather than read an empty page.
             let bodyPending = requiredBodyChange.map { Self.bodySignature(built.shelves) == $0 || built.shelves.allSatisfy { $0.items.isEmpty } } ?? false
             let waitingOn = (signature(of: built) == before || (built.shelves.isEmpty && tries > 0) || bodyPending) && tries > 0
