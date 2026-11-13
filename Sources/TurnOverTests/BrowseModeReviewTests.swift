@@ -104,6 +104,16 @@ func browseModeReviewTests() {
         expect(BrowseModeDocument.placeAfterRebuild(oldLine: "End", into: 9, oldPosition: 0, in: text), text.range(of: "End").location + 3, "no further than the line")
     }
 
+    test("browse mode review: say all at the end of a copy read again goes on past what it read") {
+        let old = "Top\nFirst part read\n" as NSString
+        expect(BrowseModeDocument.carryOnAfterRebuild(oldText: old, reached: old.length, newText: "Top\nFirst part read\nThe rest\n" as NSString),
+               old.length, "more past its end: on from there")
+        let grown = "Banner\nTop\nFirst part read\nThe rest\n" as NSString
+        expect(BrowseModeDocument.carryOnAfterRebuild(oldText: old, reached: old.length, newText: grown),
+               grown.range(of: "The rest").location, "more above too: past the text read last")
+        expect(BrowseModeDocument.carryOnAfterRebuild(oldText: old, reached: old.length, newText: "Other\n" as NSString), 6, "all gone: within the copy")
+    }
+
     test("browse mode review: a link to this page's anchor is told by its address, the fragment already in the page's or not") {
         expect(BrowseModeDocument.samePageFragment(link: "https://example.com/a#content", page: "https://example.com/a#content"), "content", "Jump to content, a second time")
         expect(BrowseModeDocument.samePageFragment(link: "https://example.com/a#content", page: "https://example.com/a"), "content")

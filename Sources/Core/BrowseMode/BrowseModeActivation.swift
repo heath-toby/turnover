@@ -378,6 +378,40 @@ extension BrowseModeDocument {
         return min(oldPosition, max(0, n - 1))
     }
 
+    /// Say all reached the end of a copy the page said changed (it finished loading under the say all, which only marks
+    /// the copy: pageLoadCompleted): the page read again, and the offset to carry on from in the new copy, past the text
+    /// already read; nil if there is nothing more. Say all ended at the end of the part loaded with "end of document"
+    /// while the rest of the page had come (a review, 13 Nov 2026).
+    func readAgainAtSayAllEnd(reached end: Int) -> Int? {
+        let old = buffer.text
+        rebuildKeepingPlace()
+        guard !buffer.lines.isEmpty else { return nil }
+        let at = Self.carryOnAfterRebuild(oldText: old, reached: end, newText: buffer.text)
+        return at < buffer.text.length ? at : nil
+    }
+
+    /// Where a reading that had reached `reached` in `oldText` goes on in `newText`: the same offset if the copy is
+    /// unchanged up to it (more added past its end), else just past the text read last (its last 80 characters) found
+    /// nearest where it was; failing that, the old offset within the copy. Pure, for the tests.
+    package static func carryOnAfterRebuild(oldText: NSString, reached: Int, newText: NSString) -> Int {
+        let end = min(reached, oldText.length)
+        if newText.length >= end, newText.substring(to: end) == oldText.substring(to: end) { return end }
+        let tailStart = max(0, end - 80)
+        let tail = oldText.substring(with: NSRange(location: tailStart, length: end - tailStart))
+        let n = newText.length
+        if !tail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            var best: Int?; var from = 0
+            while from < n {
+                let r = newText.range(of: tail, options: .literal, range: NSRange(location: from, length: n - from))
+                if r.location == NSNotFound { break }
+                if best == nil || abs(r.location - tailStart) < abs(best! - tailStart) { best = r.location }
+                from = r.location + 1
+            }
+            if let best { return best + (tail as NSString).length }
+        }
+        return min(end, n)
+    }
+
     /// The copy is of a page that is gone (a reload): the elements it was read from, sampled at its start, middle and
     /// end, all answer nothing. Three questions; a page that only changed keeps most of its elements.
     func pageIsGone() -> Bool {
