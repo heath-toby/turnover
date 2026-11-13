@@ -526,6 +526,33 @@ func pureTests() {
         expect(answer.value, .passed, "an unbound key goes to the application")
         if case .found(let found) = ScriptHandler.lookup(g) { expect(found.name, "test_mainkey") } else { Harness.fail("the main thread's own lookup") }
     }
+    // A key typed behind a late one went to the app before main re-posted the late one: "b a" (a review, 13 Nov 2026).
+    test("keys: a key behind a deferred one waits its turn, and main sends both in the order typed") {
+        let savedPoster = KeyboardGesture.poster
+        let sent = Locked<[String]>([])
+        KeyboardGesture.poster = { g in sent.lock.lock(); sent.unsafeValue.append(g.identifier); sent.lock.unlock() }
+        defer { KeyboardGesture.poster = savedPoster }
+        let a = KeyboardGesture(identifier: "kb:control+option+shift+f15")!, b = KeyboardGesture(identifier: "kb:control+option+shift+f14")!
+        let first = Locked<ScriptHandler.KeyDecision?>(nil), second = Locked<ScriptHandler.KeyDecision?>(nil)
+        let secondTook = Locked<TimeInterval>(1)
+        Thread {
+            first.value = ScriptHandler.askMain(a)
+            let t0 = Date()
+            second.value = ScriptHandler.askMain(b)
+            secondTook.value = Date().timeIntervalSince(t0)
+        }.start()
+        Thread.sleep(forTimeInterval: 0.5)   // main busy through both questions
+        expect(first.value, .deferred, "the first key waits for main")
+        expect(second.value, .deferred, "the key behind it waits too, rather than going on ahead")
+        check(secondTook.value < 0.1, "deferred at once, not after its own wait: \(secondTook.value)")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        expect(sent.value, [a.identifier, b.identifier], "main sends them in the order typed")
+        // Main has caught up: the next key is answered as usual.
+        let third = Locked<ScriptHandler.KeyDecision?>(nil)
+        Thread { third.value = ScriptHandler.askMain(a) }.start()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        expect(third.value, .passed, "no key left owed")
+    }
     // The Windows style's translation is decided in the same round trip as the key's handling (a review, 13 Nov 2026).
     test("keys: one question to main hands the translated key on only where TurnOver has nothing for the key itself") {
         let ran = Locked<String?>(nil)

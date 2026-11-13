@@ -77,6 +77,8 @@ public enum ScriptHandler {
     /// caret) gives way when the count moves, even while the main thread is too busy to look the new key up.
     nonisolated private static let keysArrived = Locked(0)
     nonisolated public static var keysArrivedCount: Int { keysArrived.value }
+    /// Keys deferred (main did not answer within `lookupLimit`) whose turn on main has not finished yet.
+    nonisolated private static let outstandingLate = Locked(0)
 
     nonisolated public static func askMain(_ gesture: KeyboardGesture) -> KeyDecision { askMain(gesture, otherwise: nil).decision }
 
@@ -92,6 +94,17 @@ public enum ScriptHandler {
         let state = Locked(Wait.waiting); let done = DispatchSemaphore(value: 0)
         let usedAlternative = Locked(false)
         let started = DispatchTime.now()
+        // A key behind a late one waits its turn: while main still owes an earlier key (it re-posts it when it gets
+        // there), this one is deferred at once, and main, taking its blocks in order, sends both in the order typed.
+        // Answered in time, "b" went on to the app while main still owed it "a", and the app got "b a" (a review,
+        // 13 Nov 2026).
+        let behindLate: Bool = {
+            outstandingLate.lock.lock(); defer { outstandingLate.lock.unlock() }
+            guard outstandingLate.unsafeValue > 0 else { return false }
+            outstandingLate.unsafeValue += 1
+            return true
+        }()
+        if behindLate { state.value = .timedOut }
         DispatchQueue.main.async { MainActor.assumeIsolated {
             var handled = gesture
             if let alternative {
@@ -112,12 +125,17 @@ public enum ScriptHandler {
                 let ms = Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1e6
                 Log.warning("keyboard: \(handled.logDescription()) answered after \(Int(ms)) ms: \(taken ? "its script runs now" : "sent on to the application now")")
                 if !taken { handled.send() }
+                outstandingLate.lock.lock(); outstandingLate.unsafeValue -= 1; outstandingLate.lock.unlock()
             } else { done.signal() }
         } }
+        if behindLate { return (.deferred, false) }
         if done.wait(timeout: .now() + lookupLimit) == .timedOut {
             state.lock.lock(); defer { state.lock.unlock() }
             if case .answered(let taken) = state.unsafeValue { return (taken ? .taken : .passed, usedAlternative.value) }
             state.unsafeValue = .timedOut
+            // Counted while `state` is held: main's late branch reads `state` first, so it cannot count this key
+            // down before it is counted.
+            outstandingLate.lock.lock(); outstandingLate.unsafeValue += 1; outstandingLate.lock.unlock()
             return (.deferred, false)
         }
         if case .answered(let taken) = state.value { return (taken ? .taken : .passed, usedAlternative.value) }
