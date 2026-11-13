@@ -1,8 +1,52 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import TurnOverCore
+import TurnOverAX
+import AXFixtures
+import CoreGraphics
 import Foundation
 
+private final class TerminalTestObject: TurnOverObject {
+    override var role: Role { .terminal }
+}
+
 func keyboardSessionTests() {
+    // Control let go before Home: the press was Command Up, and the release, translated again from its own
+    // modifiers, Command Left (a review, 13 Nov 2026). The release is given what the press became.
+    test("keys: a translated key's release becomes what its press became") {
+        let controlHome = KeyTranslation(code: 126, add: .maskCommand, remove: .maskControl)   // Control Home: Command Up
+        let press = controlHome.flags(from: [.maskControl, .maskSecondaryFn])
+        check(press.contains(.maskCommand) && !press.contains(.maskControl), "the press: Command for Control")
+        check(press.contains(.maskNumericPad) && press.contains(.maskSecondaryFn), "an arrow carries Fn and the keypad flag")
+        let release = controlHome.flags(from: [])   // Control already let go
+        check(release.contains(.maskCommand) && release.contains(.maskNumericPad), "the release is still Command Up's")
+        let redo = KeyTranslation(code: 6, add: [.maskCommand, .maskShift], remove: .maskControl)   // Control Y: Command Shift Z
+        expect(redo.flags(from: .maskControl), [.maskCommand, .maskShift], "a letter gains no arrow flags")
+    }
+    // Ghostty, Alacritty, WezTerm and VS Code's terminal got Command C for Control C: keepControl knows terminals
+    // only by bundle (a review, 13 Nov 2026).
+    test("keys: the Windows style keeps Control for the shell in any focused terminal") {
+        let fixture = AXFixture(app: "Public terminal sample", bundle: "org.turnover.public-terminal-sample", recorded: "synthetic", root: 1, application: 0, focus: 1, nodes: [
+            .init(id: 0, attrs: ["AXRole": .string("AXApplication"), "AXFocusedUIElement": .element(1)]),
+            .init(id: 1, attrs: ["AXRole": .string("AXTextArea"), "AXParent": .element(0)]),
+        ])
+        AXReplay.load(fixture)
+        let savedFocus = API.focusObject, savedAncestors = API.focusAncestors, savedInterceptor = API.focusTreeInterceptor
+        let ran = Locked(false)
+        let s = GlobalCommands.shared.script("test_terminalcopy", String(localized: "", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:control+option+shift+f20"]) { _ in ran.value = true }
+        defer {
+            s.isAvailable = { false }
+            API.setFocusObject(savedFocus, ancestors: savedAncestors, interceptor: savedInterceptor)
+            AXReplay.unload()
+        }
+        API.setFocusObject(TerminalTestObject(element: AXReplay.element(1)), ancestors: [])
+        let answer = Locked<(ScriptHandler.KeyDecision, Bool)?>(nil)
+        Thread { let a = ScriptHandler.askMain(KeyboardGesture(identifier: "kb:control+option+shift+f15")!, otherwise: KeyboardGesture(identifier: "kb:control+option+shift+f20")!); answer.value = (a.decision, a.usedAlternative) }.start()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        expect(answer.value?.0, .passed, "the key itself goes on to the shell")
+        expect(answer.value?.1, false, "not translated in a terminal")
+        check(!ran.value, "the translation's command did not run")
+    }
+
     test("keyboard permission recovery: automatic VoiceOver restoration permits permission-grant retry") {
         let activation = KeyboardActivation()
         var worker = KeyboardSessionState()

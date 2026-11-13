@@ -111,7 +111,9 @@ public enum InputManager {
         SpeechPlayer.current?.cancel()
     }
 
-    public static func handleKeyDown(_ gesture: KeyboardGesture) -> Bool {
+    /// `resolved`: the gesture's script (or .some(nil), none) when the caller has already looked it up
+    /// (ScriptHandler.askMain, with the Windows style's translation); nil to look it up here.
+    public static func handleKeyDown(_ gesture: KeyboardGesture, script resolved: Script?? = nil) -> Bool {
         Hints.cancel()
         ObjectNavigator.shared.cancelWindowSearch()
         FormattingFeedback.shared.cancel()
@@ -156,7 +158,7 @@ public enum InputManager {
         }
         // On the main thread since Swift 6 (10 Oct 2026): the keyboard thread waits for this answer, bounded
         // (ScriptHandler.askMain), so the availability checks may talk to the application freely.
-        let script = ScriptHandler.findScript(for: gesture)
+        let script = resolved ?? ScriptHandler.findScript(for: gesture)
         // What the user types is never written down: a password typed where TurnOver thought a password field was
         // went into the log character by character (5 Oct 2026), and every e-mail typed was there too. A typed key
         // is logged as just that; a key that runs a script (browse mode's single letters) by its name.

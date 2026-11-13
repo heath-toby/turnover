@@ -64,12 +64,12 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
     private var lastCapsUp: UInt64 = 0
     private var realCapsOn = false
     private var quarantined = Set<Int64>()
-    /// Keys translated on the way down (the Windows style): their release is translated too.
-    private var remapped = Set<Int64>()
+    /// Keys translated on the way down (the Windows style), and what each became: its release is given the same.
+    private var remapped: [Int64: KeyTranslation] = [:]
     private var echoCode: Int64 = -1
     private var echoAt: UInt64 = 0
     private var echoCount = 0
-    private var controlAlone = false
+    private var loneControl = LoneModifier()
     private var loneShift = LoneModifier()
     /// Option pressed and released with nothing else, quickly: left Option is the Windows key (the Dock),
     /// right Option the Applications key (Control+Return, the context menu).
@@ -209,7 +209,7 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         // would swallow the next real key-up, and the app would see a key held down (a code review, 14 Oct 2026).
         quarantined.removeAll(); remapped.removeAll(); capsDown = false; chordFired = false; keypadZeroDown = false
         Self.capsHeld.value = false
-        controlAlone = false; loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
+        loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(kIOHIDSystemClass))
         if service != 0 {
             let r = IOServiceOpen(service, mach_task_self_, UInt32(kIOHIDParamConnectType), &mine.connect)
@@ -308,7 +308,9 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             capsDown = false; Self.capsHeld.value = false
             setLock(realCapsOn)
             let sinceLastUp = Double(stamp &- lastCapsUp) * Self.machToNs / 1_000_000
-            lastCapsUp = stamp
+            // A press that made a chord starts no double tap: a lone tap just after Caps Lock H toggled the real
+            // Caps Lock (a review, 13 Nov 2026).
+            lastCapsUp = chordFired ? 0 : stamp
             if !chordFired && sinceLastUp < 350 {
                 realCapsOn.toggle()
                 setLock(realCapsOn)
@@ -370,10 +372,17 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         return nil
     }
 
+    /// Key-downs whose release the tap was waiting for: forgotten when releases may have gone by unseen.
+    private func forgetHeldKeys() {
+        quarantined.removeAll(); remapped.removeAll(); arrowHeld = nil
+    }
+
     private func tapEvent(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         guard let generation = layer?.generation, isRequested(generation) else { return Unmanaged.passUnretained(event) }
         if Self.bypass, type != .tapDisabledByTimeout, type != .tapDisabledByUserInput {
-            if !quarantined.isEmpty { quarantined.removeAll() }   // their key-ups pass now; none must be swallowed later
+            // Their key-ups pass now, untouched: none must be swallowed or translated later, and a held Quick Nav
+            // arrow is no longer held (remapped and arrowHeld were kept: a review, 13 Nov 2026).
+            forgetHeldKeys()
             return Unmanaged.passUnretained(event)
         }
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
@@ -385,6 +394,9 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
                 CFRunLoopStop(CFRunLoopGetCurrent())
                 return Unmanaged.passUnretained(event)
             }
+            // While the tap was off, key-ups went by unseen: a code kept here would swallow or translate the next
+            // real release of that key (a review, 13 Nov 2026).
+            forgetHeldKeys()
             // Three times in ten seconds: say so, once a minute (the team review: a failure that leaves the user
             // without keys is told, not only logged, 8 Oct 2026).
             let now = Date()
@@ -403,7 +415,7 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         // VoiceOver seemed not to answer its key (25 Oct 2026). TurnOver has no command on it.
         if (type == .keyDown || type == .keyUp), Self.isVoiceOverToggle(code: code, flags: event.flags) {
             // A modifier pressed with it isn't a modifier pressed alone: no Dock or menu when it is let go.
-            controlAlone = false; loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
+            loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
             return Unmanaged.passUnretained(event)
         }
         // A direct app in front (Command Control Comma, D): every key goes to it alone, before TurnOver's commands and
@@ -424,19 +436,21 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             if code == 57 { return settings.capsIsTurnOver ? nil : Unmanaged.passUnretained(event) }   // caps lock's own event: nobody sees it while it is the TurnOver key
             // Control pressed and released alone stops speech (NVDA: the control key cancels).
             let ctrl = event.flags.contains(.maskControl)
+            // Let go within LoneModifier's time, as the other lone keys: with no limit, Control held a while (to
+            // Control-click, whose click this tap never sees) paused or stopped speech as it came up (a review,
+            // 13 Nov 2026).
             if code == 59 || code == 62 {
-                if ctrl { controlAlone = true }
-                else if controlAlone {
+                if ctrl { loneControl.down(alone: true, secureInput: false) }
+                else if loneControl.up(secureInput: false) {
                     // In keyboard help, Control is only named. Mac style: VoiceOver's pause and resume. Windows style:
                     // NVDA's stop (Shift pauses there, below) (12 Oct 2026).
-                    controlAlone = false
                     let stop = settings.windowsKeys
                     if !InputManager.isInputHelpActive { onMain { if stop { SayAll.stop(); Speech.cancel() } else { Speech.togglePause() } } }
                 }
-            } else { controlAlone = false }
+            } else { loneControl.cancel() }
             // While secure input is on no key between is heard, so Shift, Command and Option are not pressed alone then
-            // (LoneModifier). Control, above, is left as it was: it is all there is to quiet speech then, and left out as
-            // well it couldn't, while Chrome held secure input (1 Nov 2026).
+            // (LoneModifier). Control, above, is never set aside for it (secureInput: false): it is all there is to
+            // quiet speech then, and left out as well it couldn't, while Chrome held secure input (1 Nov 2026).
             let secure = IsSecureEventInputEnabled()
             // Shift pressed and released alone, Windows style: NVDA's pause and resume.
             if code == 56 || code == 60 {
@@ -490,12 +504,14 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             if !event.flags.contains(.maskAlternate) { optionCode = 0 }
             return Unmanaged.passUnretained(event)
         }
-        controlAlone = false; loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
+        loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
         if let r = keypad(type, event, code, settings) { return r }
         if let r = quickNavArrow(type, event, code, settings) { return r }
         if type == .keyUp {
             if quarantined.contains(code) { quarantined.remove(code); return nil }
-            if remapped.contains(code) { remapped.remove(code); WindowsRemap.apply(.keyUp, event) }
+            // What its press became, not a translation worked out again from the release's own modifiers and app:
+            // Control let go before Home made the press Command Up and the release Command Left (a review, 13 Nov 2026).
+            if let t = remapped.removeValue(forKey: code) { t.apply(to: event) }
             return passOrRedirect(event)
         }
         guard type == .keyDown else { return Unmanaged.passUnretained(event) }
@@ -564,7 +580,9 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         // takes it only when TurnOver has nothing of its own for the key (one round trip, not two in turn: a review,
         // 13 Nov 2026). A TurnOver chord is not translated.
         var translated: KeyboardGesture?
-        if settings.windowsKeys, !mods.contains(.turnover), let copy = event.copy(), WindowsRemap.apply(.keyDown, copy) {
+        var translation: KeyTranslation?
+        if settings.windowsKeys, !mods.contains(.turnover), let copy = event.copy(), let t = WindowsRemap.apply(.keyDown, copy) {
+            translation = t
             let c2 = copy.getIntegerValueField(.keyboardEventKeycode)
             var m2 = Modifiers()
             if copy.flags.contains(.maskShift) { m2.insert(.shift) }
@@ -574,15 +592,24 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             translated = KeyboardGesture(keyCode: c2, modifiers: m2, characters: Self.characters(of: copy), timestamp: gesture.timestamp, isRepeat: gesture.isRepeat, flags: copy.flags)
         }
         let (decision, usedTranslation) = ScriptHandler.askMain(gesture, otherwise: translated)
-        if usedTranslation {
-            WindowsRemap.apply(.keyDown, event)   // the key itself, as the copy was: it may go on to the app below
-            remapped.insert(code)
-        }
         switch decision {
         case .taken, .deferred:
             quarantined.insert(code)
+            remapped[code] = nil   // its release is swallowed, untranslated
             return nil
         case .passed:
+            // This press goes to the app, so its release must too. A code taken on an earlier press (Down held in a
+            // list that put the focus in a field; Tab into a secure field, whose release the tap never sees) swallowed
+            // the next release, and the app saw the key held (a review, 13 Nov 2026).
+            quarantined.remove(code)
+            // Main chose the translation: the key goes on as the copy main saw, its code and flags, worked out before
+            // main answered. Translated again here, after the wait, the app in front may have changed (a review,
+            // 13 Nov 2026). Its release is given the same; an untranslated press leaves no translation for it.
+            if usedTranslation, let translation, let translated {
+                event.setIntegerValueField(.keyboardEventKeycode, value: translated.keyCode)
+                event.flags = translated.flags
+                remapped[code] = translation
+            } else { remapped[code] = nil }
             if code == 48, event.flags.contains(.maskCommand) { clearLeftoverModifiers(before: "Command Tab") }
             return passOrRedirect(event)
         }

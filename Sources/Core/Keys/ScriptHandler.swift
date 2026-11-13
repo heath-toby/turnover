@@ -77,6 +77,8 @@ public enum ScriptHandler {
     /// caret) gives way when the count moves, even while the main thread is too busy to look the new key up.
     nonisolated private static let keysArrived = Locked(0)
     nonisolated public static var keysArrivedCount: Int { keysArrived.value }
+    /// Keys deferred (main did not answer within `lookupLimit`) whose turn on main has not finished yet.
+    nonisolated private static let outstandingLate = Locked(0)
 
     nonisolated public static func askMain(_ gesture: KeyboardGesture) -> KeyDecision { askMain(gesture, otherwise: nil).decision }
 
@@ -92,18 +94,38 @@ public enum ScriptHandler {
         let state = Locked(Wait.waiting); let done = DispatchSemaphore(value: 0)
         let usedAlternative = Locked(false)
         let started = DispatchTime.now()
+        // A key behind a late one waits its turn: while main still owes an earlier key (it re-posts it when it gets
+        // there), this one is deferred at once, and main, taking its blocks in order, sends both in the order typed.
+        // Answered in time, "b" went on to the app while main still owed it "a", and the app got "b a" (a review,
+        // 13 Nov 2026).
+        let behindLate: Bool = {
+            outstandingLate.lock.lock(); defer { outstandingLate.lock.unlock() }
+            guard outstandingLate.unsafeValue > 0 else { return false }
+            outstandingLate.unsafeValue += 1
+            return true
+        }()
+        if behindLate { state.value = .timedOut }
         DispatchQueue.main.async { MainActor.assumeIsolated {
             var handled = gesture
-            if let alternative {
+            // Each key is looked up once, and what was found handed on: availability checks talk to the application,
+            // and the Windows style's leftToApp scans its menus, up to three times a key (a review, 13 Nov 2026).
+            // nil: handleKeyDown looks `handled` up itself.
+            var resolved: Script?? = nil
+            // Never in a terminal, whatever app it is in: Control C is the shell's there, as GlobalCommands.leftToApp
+            // has it. WindowsRemap.keepControl knows terminal apps only by name, and VS Code's terminal, Ghostty,
+            // Alacritty and WezTerm got Command C (a review, 13 Nov 2026).
+            if let alternative, API.focusObject?.role != .terminal {
                 let own = findScript(for: gesture)
                 // No command for the Windows key: the Mac key it becomes. Or the same command for both (End and
                 // Command Right both a text field's caret move): the Mac key too, so the app gets the key that moves
                 // its caret. End went on to TextEdit as End, which only scrolls, and said nothing (a sweep, 13 Nov 2026).
-                if own == nil || own.map({ o in findScript(for: alternative).map { $0.name == o.name } ?? false }) == true {
-                    handled = alternative; usedAlternative.value = true
-                }
+                if let own {
+                    let other = findScript(for: alternative)
+                    if other?.name == own.name { handled = alternative; usedAlternative.value = true; resolved = .some(other) }
+                    else { resolved = .some(own) }
+                } else { handled = alternative; usedAlternative.value = true }
             }
-            let taken = InputManager.handleKeyDown(handled)
+            let taken = InputManager.handleKeyDown(handled, script: resolved)
             var late = false
             state.lock.lock()
             if case .timedOut = state.unsafeValue { late = true } else { state.unsafeValue = .answered(taken) }
@@ -112,12 +134,17 @@ public enum ScriptHandler {
                 let ms = Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1e6
                 Log.warning("keyboard: \(handled.logDescription()) answered after \(Int(ms)) ms: \(taken ? "its script runs now" : "sent on to the application now")")
                 if !taken { handled.send() }
+                outstandingLate.lock.lock(); outstandingLate.unsafeValue -= 1; outstandingLate.lock.unlock()
             } else { done.signal() }
         } }
+        if behindLate { return (.deferred, false) }
         if done.wait(timeout: .now() + lookupLimit) == .timedOut {
             state.lock.lock(); defer { state.lock.unlock() }
             if case .answered(let taken) = state.unsafeValue { return (taken ? .taken : .passed, usedAlternative.value) }
             state.unsafeValue = .timedOut
+            // Counted while `state` is held: main's late branch reads `state` first, so it cannot count this key
+            // down before it is counted.
+            outstandingLate.lock.lock(); outstandingLate.unsafeValue += 1; outstandingLate.lock.unlock()
             return (.deferred, false)
         }
         if case .answered(let taken) = state.value { return (taken ? .taken : .passed, usedAlternative.value) }

@@ -7,7 +7,8 @@
 // let go after a shortcut looked pressed on its own: while Chrome held secure input after a sign-in, Command Tab and
 // Command A opened the menu bar, six times of six (macOS 27.2, JAWS keys, 31 Oct 2026). A modifier is on its own only
 // with secure input off both as it goes down and as it comes up. Control, which stops speech (pauses it in the Mac
-// style), keeps its own flag in KeyboardHandler and no such rule: it is all there is to quiet speech then (1 Nov 2026).
+// style), has no such rule (KeyboardHandler passes secureInput: false): it is all there is to quiet speech then
+// (1 Nov 2026). It has the time limit, since a review of 13 Nov 2026.
 import Foundation
 
 nonisolated public struct LoneModifier: Sendable {
