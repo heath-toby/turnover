@@ -655,7 +655,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
     static func scopeOf(_ e: AXUIElement) -> AXUIElement? {
         var p: AXUIElement? = e; var hops = 0
         while let x = p, hops < 25 { let r = x.role; if r == "AXSheet" || r == "AXPopover" { return x }; if r == "AXWindow" { return x }; p = x.element(kAXParentAttribute); hops += 1 }
-        return windowOf(e)
+        // Or the app's own front window, for a control that names neither (iMazing's sidebar: Tab there gave up in
+        // silence, 13 Nov 2026).
+        return windowOf(e) ?? AXUIElementCreateApplication(e.pid).element(kAXFocusedWindowAttribute)
     }
 
     public static func windowOf(_ e: AXUIElement) -> AXUIElement? {
