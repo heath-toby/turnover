@@ -572,6 +572,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
 
     /// What TurnOver lands on is brought into sight, as VoiceOver's cursor does: a control below a dialog's or a
     /// settings pane's visible part was reached by Tab but stayed out of sight (a tester, 11 Nov 2026).
+    /// Scrolled into sight first (its frame is read after): true, for use in a condition.
+    static func scrollIntoViewThen(_ e: AXUIElement) -> Bool { scrollIntoView(e); return true }
+
     static func scrollIntoView(_ e: AXUIElement) {
         guard let area = scrollArea(of: e), let af = TurnOverObject.frame(area), let f = TurnOverObject.frame(e), f.height > 0,
               !af.insetBy(dx: -1, dy: -1).contains(CGRect(x: f.minX, y: f.minY, width: min(f.width, af.width), height: min(f.height, af.height))) else { return }
@@ -660,13 +663,36 @@ public final class SettingsPanePlugin: GlobalPlugin {
 
     /// Space or Return on a held control: press it.
     private func pressHeld(_ g: KeyboardGesture) {
+        // (Or a helper drawing for the app in front: System Settings' pane extensions, 13 Nov 2026.)
         guard let v = Self.virtual, API.focusObject?.isSameElement(as: v) == true,
-              v.pid == NSWorkspace.shared.frontmostApplication?.processIdentifier else { g.send(); return }
+              v.pid == NSWorkspace.shared.frontmostApplication?.processIdentifier
+                || NSRunningApplication(processIdentifier: v.pid).map({ AXHandler.shared.isHelperOfActiveApp($0) }) == true else { g.send(); return }
         if RowControl.pressToggle(in: v) { return }
         // An app's module that presses some held places its own way (Contacts' details open their menu, its action
         // icons are clicked).
         if let b = NSRunningApplication(processIdentifier: v.pid)?.bundleIdentifier, let press = Self.pressOverrides[b], press(v) { return }
         let window = Self.windowOf(v), titleBefore = window?.string(kAXTitleAttribute)
+        // A link with no actions at all (SwiftUI's "Learn more…" in a line of text): clicked.
+        if v.role == "AXLink" {
+            var names: CFArray?
+            AXUIElementCopyActionNames(v, &names)
+            // Its address, where it carries one (System Settings keeps it in the identifier: help://…), opened
+            // directly: a click missed a link scrolled out of sight.
+            if ((names as? [String]) ?? []).isEmpty,
+               let id = v.string(kAXIdentifierAttribute) ?? (v.attr(kAXURLAttribute) as? URL)?.absoluteString,
+               let url = URL(string: id), let scheme = url.scheme, ["help", "http", "https", "x-apple.systempreferences", "x-help-action"].contains(scheme) {
+                Log.io("settings: opened a link's \(scheme) address")
+                Tones.press()
+                NSWorkspace.shared.open(url)
+                return
+            }
+            if ((names as? [String]) ?? []).isEmpty, Self.scrollIntoViewThen(v), let f = TurnOverObject.frame(v), f.width > 0 {
+                Log.io("settings: clicked a link with no actions")
+                Tones.press()
+                Mouse.click(at: CGPoint(x: f.midX, y: f.midY), button: .left, count: 1)
+                return
+            }
+        }
         let r = AXUIElementPerformAction(v, kAXPressAction as CFString)
         Log.io("settings: pressed the held \(v.role) → \(describeError(r))")
         if r == .success {
@@ -800,7 +826,8 @@ public final class SettingsPanePlugin: GlobalPlugin {
             // A canvas: a scroll area that takes the keyboard itself (Freeform's board), where the app's keys work.
             // Tab never came back to it (12 Nov 2026). Still walked into: what's on it may be controls of its own.
             if role == "AXScrollArea", canvas(e), let f = TurnOverObject.frame(e), f.width > 0, f.height > 0 { found.append((e, f)) }
-            if controlRoles.contains(role) || isPressableItem(e), (e.attr(kAXEnabledAttribute) as? Bool) != false, let whole = TurnOverObject.frame(e), whole.width > 0, whole.height > 0 {
+            // (A link in a line of text says it's disabled, and opens when clicked: kept, SwiftUI's "Learn more…".)
+            if controlRoles.contains(role) || isPressableItem(e), role == "AXLink" || (e.attr(kAXEnabledAttribute) as? Bool) != false, let whole = TurnOverObject.frame(e), whole.width > 0, whole.height > 0 {
                 // Out of view altogether: where it is (a row scrolled away is still in its place in the order).
                 let seen = clip.map { whole.intersection($0) }, f = seen.map { $0.isNull || $0.isEmpty ? whole : $0 } ?? whole
                 var settable: DarwinBoolean = false

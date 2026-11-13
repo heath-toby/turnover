@@ -322,6 +322,8 @@ open class TurnOverObject: ScriptableObject {
         // disabled, and each Tab said "Split, button, unavailable" (parts sweep, 14 Oct 2026).
         if let enabled = element.attr(kAXEnabledAttribute) as? Bool, !enabled, !Role.neverUnavailable.contains(role),
            element.element(kAXParentAttribute)?.string(kAXSubroleAttribute) != "AXSectionList",
+           // A link in a line of text (SwiftUI's "Learn more…") says it's disabled and opens when clicked (13 Nov 2026).
+           !(axRole == "AXLink" && element.element(kAXParentAttribute)?.role == "AXStaticText"),
            (element.attr(kAXFocusedAttribute) as? Bool) != true { s.insert(.unavailable) }
         if let f = element.attr(kAXFocusedAttribute) as? Bool, f { s.insert(.focused) }
         if let sel = element.attr(kAXSelectedAttribute) as? Bool, sel { s.insert(.selected) }

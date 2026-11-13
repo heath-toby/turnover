@@ -131,7 +131,9 @@ package enum SystemSettingsPaneFocus {
             visited += 1
             let role = e.role
             if role == "AXScrollBar" { return }
-            if controlRoles.contains(role), (e.attr(kAXEnabledAttribute) as? Bool) != false {
+            // (A link inside a line of text, "Learn more…", says it is disabled and has no actions, yet opens when
+            // clicked: kept, and pressed by a click, a tester, 13 Nov 2026.)
+            if controlRoles.contains(role), role == "AXLink" || (e.attr(kAXEnabledAttribute) as? Bool) != false {
                 out.append(e)
                 if ["AXOutline", "AXTable", "AXList"].contains(role) { return }   // a list's rows are its own to move
             }
