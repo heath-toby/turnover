@@ -425,7 +425,10 @@ public final class ObjectNavigator {
                 node = forward ? nextInOrder(after: n, root: root, enter: true) : previousInOrder(before: n, root: root)
                 continue
             }
-            if Self.isItem(n), !(labelSource.map { $0.isSame(n) } ?? false) { land(on: n); landedByStep = true; return }
+            // VoiceOver's "Skip redundant labels" (on, as before; 14 Nov 2026): the text a plugin label took the item's
+            // name from is passed over, since the item has just said it.
+            let redundant = config.presentation.skipRedundantLabels && (labelSource.map { $0.isSame(n) } ?? false)
+            if Self.isItem(n), !redundant { land(on: n); landedByStep = true; return }
             node = forward ? nextInOrder(after: n, root: root, enter: true) : previousInOrder(before: n, root: root)
         }
         Tones.edge()

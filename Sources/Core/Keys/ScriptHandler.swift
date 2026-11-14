@@ -281,7 +281,8 @@ public enum ScriptHandler {
         lastScript = script
         lastScriptTime = now
         Log.io("script \(script.name) for \(gesture.identifier)\(lastScriptCount > 0 ? " (repeat \(lastScriptCount))" : "")")
-        let resume = wasInSayAll && script.resumesSayAll
+        // NVDA's "Allow skim reading in Say All" (on, as before): off, the line keys stop say all instead.
+        let resume = wasInSayAll && script.resumesSayAll && config.keyboard.allowSkimReading
         let (calls0, ms0, t0) = (AXStats.calls, AXStats.ms, DispatchTime.now().uptimeNanoseconds)
         SayAll.resuming = resume
         // NVDA's on-demand speech mode: a reporting command may speak (the time, the line, the title …).

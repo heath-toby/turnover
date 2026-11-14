@@ -107,6 +107,8 @@ extension AXHandler {
             // and elements a plugin watches (a status line, a progress bar) in the application in front.
             // The progress bar being watched beeps as it moves (ProgressWatch); the event goes on as before.
             ProgressWatch.valueChanged(element)
+            // Status text under the review cursor (VoiceOver's announcement setting; off by default).
+            if pid == activePid { Announcements.statusTextChanged(element) }
             if let f = API.focusObject, f.isSameElement(as: element) { EventHandler.queue(Event(.valueChange, f)); return }
             if pid == activePid, !ProfileStore.shared.profiles(for: ProfileStore.shared.bundle(of: pid)).isEmpty,
                ProfileStore.shared.watchRule(for: element, pid: pid) != nil {
@@ -129,6 +131,7 @@ extension AXHandler {
                     Speech.speakMessage(t)
                 }
             }
+            if pid == activePid, element.role != "AXWindow" { Announcements.statusTextChanged(element) }
             guard let f = API.focusObject, f.isSameElement(as: element) else { return }
             EventHandler.queue(Event(.nameChange, f))
         case kAXMenuOpenedNotification:
@@ -181,6 +184,8 @@ extension AXHandler {
             if name == kAXWindowCreatedNotification, element.role == "AXWindow", pid == activePid || NSWorkspace.shared.frontmostApplication?.processIdentifier == pid {
                 NewDialogs.windowAppeared(element, pid: pid)
             }
+            // The focused table or outline gaining or losing rows (VoiceOver's announcement setting; off by default).
+            if name == kAXRowCountChangedNotification, pid == activePid { Announcements.rowCountChanged(element) }
             if Date().timeIntervalSince(loggedOnlyWindow) > 1 { loggedOnlyWindow = Date(); loggedOnlyCount = 0 }
             loggedOnlyCount += 1
             if loggedOnlyCount <= 20 { Log.io("notification \(name): \(element.role) \"\(Log.words(element.string(kAXTitleAttribute) ?? ""))\"") }

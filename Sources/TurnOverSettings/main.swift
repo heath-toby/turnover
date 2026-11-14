@@ -788,6 +788,15 @@ struct KeyboardView: View {
                 Toggle("Caps Lock on and off", isOn: model.bool("presentation", "announceCapsLock"))
                 Toggle("Command keys, as you press them", isOn: model.bool("keyboard", "speakCommandKeys"))
             }
+            // VoiceOver's modifier announcement and NVDA's keyboard options (14 Nov 2026).
+            Section("Keys and speech") {
+                Toggle("Say a modifier key's name when it is pressed and let go on its own", isOn: model.bool("keyboard", "announceModifierKeys"))
+                Toggle("Typing a character stops speech", isOn: model.bool("keyboard", "interruptSpeechForTypedCharacters"))
+                Toggle("Return stops speech", isOn: model.bool("keyboard", "interruptSpeechForEnter"))
+                Toggle("Beep when typing a lowercase letter with Caps Lock on", isOn: model.bool("keyboard", "beepForLowercaseWithCapsLock"))
+                Toggle("Play a sound when a word just typed is misspelt", isOn: model.bool("keyboard", "spellingErrorSoundWhileTyping"))
+                Toggle("Line and paragraph keys skim through say all, which carries on", isOn: model.bool("keyboard", "allowSkimReading"))
+            }
             Section("Moving around") {
                 Toggle("VoiceOver keys move by groups", isOn: model.bool("general", "navigateByGroups"))
                 Toggle("NVDA and JAWS keys move by groups too", isOn: model.bool("general", "groupsInWindowsStyle"))
@@ -910,6 +919,17 @@ struct ItemsView: View {
             Toggle("Say which plugin an app has as it comes to the front", isOn: model.bool("presentation", "announcePlugins"))
             Picker("Heading, link and button: when to say them", selection: model.string("documentFormatting", "roleOrder", "auto")) {
                 Text("By keyboard style").tag("auto"); Text("Before the words, as NVDA").tag("before"); Text("After the words, as VoiceOver").tag("after")
+            }
+            // VoiceOver's Verbosity > Announcements (14 Nov 2026).
+            Section("Announcements") {
+                Picker("When text under the cursor changes", selection: model.string("presentation", "statusTextChanges", "off")) {
+                    Text("Do nothing").tag("off"); Text("Play a sound").tag("tone"); Text("Speak the text").tag("speak")
+                }
+                Picker("When the number of rows in a table or list changes", selection: model.string("presentation", "rowCountChanges", "off")) {
+                    Text("Do nothing").tag("off"); Text("Play a sound").tag("tone"); Text("Say how many rows").tag("speak")
+                }
+                Toggle("Play a sound when a dialog appears", isOn: model.bool("presentation", "dialogSound"))
+                Toggle("Skip a label already said with its item", isOn: model.bool("presentation", "skipRedundantLabels"))
             }
         }.formStyle(.grouped).navigationTitle("Item details")
     }

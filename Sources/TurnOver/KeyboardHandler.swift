@@ -96,6 +96,15 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
     /// Keyboard help: the name of a modifier key as it goes down (keyboard thread; spoken on the main thread).
     private var lastModifierNamed: (code: Int64, at: Date) = (0, .distantPast)
     private func announceModifier(code: Int64, flags: CGEventFlags, capsIsTurnOver: Bool) {
+        guard let (name, mask) = Self.modifierName(code: code, capsIsTurnOver: capsIsTurnOver) else { return }
+        if let mask, !flags.contains(mask) { return }   // the key going up
+        // Caps Lock has no held flag: named once a press, not again as it comes up.
+        if Date().timeIntervalSince(lastModifierNamed.at) < 0.35, lastModifierNamed.code == code { return }
+        lastModifierNamed = (code, Date())
+        onMain { Speech.speakMessage(name) }
+    }
+    /// A modifier key's name, and the flag it holds down (none for Caps Lock).
+    private static func modifierName(code: Int64, capsIsTurnOver: Bool) -> (String, CGEventFlags?)? {
         let names: [Int64: (String, CGEventFlags?)] = [
             55: (String(localized: "key.command", defaultValue: "command", comment: "A modifier key's name"), .maskCommand),
             54: (String(localized: "right command", comment: "A modifier key's name"), .maskCommand),
@@ -108,12 +117,41 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             63: (String(localized: "function", comment: "The Fn key's name, as keyboard help says it"), .maskSecondaryFn),
             57: (capsIsTurnOver ? String(localized: "caps lock, the TurnOver key", comment: "Keyboard help: Caps Lock as the TurnOver key") : String(localized: "key.capsLock", defaultValue: "caps lock", comment: "A key's name"), nil),
         ]
-        guard let (name, mask) = names[code] else { return }
-        if let mask, !flags.contains(mask) { return }   // the key going up
-        // Caps Lock has no held flag: named once a press, not again as it comes up.
-        if Date().timeIntervalSince(lastModifierNamed.at) < 0.35, lastModifierNamed.code == code { return }
-        lastModifierNamed = (code, Date())
-        onMain { Speech.speakMessage(name) }
+        return names[code]
+    }
+
+    /// VoiceOver's "Announce when a modifier key is pressed" (14 Nov 2026; off by default): a modifier pressed and let
+    /// go on its own is named as it comes up. On its own, so the TurnOver key is never named while it is used as one
+    /// (Control with Option, Caps Lock held), nor Shift typing a capital or Command in a shortcut. Caps Lock itself is
+    /// left out: its on and off are their own news.
+    private var modifierTap = LoneModifier()
+    private var modifierTapCode: Int64 = -1
+    private func modifierTapped(code: Int64, flags: CGEventFlags, settings: KeySettings) {
+        guard code != 57, let (name, mask) = Self.modifierName(code: code, capsIsTurnOver: settings.capsIsTurnOver), let mask else {
+            modifierTap.cancel(); return
+        }
+        let secure = IsSecureEventInputEnabled()
+        let all: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskCommand, .maskSecondaryFn]
+        if flags.contains(mask) {
+            if modifierTapCode != code, modifierTapCode >= 0 { modifierTap.cancel() }   // another one already held
+            modifierTapCode = code
+            modifierTap.down(alone: flags.intersection(all.subtracting(mask)).isEmpty && !capsDown && !InputManager.turnOverKeyLocked, secureInput: secure)
+            return
+        }
+        guard code == modifierTapCode else { modifierTap.cancel(); return }
+        modifierTapCode = -1
+        guard modifierTap.up(secureInput: secure), settings.announceModifiers, !InputManager.isInputHelpActive else { return }
+        // Control on its own stops or pauses speech, and so does Shift in the Windows style: those are named only when
+        // there was nothing to stop, or the name would be paused, or follow the speech it resumed. (Their own action
+        // was queued to main before this, so the player shows what it did.)
+        let quietsSpeech = code == 59 || code == 62 || (settings.windowsKeys && (code == 56 || code == 60))
+        // In the Windows style Command alone opens the menus and Option the Dock or shortcut menu: they say where
+        // they went, and a name after it would only be in the way.
+        if settings.windowsKeys, [54, 55, 58, 61].contains(code) { return }
+        onMain {
+            if quietsSpeech, let p = Speech.player, p.isBusy || p.isPaused { return }
+            Speech.speakMessage(name)
+        }
     }
 
     /// Command pressed and released alone: Alt in Windows, the menus.
@@ -220,7 +258,7 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         quarantined.removeAll(); passedDown.removeAll(); bypassDropped.removeAll(); remapped.removeAll(); keypadTaken.removeAll(); capsDown = false; chordFired = false; keypadZeroDown = false
         arrowDownWhileOff = nil
         Self.capsHeld.value = false
-        loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
+        loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel(); modifierTap.cancel(); modifierTapCode = -1
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(kIOHIDSystemClass))
         if service != 0 {
             let r = IOServiceOpen(service, mach_task_self_, UInt32(kIOHIDParamConnectType), &mine.connect)
@@ -410,7 +448,7 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
     private func tapEvent(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         // A click with a modifier held: that modifier is not pressed alone. The click itself goes on, untouched.
         if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
-            loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
+            loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel(); modifierTap.cancel()
             return Unmanaged.passUnretained(event)
         }
         guard let generation = layer?.generation, isRequested(generation) else { return Unmanaged.passUnretained(event) }
@@ -472,7 +510,7 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         // VoiceOver seemed not to answer its key (25 Oct 2026). TurnOver has no command on it.
         if (type == .keyDown || type == .keyUp), Self.isVoiceOverToggle(code: code, flags: event.flags) {
             // A modifier pressed with it isn't a modifier pressed alone: no Dock or menu when it is let go.
-            loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
+            loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel(); modifierTap.cancel()
             return Unmanaged.passUnretained(event)
         }
         // A direct app in front (Command Control Comma, D): every key goes to it alone, before TurnOver's commands and
@@ -490,7 +528,7 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             // Keyboard help names a modifier key pressed on its own, as NVDA's input help does: it heard only keys
             // that type or run something (12 Oct 2026: "it isn't reading command, control, option").
             if InputManager.isInputHelpActive { announceModifier(code: code, flags: event.flags, capsIsTurnOver: settings.capsIsTurnOver) }
-            if code == 57 { return settings.capsIsTurnOver ? nil : Unmanaged.passUnretained(event) }   // caps lock's own event: nobody sees it while it is the TurnOver key
+            if code == 57 { modifierTap.cancel(); return settings.capsIsTurnOver ? nil : Unmanaged.passUnretained(event) }   // caps lock's own event: nobody sees it while it is the TurnOver key
             // Control pressed and released alone stops speech (NVDA: the control key cancels).
             let ctrl = event.flags.contains(.maskControl)
             // Let go within LoneModifier's time, as the other lone keys: with no limit, Control held a while (to
@@ -559,9 +597,10 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
                 }
             } else { loneOption.cancel() }
             if !event.flags.contains(.maskAlternate) { optionCode = 0 }
+            modifierTapped(code: code, flags: event.flags, settings: settings)
             return Unmanaged.passUnretained(event)
         }
-        loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
+        loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel(); modifierTap.cancel()
         if let r = keypad(type, event, code, settings) { return r }
         if let r = quickNavArrow(type, event, code, settings) { return r }
         if type == .keyUp {

@@ -14,6 +14,8 @@ nonisolated public struct KeySettings: Sendable {
     public var optionCommander = true
     public var numpadCommander = false
     public var keypadCommands = true
+    /// VoiceOver's "Announce when a modifier key is pressed" (Config.Keyboard.announceModifierKeys).
+    public var announceModifiers = false
 
     private static let lock = NSLock()
     nonisolated(unsafe) private static var _current = KeySettings()   // under `lock`
@@ -26,7 +28,7 @@ nonisolated public struct KeySettings: Sendable {
         let s = KeySettings(capsIsTurnOver: config.general.capsIsTurnOver, controlOptionIsTurnOver: config.general.controlOptionIsTurnOver,
                             windowsKeys: config.general.windowsKeys, speakCommandKeys: config.keyboard.speakCommandKeys,
                             optionCommander: config.keyboard.optionCommander, numpadCommander: config.keyboard.numpadCommander,
-                            keypadCommands: config.keyboard.keypadCommands)
+                            keypadCommands: config.keyboard.keypadCommands, announceModifiers: config.keyboard.announceModifierKeys)
         lock.lock(); _current = s; lock.unlock()
     }
 }
