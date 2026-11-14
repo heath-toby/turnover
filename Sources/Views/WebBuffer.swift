@@ -536,6 +536,8 @@ public final class WebBuffer {
         let sub = el.string(kAXSubroleAttribute) ?? ""
         seenRoles[ElementKey(el)] = (role, sub)
         if let k = PageSummary.kind(role: role, subrole: sub) { newPageKinds[ElementKey(el)] = k }
+        // An unnamed form is a plain group WebKit describes as "form" (a review: the summary missed most forms).
+        else if role == "AXGroup", sub.isEmpty, el.string(kAXRoleDescriptionAttribute) == "form" { newPageKinds[ElementKey(el)] = .form }
         switch role {
         case "AXStaticText":
             // An iOS app's text (Kindle's own screens, read as a document) carries its words as the description.
@@ -577,7 +579,11 @@ public final class WebBuffer {
             var d = el.string(kAXDescriptionAttribute) ?? el.string(kAXTitleAttribute) ?? ""
             // VoiceOver's "Navigate images" (14 Nov 2026): never, or only with a description of their own (a file
             // name is not one). A picture in a link stays: it is often all the link has to say.
-            if linkDepth == 0, !Self.navigatesImage(described: !d.isEmpty, setting: config.virtualBuffers.navigateImages) { break }
+            // Kept whatever the setting on a page that is nothing but pictures (an image opened in Safari, an image-only
+            // message), and as a heading's or a cell's only content: skipped, the page read as forever loading (a review).
+            if linkDepth == 0, !Self.navigatesImage(described: !d.isEmpty, setting: config.virtualBuffers.navigateImages),
+               docText.length == 0 || docText.replacingOccurrences(of: "\u{FFFC}", with: "").trimmingCharacters(in: .whitespacesAndNewlines).count > 0,
+               !["AXHeading", "AXCell"].contains(el.element(kAXParentAttribute)?.role ?? "") { break }
             if d.isEmpty, config.virtualBuffers.imageFileNames { d = ImageNames.fromFile(el) }
             if !d.isEmpty || linkDepth == 0 { append(d.isEmpty ? Role.graphic.displayString : "\(Role.graphic.displayString) \(d)", el) }
         case "AXLink":

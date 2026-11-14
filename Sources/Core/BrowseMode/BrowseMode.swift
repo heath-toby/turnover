@@ -399,7 +399,7 @@ public final class BrowseModeDocument: ScriptableObject {
     func announcePage() {
         placeOnArrival()
         announcedURL = url
-        LoadWatch.stop()
+        LoadWatch.pageAnnounced(self)
         if noAutoRead {
             // Placed by a module: its line, once, not the page from the top (Mail's Shift Tab, 13 Nov 2026).
             noAutoRead = false
