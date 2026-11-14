@@ -147,8 +147,14 @@ public enum Games {
         ("downArrow", "ArrowDown", 40), ("upArrow", "ArrowUp", 38), ("leftArrow", "ArrowLeft", 37), ("rightArrow", "ArrowRight", 39),
         ("enter", "Enter", 13), ("numpadEnter", "Enter", 13), ("escape", "Escape", 27), ("tab", "Tab", 9),
     ]
-    public static func forwardMenuKey(_ key: String, vk: Int) {
-        guard let steam, steam.isRunning else { return }
+    public static func forwardMenuKey(_ key: String, vk: Int, _ g: KeyboardGesture) {
+        // No Steam program to take it: the claim ends and the key goes on to Steam as usual, rather than being
+        // swallowed (a review, 14 Nov 2026).
+        guard let steam, steam.isRunning else {
+            menuNeedsKeys = false
+            Log.io("games: the Steam program isn't running; Steam's menu keys released")
+            g.send(); return
+        }
         Log.io("games: \(key) into Steam's menu page")
         steam.send("key \(key) \(vk)")
         if key == "Enter" || key == "Escape" { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { menuNeedsKeys = false } }
@@ -338,6 +344,9 @@ final class SteamHelper {
     private static func ended(pid: pid_t, status: Int32) {
         guard let helper = live.removeValue(forKey: pid) else { return }
         helper.child = nil
+        // Nothing takes the menu's keys now: they are Steam's again (a review, 14 Nov 2026: arrows, Return, Escape
+        // and Tab were swallowed after the program ended).
+        if Games.menuNeedsKeys { Games.menuNeedsKeys = false; Log.io("games: the Steam program ended; Steam's menu keys released") }
         guard !helper.stopping else { return }
         Log.warning("games: the Steam program ended (status \(status))")
         if Date().timeIntervalSince(helper.startedAt) > 60 { helper.restarts = 0 }

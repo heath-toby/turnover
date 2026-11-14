@@ -154,8 +154,10 @@ final class KindleAppModule: AppModule {
     /// Kindle's own arrow keys turn the page (probe: Right forward, Left back, the words changed within a second).
     /// The key goes to Kindle, the words are watched for, and `done` hears whether the page turned. A picture page
     /// (the cover) has no words to watch: from or to one, a moment's wait stands in.
-    private func turnPage(forward: Bool, _ done: @escaping (Bool) -> Void) {
-        guard let (doc, page) = bookDocument() else { done(false); return }
+    private func turnPage(forward: Bool, _ finished: @escaping (Bool) -> Void) {
+        guard let (doc, page) = bookDocument() else { finished(false); return }
+        turning = true
+        let done: (Bool) -> Void = { [weak self] turned in self?.turning = false; finished(turned) }
         let before = page?.string(kAXValueAttribute) ?? ""
         KeyboardGesture(identifier: forward ? "kb:rightArrow" : "kb:leftArrow")?.send()
         func check(_ n: Int) {
@@ -199,9 +201,17 @@ final class KindleAppModule: AppModule {
         return last ? i >= lines.last : i <= lines.first
     }
 
+    /// A page turn under way (up to 2 s): another Down or Page Down meanwhile (or the key repeating) sent more Right
+    /// Arrows and skipped pages (a review, 14 Nov 2026). Until it settles, those keys bump instead.
+    private var turning = false
+
     private func turnAndRead(forward: Bool, atEnd: Bool, _ g: KeyboardGesture) {
+        if turning { Tones.edge(); return }
+        let keyAt = InputManager.lastKeyDownAt
         turnPage(forward: forward) { [weak self] turned in
             guard let self, let (doc, page) = self.bookDocument() else { return }
+            // Another key came while the page turned: it has said or moved since; this reading would talk over it.
+            guard InputManager.lastKeyDownAt == keyAt else { return }
             guard turned else { Tones.edge(); Speech.speakMessage(forward ? String(localized: "end of the book", comment: "Spoken message") : String(localized: "start of the book", comment: "Spoken message")); return }
             guard let lines = self.textLines(doc, page) else { Speech.speakMessage(Self.noTextWords); return }
             doc.position = doc.buffer.lines[atEnd ? lines.last : lines.first].start

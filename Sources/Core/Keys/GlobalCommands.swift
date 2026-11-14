@@ -54,7 +54,7 @@ public final class GlobalCommands: ScriptableObject {
         }
         // Steam's Big Picture menu open without the keyboard: these keys go into the menu's page (Games.swift).
         for k in Games.menuKeys {
-            script("steamMenu_\(k.gesture)", String(localized: "In Steam's Big Picture menu: \(k.key)", comment: "A command, as the key list and keyboard help say it: %@ is the key"), gestures: ["kb:\(k.gesture)"], category: "Games") { _ in Games.forwardMenuKey(k.key, vk: k.vk) }
+            script("steamMenu_\(k.gesture)", String(localized: "In Steam's Big Picture menu: \(k.key)", comment: "A command, as the key list and keyboard help say it: %@ is the key"), gestures: ["kb:\(k.gesture)"], category: "Games") { g in Games.forwardMenuKey(k.key, vk: k.vk, g) }
                 .isAvailable = { Games.menuNeedsKeys && Games.active && Games.steamInFront }   // (never in another app: code review, 16 Oct 2026)
         }
         script("makePlugin", String(localized: "Make a plugin for this item; label, give a key to, watch or silence the item TurnOver is on, saved as your own plugin for the app", comment: "A command, as the key list and keyboard help say it"), gestures: [], category: "Plugins") { _ in
