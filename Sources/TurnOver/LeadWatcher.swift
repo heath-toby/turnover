@@ -302,6 +302,9 @@ final class LeadWatcher {
         // "it only works if VoiceOver is quit", 16 Oct 2026.)
         if Coexist.on, NSWorkspace.shared.isVoiceOverEnabled, app.activationPolicy != .regular, !own, !Games.leads(app.bundleIdentifier ?? ""), turnOverActive() {
             Log.info("coexist: \(app.localizedName ?? app.bundleIdentifier ?? "a process") in front is not a regular app; VoiceOver reads it")
+            // Not a direct app either: the game behind kept Tab, Space, Return and Escape while the prompt was in
+            // front, as this return came before directPid was set below (a review, 14 Nov 2026).
+            InputManager.directPid = nil
             onCoexistLead?(false); return
         }
         // A direct app (Command Control Comma, D): its keys straight to it, TurnOver quiet; TurnOver must lead there, as
