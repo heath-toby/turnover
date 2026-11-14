@@ -312,7 +312,11 @@ final class TerminalText: TurnOverObject {
             // The secret's echo, never read. But the prompt itself arriving on the line (ssh's "toby@host's
             // password:", drawn after Return's newline was read on its own) is said: it was silenced as echo, and the
             // user never heard that a password was asked for (a review, 13 Nov 2026). Typed-ahead echo and stars off.
-            if TerminalRules.isPasswordPrompt(first), !TerminalRules.isPasswordPrompt(s.anchorText) {
+            // In the window a password-asking command opened, any line ending in a colon is its prompt (in the user's
+            // language, a review, 14 Nov 2026).
+            let ahead = !s.secret.latched
+            func asks(_ l: String) -> Bool { TerminalRules.isPasswordPrompt(l) || (ahead && TerminalRules.isPromptInSecretWindow(l, aheadKeys: s.secret.aheadKeys)) }
+            if asks(first), !asks(s.anchorText) {
                 let line = TerminalRules.withoutTypedAhead(first, keys: s.secret.aheadKeys)
                 let words = line.trimmingCharacters(in: CharacterSet(charactersIn: " *•●"))
                 if !words.isEmpty { speech.append(words) }
@@ -357,7 +361,13 @@ final class TerminalText: TurnOverObject {
         // The prompt drawn: what is typed now is the password. Other new lines: typing ahead is over.
         // Only lines with something besides the typed-ahead echo (taken off above) are output: the first key's echo can
         // land in the same batch as Return's newline, and ended the secret at once (a review, 13 Nov 2026).
-        if TerminalRules.isPasswordPrompt(s.anchorText) { s.secret.sawPrompt() }
+        // Inside the window a password-asking command opened (sudo, ssh, openssl), the cursor's line ending in a colon,
+        // with no newline after it, is its prompt whatever its words ("[sudo] parola per toby:"): latched, where it
+        // closed the secret as output and the password was read (a review, 14 Nov 2026). The typed-ahead echo starts
+        // the first new line, so it is taken off only when the cursor's line is that one.
+        let inWindow = !s.secret.latched && s.secret.isSecret(now: Date()) && !isPrompt(s.anchorText)
+            && TerminalRules.isPromptInSecretWindow(s.anchorText, aheadKeys: rest.count <= 1 ? s.secret.aheadKeys : 0)
+        if TerminalRules.isPasswordPrompt(s.anchorText) || inWindow { s.secret.sawPrompt() }
         else if !TerminalRules.allBlank(rest) { s.secret.outputArrived() }
         // The shell's prompt drawn on the cursor's line on its own (sudo with its credentials kept, a slow prompt): the
         // command is over, so typing is no password; the next command was said as "star" (a review, 13 Nov 2026).
@@ -550,18 +560,41 @@ package enum TerminalRules {
     /// read aloud, only lines ending "passphrase:" were known), while "Spinning up:" is not. Pure.
     /// The stars or dots a prompt draws per key (sudo-rs, sudo's pwfeedback: "Password: ***") are taken off first:
     /// after the first key the line no longer ended with ":", and the rest was read (a review, 13 Nov 2026).
+    /// Also "pass phrase" in two words (OpenSSL: "Enter PEM pass phrase:") and the word in other languages, as sudo
+    /// asks in the user's own ("[sudo] Passwort für toby:", "[sudo] toby 的密码："): those passwords were read aloud (a
+    /// review, 14 Nov 2026). Chinese, Japanese and Korean by containment, as they run on into the words around them.
     package nonisolated static func isPasswordPrompt(_ line: String?) -> Bool {
-        guard var l = line?.lowercased() else { return false }
-        while let last = l.last, last == "*" || last == "•" || last == "●" || last.isWhitespace { l.removeLast() }
-        guard l.hasSuffix(":") else { return false }
+        guard let l = promptLine(line) else { return false }
         let words = l.split(whereSeparator: { !$0.isLetter }).map(String.init)
-        return words.contains { ["password", "passphrase", "pin"].contains($0) }
+        let single: Set<String> = ["password", "passphrase", "pin", "passwort", "kennwort", "parola", "contraseña", "senha",
+                                   "wachtwoord", "lösenord", "пароль", "passord", "adgangskode", "salasana", "hasło", "heslo"]
+        if words.contains(where: { single.contains($0) }) { return true }
+        let spaced = " " + words.joined(separator: " ") + " "
+        if [" pass phrase ", " mot de passe "].contains(where: { spaced.contains($0) }) { return true }
+        return ["密码", "密碼", "パスワード", "비밀번호", "암호"].contains { l.contains($0) }
+    }
+
+    /// A line ending with a colon (ASCII or full-width), lowercased, the stars a prompt draws per key taken off; nil
+    /// when it doesn't end so. Pure.
+    package nonisolated static func promptLine(_ line: String?) -> String? {
+        guard var l = line?.lowercased() else { return nil }
+        while let last = l.last, last == "*" || last == "•" || last == "●" || last.isWhitespace { l.removeLast() }
+        return l.hasSuffix(":") || l.hasSuffix("：") ? l : nil
+    }
+
+    /// Inside the window a password-asking command opened, the cursor's line ending in a colon with something before
+    /// it, besides the keys' typed-ahead echo, is that command's prompt, whatever its words (a review, 14 Nov 2026:
+    /// prompts in other words closed the secret as output). Pure.
+    package nonisolated static func isPromptInSecretWindow(_ line: String, aheadKeys: Int) -> Bool {
+        guard let l = promptLine(withoutTypedAhead(line, keys: aheadKeys)) else { return false }
+        return l.contains { $0.isLetter }
     }
 
     /// A command line that asks for a password next: sudo, doas, su, passwd, ssh (and scp, sftp) where a command
     /// starts: the line's start, after the prompt, or after ;, &&, || or |. A path to one counts. Pure.
     package nonisolated static func asksForPassword(commandLine: String) -> Bool {
-        let commands: Set<String> = ["sudo", "sudo-rs", "doas", "su", "passwd", "ssh", "scp", "sftp"]
+        // openssl and gpg ask for a pass phrase (a review, 14 Nov 2026).
+        let commands: Set<String> = ["sudo", "sudo-rs", "doas", "su", "passwd", "ssh", "scp", "sftp", "openssl", "gpg", "gpg2"]
         // ";", "&&", "||" and "|" are words of their own even without spaces ("make;sudo cp").
         let spaced = commandLine.replacingOccurrences(of: "[;&|]+", with: " $0 ", options: .regularExpression)
         let tokens = spaced.split(whereSeparator: { $0.isWhitespace }).map(String.init)

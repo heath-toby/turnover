@@ -34,16 +34,16 @@ final class PagesAppModule: AppModule {
         for (key, dr, dc) in [("leftArrow", 0, -1), ("rightArrow", 0, 1), ("upArrow", -1, 0), ("downArrow", 1, 0)] {
             script("pages_table_\(key)", String(localized: "In a table: the next cell that way", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:\(key)"], category: cat) { [weak self] _ in
                 self?.moveCell(dr, dc)
-            }.isAvailable = { [weak self] in self?.table != nil }
+            }.isAvailable = { [weak self] in self?.inTable == true }
         }
         script("app_stopInteracting", String(localized: "Out of the table, back to the text (VO-Shift-Up)", comment: "A command, as the key list and keyboard help say it"), gestures: [], category: cat) { [weak self] _ in
             self?.table = nil
             Speech.cancel(); Speech.speakMessage(String(localized: "out of table", comment: "Spoken message"))
-        }.isAvailable = { [weak self] in self?.table != nil }
+        }.isAvailable = { [weak self] in self?.inTable == true }
         script("pages_tableEscape", String(localized: "Out of the table, back to the text (Escape)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:escape"], category: cat) { [weak self] _ in
             self?.table = nil
             Speech.cancel(); Speech.speakMessage(String(localized: "out of table", comment: "Spoken message"))
-        }.isAvailable = { [weak self] in self?.table != nil }
+        }.isAvailable = { [weak self] in self?.inTable == true }
     }
 
     // MARK: The body's text
@@ -69,7 +69,28 @@ final class PagesAppModule: AppModule {
     }
     private var quietFocus: (element: AXUIElement, at: Date)?
     /// Typing or the caret moving ends the reading of a table.
-    private func endTableOnEdit(_ event: Event) { if table != nil, [.caret, .valueChange, .typedCharacter].contains(event.kind) { table = nil } }
+    private func endTableOnEdit(_ event: Event) {
+        guard table != nil else { return }
+        if [.caret, .valueChange, .typedCharacter].contains(event.kind) { table = nil }
+        // The focus gone anywhere but the body text holding the table (another window, the inspector, a Save sheet):
+        // left as it was, the arrows there read the old table's cells and the first Escape only said "out of table"
+        // (a review, 14 Nov 2026).
+        else if event.kind == .gainFocus, !inTableBody(event.obj.element) { table = nil }
+    }
+    /// The element is the body text (or its page layout) of the document whose table is being read.
+    private func inTableBody(_ e: AXUIElement) -> Bool {
+        guard let t = table else { return false }
+        if e.role == "AXLayoutArea" { return e.isSame(t.layout) }
+        guard e.role == "AXTextArea", let page = e.element(kAXParentAttribute), page.role == "AXPage" else { return false }
+        return page.element(kAXParentAttribute)?.isSame(t.layout) == true
+    }
+    /// A table is being read and the keyboard is still in its body text: only then are the arrows and Escape the
+    /// table's.
+    private var inTable: Bool {
+        guard table != nil, let f = API.focusObject, f.pid == pid else { return false }
+        return inTableBody(f.element)
+    }
+    override func event_appModuleLoseFocus() { table = nil }
     /// Not read: the hop ignoresFocus picked out (the focus object still follows it).
     /// The page the caret was on: "page 3" is said as it crosses onto another, after the line.
     private var lastPage: Int?

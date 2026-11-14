@@ -35,6 +35,24 @@ func pureTests() {
         }
         check(!TerminalRules.isPasswordPrompt("Pinned items: *"), "a star after another line is not a prompt")
     }
+    test("terminal: pass phrase in two words, and password prompts in other languages") {
+        for line in ["Enter pass phrase for key.pem:", "Enter PEM pass phrase:", "Verifying - Enter PEM pass phrase:",
+                     "[sudo] Passwort für toby:", "[sudo] parola per toby:", "[sudo] Mot de passe de toby : ", "[sudo] contraseña para toby:",
+                     "[sudo] senha para toby:", "[sudo] wachtwoord voor toby:", "[sudo] lösenord för toby:", "[sudo] пароль для toby:",
+                     "[sudo] toby 的密码：", "[sudo] toby のパスワード:", "Kennwort:"] {
+            check(TerminalRules.isPasswordPrompt(line), "\(line) is a password prompt")
+        }
+        for line in ["Passphrase protection on", "pass the phrase:", "Mot de passe changé."] {
+            check(!TerminalRules.isPasswordPrompt(line), "\(line) is not a password prompt")
+        }
+        for line in ["openssl rsa -in key.pem", "toby@mac ~ % gpg -d secret.gpg", "gpg2 --sign x"] {
+            check(TerminalRules.asksForPassword(commandLine: line), "\(line) asks for a password next")
+        }
+        check(TerminalRules.isPromptInSecretWindow("Geheimzahl eingeben:", aheadKeys: 0), "in the window, a line ending in a colon is the prompt")
+        check(TerminalRules.isPromptInSecretWindow("abcGeheim:", aheadKeys: 3), "the typed-ahead echo taken off first")
+        check(!TerminalRules.isPromptInSecretWindow("abc:", aheadKeys: 4), "the typed-ahead echo alone is no prompt")
+        check(!TerminalRules.isPromptInSecretWindow("Connected.", aheadKeys: 0), "output without a colon is no prompt")
+    }
     test("terminal: a command that asks for a password next, and keys typed ahead of its prompt are secret") {
         for line in ["toby@mac ~ % sudo ls", "sudo -k", "toby@mac ~ % ssh host", "$ su -", "passwd", "cd x && sudo make install",
                      "make;sudo cp a b", "/usr/bin/sudo ls", "❯ doas sh", "toby@mac ~ % git pull | ssh x"] {
@@ -1737,6 +1755,19 @@ func browseTextNavTests() {
         expect(place(group: "Messages", index: 7, words: nil), [1, 2], "closed at the end: the last")
         expect(place(group: "Gone", index: 1, words: "x"), [1, 0], "the app gone: the default app's first")
         expect(place(hit: (5, 0), group: nil, index: nil, words: nil), [1, 0], "a hit outside the groups is ignored")
+    }
+    test("notification centre: Delete before the landing doesn't close the default app's first when the app is gone") {
+        let names = ["Notification Centre", "Messages"]
+        let words = [["Clear All"], ["Messages, Hi"]]
+        check(NotificationCentreNavigator.rememberedGroupGone(groupNames: names, itemWords: words, group: "Mail"), "the closed one's app gone")
+        check(NotificationCentreNavigator.rememberedGroupGone(groupNames: names + ["Mail"], itemWords: words + [[]], group: "Mail"), "its app empty")
+        check(!NotificationCentreNavigator.rememberedGroupGone(groupNames: names, itemWords: words, group: "Messages"), "its app still there")
+        check(!NotificationCentreNavigator.rememberedGroupGone(groupNames: names, itemWords: words, group: nil), "nothing remembered: the default")
+    }
+    test("secure echo: one failed look keeps the other process's password field; two, or secure input off, drop it") {
+        check(SecureInputWatch.keepsWatching(secureOn: true, missesInARow: 1), "one miss: still watched, not announced again")
+        check(!SecureInputWatch.keepsWatching(secureOn: true, missesInARow: 2), "two in a row: dropped")
+        check(!SecureInputWatch.keepsWatching(secureOn: false, missesInARow: 1), "secure input off: dropped at once")
     }
     test("desktop: another key between the navigator's ends desktop mode") {
         check(DesktopNavigator.keysOnlyOwn(arrived: 5, own: 4), "the next key after the navigator's is asked about")

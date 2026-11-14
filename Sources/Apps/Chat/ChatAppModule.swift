@@ -44,7 +44,9 @@ final class ChatAppModule: AppModule {
         let noChat: () -> Bool = { [weak self] in
             guard let self, !view.isBrowsing, let f = API.focusObject, f.pid == pid,
                   ![.editableText, .searchField, .comboBox, .passwordEdit].contains(f.role), !inSearch(), !view.inSheet, !view.leftParts else { return false }
-            return view.composer == nil
+            // And the window holds the conversations: Messages Settings is a standard window with no box, where Tab,
+            // the arrows and Return said "no conversations" and never reached it (a review, 14 Nov 2026).
+            return view.composer == nil && view.hasConversations
         }
         script("chat_noChatToConversations", String(localized: "With no conversation open: to the conversations", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: cat) { [weak self] _ in
             self?.view.enter(.conversations)

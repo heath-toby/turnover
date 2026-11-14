@@ -250,6 +250,14 @@ package enum NotificationCentreNavigator {
         return (g, firstNotification(g))
     }
 
+    /// An app is remembered and it is gone (or empty) from the groups now: resolvePlace would fall back to the
+    /// default (pure, for the tests).
+    package nonisolated static func rememberedGroupGone(groupNames: [String], itemWords words: [[String]], group: String?) -> Bool {
+        guard let name = group else { return false }
+        guard let g = groupNames.firstIndex(of: name), words.indices.contains(g) else { return true }
+        return words[g].isEmpty
+    }
+
     /// The panel has opened: its summary, and TurnOver on the first app's newest notification.
     static func enter() {
         let gs = groups()
@@ -331,7 +339,14 @@ package enum NotificationCentreNavigator {
     static func close() {
         let gs = groups()
         guard !gs.isEmpty else { return }
-        let (g, i) = place(in: gs, useCursor: Date() >= closeLandingUntil)
+        let landing = Date() < closeLandingUntil
+        // Before the landing is said, the closed one's app gone (its last closed): resolvePlace fell back to the
+        // default app's first, and a second Delete closed one never heard (a review, 14 Nov 2026).
+        if landing, Self.rememberedGroupGone(groupNames: gs.map(\.name), itemWords: gs.map { $0.items.map(\.words) }, group: groupName) {
+            Log.io("notification centre: Delete before the landing, the app gone; not closed")
+            Tones.edge(); return
+        }
+        let (g, i) = place(in: gs, useCursor: !landing)
         let item = gs[g].items[min(i, gs[g].items.count - 1)]
         let action = item.kind == .stack ? "Clear All" : "Close"
         guard item.kind == .notification || item.kind == .stack, let full = customAction(item.element, named: action) else { Tones.edge(); return }
