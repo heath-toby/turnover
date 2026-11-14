@@ -226,11 +226,18 @@ extension AXHandler {
                 EventHandler.queue(Event(.selection, ObjectFactory.make(target)))
                 return
             }
-            if count == 0, before.count > 0, focused, element.elements(kAXChildrenAttribute).first(where: { ($0.attr(kAXFocusedAttribute) as? Bool) == true }) == nil {
+            // The focused child, asked of each child only in a small container: in Mail's list an emptied selection
+            // fetched thousands of rows and asked each (a review, 14 Nov 2026). A big one counts as having none.
+            let focusedChild = { () -> AXUIElement? in
+                var kids: CFIndex = 0
+                guard AXUIElementGetAttributeValueCount(element, kAXChildrenAttribute as CFString, &kids) == .success, kids <= 200 else { return nil }
+                return element.elements(kAXChildrenAttribute).first(where: { ($0.attr(kAXFocusedAttribute) as? Bool) == true })
+            }
+            if count == 0, before.count > 0, focused, focusedChild() == nil {
                 Speech.speakMessage(String(localized: "nothing selected", comment: "Spoken message")); return
             }
             // The Dock's Cmd+Tab list marks its highlighted item focused rather than selected.
-            guard let selected = all.first ?? element.elements(kAXChildrenAttribute).first(where: { ($0.attr(kAXFocusedAttribute) as? Bool) == true }) else { return }
+            guard let selected = all.first ?? focusedChild() else { return }
             if let (last, at) = lastSelectionReport, last.isSame(selected), Date().timeIntervalSince(at) < 0.4 { return }
             lastSelectionReport = (selected, Date())
             // Only the focused container's selection matters (a sidebar changing under a dialog does not).
