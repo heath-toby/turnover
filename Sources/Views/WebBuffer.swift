@@ -931,7 +931,9 @@ public final class WebBuffer {
             for (n, c) in l.entering.enumerated() where matches(c, l.enteringKind(n)) { out.append((l.start, c)); seen.append(c) }
             // A line that carries on the element of the line before (a heading wrapped over two lines) is not a
             // second hit: H landed on "closed beta" after the whole heading (8 Oct 2026).
-            if let el = l.element, !lineContinues(j), !seen.contains(where: { $0.isSame(el) }), let k = l.elementKind, matches(el, k) { out.append((l.start, el)) }
+            // Not the document's own root: line 0's element is the web area, and M (frame) landed on the top line
+            // (a review, 14 Nov 2026). Frames inside it are other web areas.
+            if let el = l.element, !lineContinues(j), !el.isSame(webArea), !seen.contains(where: { $0.isSame(el) }), let k = l.elementKind, matches(el, k) { out.append((l.start, el)) }
             if wantsLinks, out.isEmpty {
                 // Link text inside the line; a link split over several pieces counts once.
                 var lo = 0, hi = segments.count
@@ -1179,7 +1181,13 @@ public final class BufferTextInfo: TextInfo {
         var pieces: [String] = []
         var lastLink: AXUIElement?
         var cursor = start
-        for s in buffer.segments where s.end > start && s.start < end {
+        // A link of several pieces (an image and its text, Chromium's separate text nodes) is one link: compared by the
+        // link, not the piece, and ", link" said after its last piece only; it was said once per piece (a review,
+        // 14 Nov 2026).
+        let segs = buffer.segments
+        for i in segs.indices where segs[i].end > start && segs[i].start < end {
+            let s = segs[i]
+            let linkKey = s.link ?? s.element
             if s.start > cursor { pieces.append(textRange(cursor, s.start)) }
             let a = max(s.start, start), b = min(s.end, end)
             // A word or character inside a link that began before it (reading "about us" word by word): the link was
@@ -1187,17 +1195,18 @@ public final class BufferTextInfo: TextInfo {
             // link still says it.
             let insideEarlierLink = s.start < start && start > line.start
             let after = config.documentFormatting.rolesAfterText
-            if s.isLink, !insideEarlierLink, lastLink.map({ !$0.isSame(s.element) }) ?? true {
+            if s.isLink, !insideEarlierLink, lastLink.map({ !$0.isSame(linkKey) }) ?? true {
                 switch linkMode {
                 case .speech: if !after { pieces.append(" " + Speech.ui(Role.link.displayString) + " ") }
                 case .tone: pendingTones.append { Tones.link() }
                 case .off: break
                 }
             }
-            lastLink = s.isLink ? s.element : nil
+            lastLink = s.isLink ? linkKey : nil
             pieces.append(textRange(a, b))
             // VoiceOver's order: "About us, link", where the link ends (once, on the piece that ends it).
-            if after, s.isLink, linkMode == .speech, s.end <= end, !(s.start < start && start > line.start && s.end > end) {
+            let lastPiece = i + 1 >= segs.count || !segs[i + 1].isLink || !(segs[i + 1].link ?? segs[i + 1].element).isSame(linkKey)
+            if after, s.isLink, lastPiece, linkMode == .speech, s.end <= end, !(s.start < start && start > line.start && s.end > end) {
                 pieces.append(", " + Speech.ui(Role.link.displayString) + " ")
             }
             cursor = b

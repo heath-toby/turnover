@@ -45,6 +45,9 @@ public enum ItemChooser {
         guard let f = API.focusObject, let window = f.element.element(kAXWindowAttribute) ?? (f.role == .window ? f.element : nil) else {
             Speech.speakMessage(String(localized: "no items", comment: "Spoken message")); return
         }
+        // Where the person was: a result that comes after they moved on (a key, another app) is only logged; opening
+        // it late set the menu open and swallowed their keys (a review, 14 Nov 2026). As Find does.
+        let keyAt = InputManager.lastKeyDownAt, pidAt = AXHandler.shared.activePid
         walkQueue.async {
             let deadline = Date().addingTimeInterval(2.5)
             let names = [kAXRoleAttribute, kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute, kAXRoleDescriptionAttribute, kAXChildrenAttribute, kAXSubroleAttribute] as CFArray
@@ -67,7 +70,10 @@ public enum ItemChooser {
                 }
                 if let kids = v[5] as? [AXUIElement] { stack.append(contentsOf: kids.reversed()) }
             }
-            DispatchQueue.main.async { done(found) }
+            DispatchQueue.main.async {
+                guard InputManager.lastKeyDownAt == keyAt, AXHandler.shared.activePid == pidAt else { Log.io("item chooser: the person moved on; the result is dropped"); return }
+                done(found)
+            }
         }
     }
 

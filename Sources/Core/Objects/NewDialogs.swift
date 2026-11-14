@@ -95,7 +95,11 @@ enum NewDialogs {
     /// A window was created in the app in front; a moment later, one holding a progress bar is read and its bar followed,
     /// and a small one that took the focus with no control inside it focused is entered.
     static func windowAppeared(_ window: AXUIElement, pid: pid_t) {
+        // Only while that app is still in front and no key came since: a window that appeared as the person
+        // switched away or typed on was entered and spoken over them half a second later (a review, 14 Nov 2026).
+        let keyAt = InputManager.lastKeyDownAt
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            guard InputManager.lastKeyDownAt == keyAt, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
             guard window.role == "AXWindow" else { return }
             let appEl = AXUIElementCreateApplication(pid)
             if let f = API.focusObject?.element, !f.isSame(window), isInside(f, window) { return }
