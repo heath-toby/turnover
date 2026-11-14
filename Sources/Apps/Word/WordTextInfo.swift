@@ -73,10 +73,21 @@ final class WordTextInfo: AXTextInfo {
             if offset <= base + i { b = base + i + 1; break }
             a = base + i + 1
         }
-        return WordLines.drawnRow(probe: probe, guess: (a, b), length: n,
-                             text: { [self] a, b in textRange(a, b) },
+        // A row found before, while the document is the same length: no questions (a review: each arrow asked for the
+        // same row three or four times over, for speech, braille and the caret).
+        // (Kept 3 seconds: a window resized reflows the rows without changing the length.)
+        if let hit = Self.rows.first(where: { $0.area.isSame(area) && $0.length == n && $0.start <= probe && probe < $0.end && Date().timeIntervalSince($0.at) < 3 }) { return (hit.start, hit.end) }
+        let found = WordLines.drawnRow(probe: probe, guess: (a, b), length: n,
+                             text: { [self] a, b in offsetText(a, b) },
                              row: { o in Self.row(of: o, in: area) }) ?? (a, b)
+        Self.rows.removeAll { !$0.area.isSame(area) || $0.length != n || Date().timeIntervalSince($0.at) >= 3 }
+        Self.rows.append((area, n, found.0, found.1, Date()))
+        if Self.rows.count > 24 { Self.rows.removeFirst() }
+        return found
     }
+
+    /// Rows worked out, for the page area and the document's length they were found at.
+    private static var rows: [(area: AXUIElement, length: Int, start: Int, end: Int, at: Date)] = []
 
     /// Where Word draws the character at `o`: the middle of its row and the row's height, or nil if it won't say.
     private static func row(of o: Int, in area: AXUIElement) -> (mid: CGFloat, height: CGFloat)? {
@@ -181,15 +192,18 @@ package enum WordLines {
     /// on the page, or a paragraph mark asked about. Pure, given its questions (tested).
     package nonisolated static func drawnRow(probe: Int, guess: (Int, Int), length n: Int, text: (Int, Int) -> String,
                                      row: (Int) -> (mid: CGFloat, height: CGFloat)?) -> (Int, Int)? {
-        // The text around the probe in one question (2,000 characters each way); a character beyond it, asked alone.
-        let base = max(0, probe - 2000), local = Array(text(base, min(n, probe + 2001)).utf16)
+        // The text around the probe in one question (500 characters each way: a row is far shorter); a character
+        // beyond it, asked alone. (2,000 each way cost every arrow a long read: a review, 14 Nov 2026.)
+        let base = max(0, probe - 500), local = Array(text(base, min(n, probe + 501)).utf16)
         func char(_ o: Int) -> UInt16? {
             if o >= base, o - base < local.count { return local[o - base] }
             return text(o, o + 1).utf16.first
         }
         func isMark(_ c: UInt16?) -> Bool { guard let c else { return false }; return [13, 10, 12, 11, 7, 0x2029].contains(c) }
         guard probe >= 0, probe < n, !isMark(char(probe)), let here = row(probe) else { return nil }
-        func same(_ o: Int) -> Bool? { row(o).map { abs($0.mid - here.mid) < here.height / 2 } }
+        // On the same row: middles closer than half the taller one's height, so a larger run, a drop cap or a
+        // superscript on the row still counts (a review: the smaller's half-height split such rows).
+        func same(_ o: Int) -> Bool? { row(o).map { abs($0.mid - here.mid) < max($0.height, here.height) / 2 } }
         let (a, b) = guess
         // Word's line as it stands: starts on this row after another row or a paragraph's start, ends on it before
         // another row or the paragraph's end.
@@ -203,10 +217,11 @@ package enum WordLines {
         var pe = probe + 1   // one past the last character before the paragraph's mark
         while pe < min(n, base + local.count), !isMark(char(pe)) { pe += 1 }
         var lo = ps, hi = probe
-        while lo < hi { let mid = (lo + hi) / 2; if same(mid) == true { hi = mid } else { lo = mid + 1 } }
+        // (A character Word gives no place for counts as on the row, as in the checks above.)
+        while lo < hi { let mid = (lo + hi) / 2; if same(mid) ?? true { hi = mid } else { lo = mid + 1 } }
         let start = lo
         lo = probe; hi = pe - 1
-        while lo < hi { let mid = (lo + hi + 1) / 2; if same(mid) == true { lo = mid } else { hi = mid - 1 } }
+        while lo < hi { let mid = (lo + hi + 1) / 2; if same(mid) ?? true { lo = mid } else { hi = mid - 1 } }
         var end = lo + 1
         if end == pe, pe < n { end = pe + 1 }   // the paragraph's last row takes its mark, as Word's lines do
         return (start, end)
