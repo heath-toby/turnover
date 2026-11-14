@@ -630,6 +630,9 @@ open class TurnOverObject: ScriptableObject {
     // MARK: - Text
 
     open var hasNavigableText: Bool { Role.withNavigableText.contains(role) }
+    /// Whether the app's caret goes where TurnOver puts it. A terminal's cursor belongs to the shell: panning the
+    /// display up a line set it, the shell kept it, and the display jumped back to the prompt (14 Nov 2026).
+    open var caretFollowsBraille: Bool { true }
 
     /// The TextInfo class for this object; EditableText overrides to AXTextInfo.
     open var textInfoClass: TextInfo.Type { hasNavigableText ? AXTextInfo.self : TextInfo.self }

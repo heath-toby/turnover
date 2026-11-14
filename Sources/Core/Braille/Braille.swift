@@ -496,7 +496,11 @@ public enum Braille {
             let sameItem = lastObject.map { obj.isSameElement(as: $0) } ?? false
             lastObject = obj.element
             source = .object(obj)
-            let own = brailleText(Speech.objectPropertiesSpeech(obj, reason: .focus), role: obj.role)
+            // The same item again: asked afresh. An object keeps what it first read, and the focus can be one kept for
+            // a while (System Settings' check box, held by TurnOver as it won't keep the focus): Space ticked it, speech
+            // said "not checked", and the display kept "(x)" until the focus went away and back (14 Nov 2026).
+            let shownObj = sameItem && row == nil ? ObjectFactory.make(obj.element) : obj
+            let own = brailleText(Speech.objectPropertiesSpeech(shownObj, reason: .focus), role: shownObj.role)
             // NVDA's focus context presentation: what the focus is in (window, list, group) before it, the display
             // starting so the focus is in view; panning back reads the context. Worked out once per focus: asking
             // every ancestor's name at each refresh cost tens of messages to the app, and the display jumped from
@@ -917,6 +921,16 @@ public enum Braille {
         // panning keys (the Mantis) had no way on from Mail's list (a review, 14 Nov 2026). Never from auto scroll, and
         // never on TurnOver's own cursor items (a Terminal review line, the menu bar), where Up and Down went to the
         // app: the shell's history, the menu opened (a review the same night). Anything else stays put.
+        // A message (new terminal output, a notification) panned past by hand: it gives way to what is underneath,
+        // as NVDA's does, and the pan carries on there. In Terminal, panning back from the output it flashed only gave
+        // the edge sound, so earlier lines couldn't be reached (14 Nov 2026). Not the announcement history (its own keys
+        // move through it) nor a modal line (its keys go to the view).
+        if !fromTimer, case .message = source, !modalShowing, historyIndex == nil, messageUntil != nil {
+            messageUntil = nil
+            refresh()
+            if !forward { windowStart = windows.last ?? 0; show() }
+            return
+        }
         guard case .text = source else {
             if !fromTimer, case .object(let o) = source, [.tableRow, .listItem, .treeViewItem, .cell, .tableCell].contains(o.role),
                !inGrid(o) {
@@ -966,7 +980,9 @@ public enum Braille {
         }
         // The caret follows the display (Panning moves the cursor), so the arrows carry on from the line read on the
         // display, not from where reading began (VoiceOver left the caret behind: a tester, 21 Oct 2026).
-        switch panFollow(setting: config.braille.panMovesCaret, tether: config.braille.tether) {
+        var follow = panFollow(setting: config.braille.panMovesCaret, tether: config.braille.tether)
+        if follow == .caret, !r.obj.caretFollowsBraille { follow = .hold }   // a terminal: the shell keeps its cursor
+        switch follow {
         case .review: TextReview.set(r)
         case .caret: r.updateCaret(); heldLine = nil
         case .hold: if let c = API.caretObject.flatMap({ try? $0.makeTextInfo(.caret) })?.start { heldLine = (r.copy(), c) }
@@ -1003,7 +1019,7 @@ public enum Braille {
     /// line as it is panned to, so the arrows and typing carry on from exactly what was read.
     private static func caretToWindow() {
         guard config.braille.panMovesCaret == "window", case .text(let info, let lineStart) = source,
-              windowStart < cellMap.count else { return }
+              windowStart < cellMap.count, info.obj.caretFollowsBraille else { return }
         let r = info.copy()
         r.start = lineStart + cellMap[windowStart]; r.end = r.start
         if panFollow(setting: config.braille.panMovesCaret, tether: config.braille.tether) == .review { TextReview.set(r) } else { r.updateCaret() }

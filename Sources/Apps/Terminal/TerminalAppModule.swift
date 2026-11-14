@@ -73,6 +73,7 @@ final class TerminalText: TurnOverObject {
 
     override var role: Role { .editableText }
     override var roleText: String? { "terminal" }
+    override var caretFollowsBraille: Bool { false }   // the shell owns the cursor: panning holds the line instead
     override var name: String { "" }
 
     // MARK: Text helpers
