@@ -107,6 +107,8 @@ final class MenuNavigationPlugin: GlobalPlugin {
             webIndex = items.firstIndex { i in focused.map { i.isSame($0) } ?? false } ?? -1
         }
         let n = items.count
+        // Items gone from the same menu since (lazily drawn, a filter): the place kept inside it, or Up crashed.
+        if webIndex >= n { webIndex = n - 1 }
         switch g.keyName {
         case "downArrow": webIndex = (webIndex + 1) % n
         case "upArrow": webIndex = webIndex <= 0 ? n - 1 : webIndex - 1

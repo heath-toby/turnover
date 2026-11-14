@@ -569,6 +569,9 @@ public final class SpeechPlayer: @unchecked Sendable {
                         return
                     }
                     guard let out = self.convert(pcm), out.frameLength > 0 else { return }
+                    // The EQ for Mac voices too, as Settings says ("for every voice"); only natural voices had it (a review, 14 Nov 2026).
+                    if state.eq == nil { state.eq = SpeechEQ(self.eq, sampleRate: out.format.sampleRate) }
+                    state.eq?.run(out)
                     self.applyVolume(out)
                     self.outputHealth.scheduledFrames(for: state.outputIncident, sampleTime: self.outputSampleTime())
                     if timing.value.firstBufferAt == nil {

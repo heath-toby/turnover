@@ -84,8 +84,12 @@ extension BrowseModeDocument {
             // Read again now, so the next press finds the live control (marking it only, nothing read it again
             // before Enter, and every press said the same: a review, 14 Nov 2026).
             rebuildKeepingPlace()
-            // What the next press will act on, said: the re-read may have put the place on another row's control
-            // (a row added above moved them all: a review, 14 Nov 2026).
+            // What the next press will act on, said with the line before it (its row's words): the re-read may have put
+            // the place on another row's "Delete", the same word (a row added above moved them all: a review, 14 Nov 2026).
+            if let i = buffer.lineIndex(at: position), i > 0 {
+                let before = lineText(at: buffer.lines[i - 1].start).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !before.isEmpty { Speech.speakMessage(before) }
+            }
             speakUnit(.line)
             return
         }
@@ -524,10 +528,15 @@ extension BrowseModeDocument {
     }
 
     /// A link or button on the live page whose text is `name`.
-    static func liveActionable(named name: String, in root: AXUIElement) -> AXUIElement? { liveActionables(named: name, in: root, limit: 1).first }
-    static func liveActionableCount(named name: String, in root: AXUIElement) -> Int { liveActionables(named: name, in: root, limit: 2).count }
+    static func liveActionable(named name: String, in root: AXUIElement) -> AXUIElement? { liveActionables(named: name, in: root, limit: 1).found.first }
+    /// How many (2 means two or more); a search that ran out on a big page counts as several, as its twin may lie
+    /// beyond it (a review, 14 Nov 2026).
+    static func liveActionableCount(named name: String, in root: AXUIElement) -> Int {
+        let r = liveActionables(named: name, in: root, limit: 2)
+        return r.complete ? r.found.count : 2
+    }
 
-    static func liveActionables(named name: String, in root: AXUIElement, limit: Int) -> [AXUIElement] {   // bounded: it runs only when the buffer failed
+    static func liveActionables(named name: String, in root: AXUIElement, limit: Int) -> (found: [AXUIElement], complete: Bool) {   // bounded: it runs only when the buffer failed
         var found: [AXUIElement] = []
         let wanted = name.lowercased()
         var queue = [root]; var visited = 0
@@ -537,11 +546,11 @@ extension BrowseModeDocument {
             if ["AXLink", "AXButton", "AXMenuItem", "AXCheckBox", "AXRadioButton", "AXPopUpButton"].contains(role) {
                 let own = [e.string(kAXTitleAttribute), e.string(kAXDescriptionAttribute)].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
                 let inner = e.elements(kAXChildrenAttribute).compactMap { $0.string(kAXValueAttribute)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.joined(separator: " ")
-                if own.contains(wanted) || inner == wanted { found.append(e); if found.count >= limit { return found } }
+                if own.contains(wanted) || inner == wanted { found.append(e); if found.count >= limit { return (found, true) } }
             }
             queue.append(contentsOf: e.elements(kAXChildrenAttribute))
         }
-        return found
+        return (found, queue.isEmpty)
     }
 
     static func actionable(_ x: AXUIElement) -> Bool {

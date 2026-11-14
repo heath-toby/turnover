@@ -121,7 +121,8 @@ final class TurnOverApp {
         // 19 or earlier; it was silent, and looked like something going wrong).
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             Speech.speakMessage(String(localized: "Tidying up VoiceOver's settings from an earlier TurnOver. VoiceOver Utility opens and closes by itself; a moment.", comment: "Spoken message"))
-            ActivityFlow.shared.set(apps: nil) { text in Log.info("activity removed: \(text)"); Speech.speakMessage(String(localized: "Done.", comment: "Spoken message")) }
+            // "Done." only when it is (a failure said "Done." too: a review, 14 Nov 2026).
+            ActivityFlow.shared.set(apps: nil) { text in Log.info("activity removed: \(text)"); Speech.speakMessage(ActivityFlow.shared.marker.installed ? text : String(localized: "Done.", comment: "Spoken message")) }
         }
     }
 

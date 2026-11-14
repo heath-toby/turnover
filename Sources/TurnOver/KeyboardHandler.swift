@@ -431,6 +431,8 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
                    !HandOver.voiceOverReading {
                     bypassDropped.insert(code); return nil
                 }
+                // A key gone ahead of keys main still owes: those are dropped when main gets to them (a review, 14 Nov 2026).
+                if type == .keyDown { ScriptHandler.noteKeyBypassed() }
             }
             return Unmanaged.passUnretained(event)
         }

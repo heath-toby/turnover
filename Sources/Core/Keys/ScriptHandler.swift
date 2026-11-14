@@ -89,6 +89,8 @@ public enum ScriptHandler {
     /// dropped, not typed behind the keys that went ahead of it ("worldhello "), or into another app, and its command
     /// isn't run against a focus that has moved on (a review, 14 Nov 2026).
     nonisolated private static let hangEpoch = Locked(0)
+    /// A key went straight to the app in the watchdog's bypass: keys deferred before it are dropped.
+    nonisolated public static func noteKeyBypassed() { hangEpoch.withLock { $0 &+= 1 } }
 
     /// With main stuck: a TurnOver chord made with the TurnOver key held (Caps Lock) is dropped, since passed it typed
     /// its letter (Caps L typed "l", a review, 14 Nov 2026). Ordinary keys still go through; so does every key while
@@ -226,9 +228,13 @@ public enum ScriptHandler {
     /// Queue a script for the main thread (NVDA: queueScript). Any thread.
     public static func queueScript(_ script: Script, gesture: KeyboardGesture) {
         let wasInSayAll = SayAll.isRunning
+        // Whether that reading was asked for, now, before the key's own stop ends it (a review, 14 Nov 2026).
+        wasDemanded = SayAll.demanded
         lock.lock(); queued.append((script, gesture, wasInSayAll)); lock.unlock()
         DispatchQueue.main.async { runQueued() }
     }
+
+    private static var wasDemanded = false
 
     /// True while a script runs (main thread).
     public static var isScriptRunning: Bool { _running }
@@ -261,11 +267,10 @@ public enum ScriptHandler {
         let resume = wasInSayAll && script.resumesSayAll
         let (calls0, ms0, t0) = (AXStats.calls, AXStats.ms, DispatchTime.now().uptimeNanoseconds)
         SayAll.resuming = resume
-        if resume { SayAll.carryDemanded = SayAll.demanded }
         // NVDA's on-demand speech mode: a reporting command may speak (the time, the line, the title …).
         if Speech.mode == .onDemand, Self.speaksOnDemand(script.name) { Speech.demandedUntil = Date().addingTimeInterval(2) }
         script.handler(gesture)
-        SayAll.resuming = false; SayAll.carryDemanded = false
+        SayAll.resuming = false
         // The cost of a slow script, measured: how many questions it asked the application and how long they took.
         let took = Double(DispatchTime.now().uptimeNanoseconds &- t0) / 1e6
         if took > 100 { Log.warning(String(format: "script %@ took %.0f ms: %d accessibility calls, %.0f ms in them", script.name, took, AXStats.calls - calls0, AXStats.ms - ms0)) }
@@ -277,7 +282,7 @@ public enum ScriptHandler {
         KeySettings.refresh()   // a script may have changed a setting the keyboard thread reads
         _running = false
         EventHandler.drain()
-        if resume, let obj = API.caretObject { SayAll.readText(from: obj) }
+        if resume, let obj = API.caretObject { SayAll.carryDemanded = wasDemanded; SayAll.readText(from: obj); SayAll.carryDemanded = false }
     }
 
     /// NVDA: getLastScriptRepeatCount — 0 the first time, 1 for the second press within the timeout.

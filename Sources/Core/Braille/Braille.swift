@@ -434,7 +434,9 @@ public enum Braille {
         }
         // Tethered to focus: TurnOver's own cursor isn't shown (NVDA's "tether to focus").
         // (The TurnOver menu shows even tethered to focus: its keys act on items the display must show.)
-        if config.braille.tether != "focus" || TurnOverMenu.shared.isOpen, heldItemStillCurrent(), let h = heldItem {
+        // (While the menu is open it is shown whatever the app does underneath: the menu has the keys, and a routing
+        // key on the app's line pressed a menu item unseen: a review, 14 Nov 2026.)
+        if TurnOverMenu.shared.isOpen || config.braille.tether != "focus", TurnOverMenu.shared.isOpen || heldItemStillCurrent(), let h = heldItem {
             let fresh: Bool = { if case .item = source { return text != h.text }; return true }()
             source = .item
             text = h.text; cursor = nil; selection = nil
@@ -691,8 +693,6 @@ public enum Braille {
                         if let next { windowStart = next; show(); return nil }
                         // A hint over the item: off its edge, the item again, not another item.
                         if messageUntil != nil { messageUntil = nil; refresh(); return nil }
-                        // The rotor's kinds go by Left and Right.
-                        if TurnOverMenu.shared.isRotorTop { return keyMap[name] == "scrollForward" ? "rightArrow" : "leftArrow" }
                         return keyMap[name] == "scrollForward" ? "downArrow" : "upArrow"
                     default: return nil
                     }
@@ -880,9 +880,15 @@ public enum Braille {
         if let next = forward ? windows.first(where: { $0 > windowStart }) : windows.last(where: { $0 < windowStart }) {
             windowStart = next; show(); caretToWindow(); return
         }
-        // Off the end of the line: on to the next or previous line (NVDA's scrollForward and scrollBack). On an item,
-        // panning stays on it (up and down move between items).
-        guard case .text = source else { Tones.edge(); return }
+        // Off the end of the line: on to the next or previous line (NVDA's scrollForward and scrollBack). On a list's
+        // row or TurnOver's own cursor item (the menu bar, a chat): on to the next or previous one, as VoiceOver does; a
+        // display with only panning keys (the Mantis) had no way on from Mail's list (a review, 14 Nov 2026). Other
+        // items (a button, where Down could open its menu) stay put.
+        guard case .text = source else {
+            if case .object(let o) = source, [.tableRow, .listItem, .treeViewItem, .cell, .tableCell].contains(o.role) { press(forward ? "downArrow" : "upArrow"); return }
+            if case .item = source { press(forward ? "downArrow" : "upArrow"); return }
+            Tones.edge(); return
+        }
         line(forward ? 1 : -1, toEnd: !forward)
     }
 

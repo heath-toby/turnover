@@ -47,6 +47,8 @@ enum Uninstaller {
             Speech.speakMessage(String(localized: "Uninstalling TurnOver. First VoiceOver's settings: VoiceOver Utility opens and closes by itself, about ten seconds.", comment: "Spoken message"))
             ActivityFlow.shared.set(apps: nil) { text in
                 Log.info("uninstall: the Activity: \(text)")
+                // Not taken out: stop here and say why, rather than delete the record of it with the rest (a review).
+                if ActivityFlow.shared.marker.installed { Speech.speakMessage(text); return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { removeEverything(keepSettings: keepSettings) }
             }
             return

@@ -14,6 +14,7 @@ public final class PanesView {
     private var hinted = Set<Int>()
     /// Elements found, kept for a moment: finding one walks the window.
     private var found: [Int: (AXUIElement, Date)] = [:]
+    private var missed: [Int: Date] = [:]
 
     public init(pid: pid_t, panes: RecipeView.Panes) { self.pid = pid; parts = panes.parts }
 
@@ -23,7 +24,11 @@ public final class PanesView {
     public func element(of i: Int) -> AXUIElement? {
         guard parts.indices.contains(i) else { return nil }
         if let (e, at) = found[i], Date().timeIntervalSince(at) < 10, e.role != "?" { return e }
-        guard let e = Self.find(parts[i].match, pid: pid) else { found[i] = nil; return nil }
+        // A part not there (a hidden sidebar) is not searched for again for three seconds: each search can take most
+        // of a second, and one Tab asked up to three times (a review, 14 Nov 2026).
+        if let m = missed[i], Date().timeIntervalSince(m) < 3 { return nil }
+        guard let e = Self.find(parts[i].match, pid: pid) else { found[i] = nil; missed[i] = Date(); return nil }
+        missed[i] = nil
         found[i] = (e, Date())
         return e
     }
@@ -86,6 +91,7 @@ public final class PanesView {
     /// Command Control 1 to 9.
     public func go(to i: Int) {
         guard parts.indices.contains(i) else { Tones.edge(); return }
+        missed[i] = nil   // asked for by name: looked for now (a sidebar just shown)
         guard let e = element(of: i) else { Tones.edge(); Speech.speakMessage(String(localized: "\(parts[i].name) is not on screen", comment: "Spoken message: %@ is a part of the window")); return }
         let part = parts[i]
         let obj = ObjectFactory.make(e)

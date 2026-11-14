@@ -684,9 +684,10 @@ public enum Speech {
             let ranges = Self.moveRanges(info.misspelledRanges(), from: rawText, to: text)
             if !ranges.isEmpty {
                 // By offset, last to first ("cat" after "concatenate" was marked in the wrong place: code review, 16 Oct 2026).
-                let ns = text as NSString
-                for r in ranges.sorted(by: { $0.location > $1.location }) where r.location + r.length <= ns.length && !(r.location == 0 && prefix.contains(spellingError)) {
-                    if config.documentFormatting.spellingErrors == .speech { text = ns.replacingCharacters(in: NSRange(location: r.location, length: 0), with: ui(spellingError) + " ") } else { Tones.spellingError() }
+                let length = (text as NSString).length
+                for r in ranges.sorted(by: { $0.location > $1.location }) where r.location + r.length <= length && !(r.location == 0 && prefix.contains(spellingError)) {
+                    // (From the text as marked so far: each from the original kept only the last mark, a review.)
+                    if config.documentFormatting.spellingErrors == .speech { text = (text as NSString).replacingCharacters(in: NSRange(location: r.location, length: 0), with: ui(spellingError) + " ") } else { Tones.spellingError() }
                 }
             } else {
                 var from = text.startIndex
