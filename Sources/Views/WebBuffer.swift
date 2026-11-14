@@ -779,6 +779,9 @@ public final class WebBuffer {
         while lo < hi { let m = (lo + hi) / 2; if segments[m].end <= start { lo = m + 1 } else { hi = m } }
         var asked = 0
         for s in segments[lo...] where s.start < end {
+            // A joining blank between two pieces carries the next piece's element, whose runs start at its own text:
+            // read for it, the space before a bold word was marked bold (a review, 14 Nov 2026).
+            if text.substring(with: NSRange(location: s.start, length: max(0, min(s.end, text.length) - s.start))).allSatisfy(\.isWhitespace) { continue }
             let runs: [EmphasisRun]
             if let k = emphasisCache[s.start] { runs = k }
             else {

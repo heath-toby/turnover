@@ -95,6 +95,9 @@ public enum Braille {
             cells.insert(contentsOf: typing, at: at)
             cellMap.insert(contentsOf: Array(repeating: cursor ?? 0, count: typing.count), at: min(at, cellMap.count))
             cursorCell = at + typing.count
+            // The marks under text after the cursor move along with it.
+            selectedCells = Set(selectedCells.map { $0 >= at ? $0 + typing.count : $0 })
+            emphasisCells = Set(emphasisCells.map { $0 >= at ? $0 + typing.count : $0 })
         }
         windows = windowStarts()
     }
@@ -164,6 +167,8 @@ public enum Braille {
     /// A braille setting changed (in Settings or the menu): shown again with it, the cursor's blink restarted.
     public static func settingsChanged() {
         blinkTimer?.invalidate(); blinkTimer = nil; blinkOn = true
+        if autoScroll != nil { startAutoScroll() }   // a new speed from Settings
+        lastContext = ""; lastObject = nil   // shown afresh with the new choices
         lastWritten = []
         refreshSoon()
     }
@@ -452,25 +457,38 @@ public enum Braille {
             // table", 6 Oct 2026).
             let row = selectedItem(in: focus)
             let obj = row ?? focus
+            // The same item as last time, even with a message shown in between: kept as it was.
+            let sameItem = lastObject.map { obj.isSameElement(as: $0) } ?? false
+            lastObject = obj.element
             source = .object(obj)
             let own = brailleText(Speech.objectPropertiesSpeech(obj, reason: .focus), role: obj.role)
             // NVDA's focus context presentation: what the focus is in (window, list, group) before it, the display
-            // starting so the focus is in view; panning back reads the context.
-            let context = focusContext(row == nil ? API.focusAncestors : API.focusAncestors + [focus])
-            let contextChanged = context != lastContext
-            lastContext = context
+            // starting so the focus is in view; panning back reads the context. Worked out once per focus: asking
+            // every ancestor's name at each refresh cost tens of messages to the app, and the display jumped from
+            // the context to the focus at the next refresh (a review, 14 Nov 2026).
+            let context: String, contextChanged: Bool
+            if sameItem { context = lastContext; contextChanged = false }
+            else {
+                context = focusContext(row == nil ? API.focusAncestors : API.focusAncestors + [focus])
+                contextChanged = context != lastContext
+                lastContext = context
+            }
             text = context.isEmpty ? own : context + " " + own
             cursor = nil; selection = nil
-            layout()
-            if !context.isEmpty {
+            if sameItem { windowOrigin = lastOrigin }
+            else if !context.isEmpty {
+                // The origin needs the cells: laid out once to find where the focus starts in them.
+                layout()
                 let ownStart = (context as NSString).length + 1
                 let ownCell = cellMap.firstIndex { $0 >= ownStart } ?? 0
                 let n = display?.cellCount ?? 40
                 let fill = config.braille.focusContext == "always" || (config.braille.focusContext == "changes" && contextChanged)
                 windowOrigin = fill ? min(ownCell, max(0, cells.count - n)) : ownCell
-                windows = windowStarts()
             }
-            windowStart = windowOrigin
+            lastOrigin = windowOrigin
+            layout()
+            // The same item again (its value changed, another event): the window stays where the reader panned to.
+            windowStart = sameItem && windows.contains(objectWindowStart) ? objectWindowStart : windowOrigin
         } else {
             source = nil; text = ""; cursor = nil; selection = nil; windowStart = 0
             layout()
@@ -480,6 +498,10 @@ public enum Braille {
 
     /// The context last shown before a focus, to tell when it changes.
     private static var lastContext = ""
+    private static var lastOrigin = 0
+    /// The item last shown, and where its window was (panned to, or placed).
+    private static var lastObject: AXUIElement?
+    private static var objectWindowStart = 0
 
     /// The focus's ancestors as the display shows them, outermost first: those with a name, or a role worth knowing
     /// (a list, a table, a dialog), the four nearest the focus.
@@ -549,6 +571,7 @@ public enum Braille {
             }
             else { Log.io("braille shows (\(kind)\(messageUntil != nil ? ", held" : "")): [\(shown.count) cells]") }
         }
+        if case .object = source { objectWindowStart = start }
         lastWritten = window
         d.write(window)
     }
@@ -709,6 +732,10 @@ public enum Braille {
         "VOTEventCommandPreviousElement": "1", "VOTEventCommandNextElement": "4",
         "Global.rightClickMouse": "25",
     ]
+    /// The chords above that BrailleCommands has no command for (none, unless one is mistyped), for the tests.
+    package static func unmappedVoCommandChords() -> [String] {
+        voCommandChords.filter { (_, d) in !BrailleCommands.table.contains { $0.0 == BrailleCommands.dots(d) } }.map(\.key).sorted()
+    }
     /// The rest, done directly.
     static let voCommandActions: [String: () -> Void] = [
         "SCRWorkspace.cancelSpeaking": { Speech.cancel() },

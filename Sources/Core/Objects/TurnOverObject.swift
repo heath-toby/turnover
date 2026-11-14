@@ -743,8 +743,12 @@ open class TurnOverObject: ScriptableObject {
         else { Speech.speakObject(self, reason: .focus) }
         // "3 selected", after the row that changed: only this row's, and only just set (one left by an event that was
         // dropped or swallowed came out minutes later in another app: a review, 14 Nov 2026).
-        if let note = TurnOverObject.selectionNote, note.element.isSame(element), Date().timeIntervalSince(note.at) < 2 { Speech.speakMessage(note.text) }
-        TurnOverObject.selectionNote = nil
+        // Cleared when said or stale only: with Shift Down held the next row's note is already waiting, and clearing it on a
+        // mismatch lost the count (a review, 14 Nov 2026).
+        if let note = TurnOverObject.selectionNote {
+            if note.element.isSame(element), Date().timeIntervalSince(note.at) < 2 { Speech.speakMessage(note.text); TurnOverObject.selectionNote = nil }
+            else if Date().timeIntervalSince(note.at) >= 2 { TurnOverObject.selectionNote = nil }
+        }
     }
     /// The first named thing inside a nameless wrapper, looking at twenty elements at most.
     public static func namedInside(_ e: AXUIElement) -> AXUIElement? {

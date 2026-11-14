@@ -15,7 +15,7 @@ public enum BrailleOutput {
 
     /// Cells, and for each the offset in `text` it shows.
     /// `emphasis`: the text's bold, italic and underlined stretches, given to the table when its own signs are wanted.
-    static func translate(_ text: String, cursor: Int?, emphasis: [EmphasisRun] = []) -> (cells: [UInt8], map: [Int]) {
+    package static func translate(_ text: String, cursor: Int?, emphasis: [EmphasisRun] = []) -> (cells: [UInt8], map: [Int]) {
         guard !text.isEmpty else { return ([], []) }
         guard let id = tableIdentifier, let tr = TOBrailleTranslator(forTable: id) else { return computer(text) }
         let marks = config.braille.formattingMarks == "table" ? emphasis : []
@@ -35,7 +35,7 @@ public enum BrailleOutput {
     }
 
     /// The runs inside a part of the text, from the part's start.
-    static func clip(_ runs: [EmphasisRun], to part: NSRange) -> [EmphasisRun] {
+    package static func clip(_ runs: [EmphasisRun], to part: NSRange) -> [EmphasisRun] {
         runs.compactMap { r in
             let i = NSIntersectionRange(r.range, part)
             return i.length > 0 ? EmphasisRun(r.kind, NSRange(location: i.location - part.location, length: i.length)) : nil
@@ -47,8 +47,14 @@ public enum BrailleOutput {
         let braille = emphasis.isEmpty ? tr.braille(forText: text, locations: &loc)
             : tr.braille(forText: text, locations: &loc, formatting: emphasis.map { [NSNumber(value: $0.kind.rawValue), NSNumber(value: $0.range.location), NSNumber(value: $0.range.length)] })
         let cells = braille.unicodeScalars.map { s -> UInt8 in (0x2800...0x28FF).contains(s.value) ? UInt8(s.value - 0x2800) : 0 }
-        var map = (loc as? [NSNumber])?.map(\.intValue) ?? []
-        if map.count != cells.count { map = (0..<cells.count).map { min($0, max(0, (text as NSString).length - 1)) } }
+        // Every offset kept inside the text: a sign the table adds (a bold indicator) may come back as -1 or NSNotFound,
+        // and a routing key or the cursor would use it as is (a review, 14 Nov 2026).
+        let length = (text as NSString).length
+        var map = (loc as? [NSNumber])?.map { min(max($0.intValue, 0), max(0, length - 1)) } ?? []
+        if map.count != cells.count {
+            if !map.isEmpty { Log.info("braille: the table gave \(map.count) places for \(cells.count) cells; spread evenly") }
+            map = (0..<cells.count).map { min($0, max(0, length - 1)) }
+        }
         return (cells, map)
     }
 

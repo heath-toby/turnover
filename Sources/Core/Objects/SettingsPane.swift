@@ -1229,11 +1229,12 @@ public final class SettingsPanePlugin: GlobalPlugin {
         Log.io("row list: scrolled \(delta > 0 ? "down" : "up") a page → \(describeError(r))")
         guard r == .success else { Tones.edge(); return }
         Self.rowScrollPending = true
-        let keyAt = InputManager.lastKeyDownAt
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             Self.rowScrollPending = false
-            // Another key since (Tab away), or the row held changed: the landing is no longer wanted.
-            guard InputManager.lastKeyDownAt == keyAt, let held = Self.virtual, held.isSame(v) else { return }
+            // The row held changed meanwhile (Tab away, Escape): the landing is no longer wanted. (Not any key since: a
+            // second Down, dropped while the scroll waited, cancelled the landing and the page went unread: a review,
+            // 14 Nov 2026.)
+            guard let held = Self.virtual, held.isSame(v) else { return }
             let fresh = Self.rowsIn(container, like: v)
             guard !fresh.isEmpty else { Tones.edge(); return }
             let k = fresh.firstIndex(where: { $0.isSame(v) }) ?? fresh.firstIndex(where: { ObjectFactory.make($0).name == name })

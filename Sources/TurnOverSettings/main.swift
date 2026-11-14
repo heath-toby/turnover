@@ -463,9 +463,12 @@ struct OtherLanguageRow: View {
 struct BrailleView: View {
     @EnvironmentObject var model: Model
     private var drivers: [[String: String]] { model.special("_brailleDrivers") as? [[String: String]] ?? [] }
+    /// Each table once (the same one can be listed under several languages), languages that end up empty left out.
     private var tables: [(language: String, tables: [(id: String, name: String)])] {
-        (model.special("_brailleTables") as? [[String: Any]] ?? []).map { lang in
-            (lang["language"] as? String ?? "", (lang["tables"] as? [[String: String]] ?? []).map { ($0["id"] ?? "", $0["name"] ?? "") })
+        var seen = Set<String>()
+        return (model.special("_brailleTables") as? [[String: Any]] ?? []).compactMap { lang in
+            let list = (lang["tables"] as? [[String: String]] ?? []).map { ($0["id"] ?? "", $0["name"] ?? "") }.filter { seen.insert($0.0).inserted }
+            return list.isEmpty ? nil : (lang["language"] as? String ?? "", list)
         }
     }
     private var connected: String { model.special("_brailleDisplay") as? String ?? "" }
@@ -478,9 +481,13 @@ struct BrailleView: View {
         Binding(get: { (model.get("braille", "autoScrollSeconds") as? NSNumber)?.doubleValue ?? 3 }, set: { model.set("braille", "autoScrollSeconds", ($0 * 2).rounded() / 2) })
     }
     @ViewBuilder private func tablePicker(_ title: String, key: String, automatic: String) -> some View {
+        let current = model.get("braille", key) as? String ?? ""
+        let all = tables
         Picker(title, selection: model.string("braille", key, "")) {
             Text(automatic).tag("")
-            ForEach(tables, id: \.language) { lang in
+            // A table chosen before that this Mac doesn't list: shown by its identifier, not as a blank choice.
+            if !current.isEmpty, !all.contains(where: { $0.tables.contains { $0.id == current } }) { Text(current).tag(current) }
+            ForEach(Array(all.enumerated()), id: \.offset) { _, lang in
                 Section(lang.language) { ForEach(lang.tables, id: \.id) { t in Text(t.name).tag(t.id) } }
             }
         }
@@ -550,7 +557,7 @@ struct BrailleView: View {
                 Toggle("Stop speech while panning", isOn: model.bool("braille", "interruptSpeechWhileScrolling"))
                 Toggle("Speak the character when routing the cursor in text", isOn: model.bool("braille", "speakOnRouting"))
                 Picker("Move the caret when routing the review cursor", selection: model.string("braille", "routingMovesCaret", "never")) {
-                    Text("Never").tag("never"); Text("Only when tethered automatically").tag("auto"); Text("Always").tag("always")
+                    Text("Never").tag("never"); Text("Always").tag("always")
                 }
                 Stepper(value: autoScroll, in: 0.5...20, step: 0.5) { Text("Auto scroll: a display's width every \(String(format: "%.1f", autoScroll.wrappedValue)) seconds") }
             }

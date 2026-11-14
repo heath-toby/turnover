@@ -195,6 +195,9 @@ public final class SystemPrompts {
 
     /// `fromTimer`: found by the regular look, where the same prompt in a new window isn't read again; asked for
     /// (the agent came to the front, the user went to it), it always is (a review, 11 Nov 2026).
+    /// Windows found with nothing to read yet, and how many looks found them so.
+    private var emptyLooks: [(window: AXUIElement, count: Int)] = []
+
     private func announce(_ window: AXUIElement, pid: pid_t, fromTimer: Bool = false) {
         lastAnnounced = Date()
         var texts: [String] = []
@@ -207,8 +210,20 @@ public final class SystemPrompts {
         // Nothing to read yet: out of `shown` again, so the next look retries; check() had already put it there, and
         // the prompt was never read nor given the keyboard. The focus is the app's: a window answers none (a review,
         // 14 Nov 2026).
-        guard !texts.isEmpty || AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute) != nil else {
-            shown.removeAll { $0.isSame(window) }
+        // Retried six looks at most (three seconds), the app asked with a short timeout, and its focus counted only
+        // when it is in this window: an empty helper window was walked twice a second for ever, and another window's
+        // focus let it say "dialog" over the real prompt (a review, 14 Nov 2026).
+        let hasFocusHere: Bool = {
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(app, 0.25)
+            guard let f = app.element(kAXFocusedUIElementAttribute), let w = f.element(kAXWindowAttribute) else { return false }
+            return w.isSame(window)
+        }()
+        guard !texts.isEmpty || hasFocusHere else {
+            emptyLooks.removeAll { $0.window.role == "?" }
+            let n = (emptyLooks.first { $0.window.isSame(window) }?.count ?? 0) + 1
+            emptyLooks.removeAll { $0.window.isSame(window) }
+            if n < 6 { emptyLooks.append((window, n)); shown.removeAll { $0.isSame(window) } }
             return
         }
         summaries.removeAll { $0.window.isSame(window) }

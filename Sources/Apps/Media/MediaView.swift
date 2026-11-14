@@ -1403,7 +1403,8 @@ public final class MediaView {
         guard let item = currentItem(), item.tableRow, let table = item.element.element(kAXParentAttribute) else { g.send(); return }
         // The row's words now are the ones spoken: Music can reuse a row's element for another song after a delete,
         // and the cached words would name the old one (a review, 14 Nov 2026).
-        if let i = index[pane], let spoken = rowLabels[i], spoken != Self.rowText(item.element).joined(separator: ", ") {
+        // By the title, the first column: others (the play count) change with the song still the same one.
+        if let i = index[pane], let spoken = rowLabels[i], let title = Self.rowText(item.element).first, !spoken.hasPrefix(title) {
             Log.io("media: \(g.identifier) not sent; the row now holds another song")
             rowLabels = [:]; builtAt = .distantPast
             Tones.edge()

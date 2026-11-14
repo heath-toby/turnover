@@ -75,6 +75,8 @@ public final class BrailleDisplays {
     }
 
     private var bluetoothLooking = false
+    /// Bumped at each stop: a Bluetooth connection begun for an earlier choice is let go when it comes back.
+    private var generation = 0
 
     private func useApple() -> Bool {
         // While a Bluetooth display is connecting (up to 8 s, on the braille thread), a USB display found would wait
@@ -93,6 +95,7 @@ public final class BrailleDisplays {
             let freed = Self.quitVoiceOversBrailleServer()
             if freed { quickRetryUntil = Date().addingTimeInterval(30) }
             // Give the display a moment to notice the old connection has gone.
+            let started = generation
             DispatchQueue.main.asyncAfter(deadline: .now() + (freed ? 2 : 0)) { [weak self] in
             TOAppleBrailleDisplay.detectBluetooth { [weak self] found in
                 // The display object is handed to the main thread whole; nothing else holds it.
@@ -103,7 +106,7 @@ public final class BrailleDisplays {
                     // The next attempt counts from this one's end, so the USB scan always has time between attempts.
                     self.lastBluetoothLook = Date()
                     Log.info("braille: Bluetooth: \(TOAppleBrailleDisplay.lastBluetoothReport)")
-                    guard self.apple == nil, self.lookAgain != nil || self.manager != nil else { found?.close(); return }
+                    guard self.apple == nil, self.generation == started, self.lookAgain != nil || self.manager != nil else { found?.close(); return }
                     if let found { self.adopt(found); self.stopOwn(); return }
                     // A USB display plugged in while Bluetooth was connecting is looked for now, not at the next scan.
                     if let usb = TOAppleBrailleDisplay.detect().first { self.adopt(usb); self.stopOwn() }
@@ -205,6 +208,7 @@ public final class BrailleDisplays {
     /// TurnOver hands back: close every display, so VoiceOver can take it.
     public func stop() {
         wanted = false
+        generation += 1
         lookAgain?.invalidate(); lookAgain = nil
         if let a = apple { Braille.detach(a); a.close(); apple = nil }
         stopOwn()

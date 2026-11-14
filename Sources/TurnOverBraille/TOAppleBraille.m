@@ -535,6 +535,25 @@ static NSMutableString *btReport;
 - (id)textForBraille:(id)braille locations:(id *)locations;
 @end
 
+/// The translation framework's formatting interface (BrailleTranslation.framework, read 14 Nov 2026), declared so ARC
+/// treats the init as an init and the calls take their real argument types; each is checked against the runtime's
+/// type encoding before it is used.
+@interface NSObject (TOBRLTFormatting)
+- (id)initWithLanguage:(id)language mode:(NSUInteger)mode partial:(BOOL)partial useTechnicalTable:(BOOL)technical textPositionsRange:(NSRange)positions textFormattingRanges:(id)ranges;
+- (void)addBoldRange:(NSRange)range;
+- (void)addItalicRange:(NSRange)range;
+- (void)addUnderlineRange:(NSRange)range;
+- (id)brailleForText:(id)text parameters:(id)parameters locations:(id *)locations;
+- (id)tableIdentifier;
+@end
+
+/// The instance method's types are the ones the call is written for.
+static BOOL hasEncoding(Class c, SEL s, const char *expected) {
+    Method m = class_getInstanceMethod(c, s);
+    const char *e = m ? method_getTypeEncoding(m) : NULL;
+    return e && strcmp(e, expected) == 0;
+}
+
 @implementation TOBrailleTranslator {
     id _translator;
 }
@@ -621,29 +640,30 @@ static NSMutableString *btReport;
     // call with BRLTTextFormattingRanges filled in is how VoiceOver's text styles reach the table (read from the
     // framework's classes, macOS 27.2, 14 Nov 2026). Mode 1 is what the service passes for every table tried.
     Class P = NSClassFromString(@"BRLTTranslationParameters"), R = NSClassFromString(@"BRLTTextFormattingRanges");
-    SEL init = NSSelectorFromString(@"initWithLanguage:mode:partial:useTechnicalTable:textPositionsRange:textFormattingRanges:");
-    SEL translate = NSSelectorFromString(@"brailleForText:parameters:locations:");
-    id inner = [_translator respondsToSelector:@selector(translator)] ? [_translator performSelector:@selector(translator)] : nil;
-    id table = [_translator respondsToSelector:@selector(table)] ? [_translator performSelector:@selector(table)] : nil;
-    SEL tableID = NSSelectorFromString(@"tableIdentifier");
-    if (!P || !R || ![P instancesRespondToSelector:init] || ![inner respondsToSelector:translate] || ![table respondsToSelector:tableID])
+    SEL init = @selector(initWithLanguage:mode:partial:useTechnicalTable:textPositionsRange:textFormattingRanges:);
+    SEL translate = @selector(brailleForText:parameters:locations:);
+    id inner = [_translator respondsToSelector:@selector(translator)] ? [_translator translator] : nil;
+    id table = [_translator respondsToSelector:@selector(table)] ? [_translator table] : nil;
+    if (!P || !R || !inner || ![table respondsToSelector:@selector(tableIdentifier)]
+        || !hasEncoding(P, init, "@64@0:8@16Q24B32B36{_NSRange=QQ}40@56")
+        || !hasEncoding([inner class], translate, "@40@0:8@16@24o^@32")
+        || !hasEncoding(R, @selector(addBoldRange:), "v32@0:8{_NSRange=QQ}16")
+        || !hasEncoding(R, @selector(addItalicRange:), "v32@0:8{_NSRange=QQ}16")
+        || !hasEncoding(R, @selector(addUnderlineRange:), "v32@0:8{_NSRange=QQ}16"))
         return [self brailleForText:text locations:locations];
     id ranges = [R new];
-    SEL adds[3] = { NSSelectorFromString(@"addBoldRange:"), NSSelectorFromString(@"addItalicRange:"), NSSelectorFromString(@"addUnderlineRange:") };
     NSUInteger length = text.length;
     for (NSArray<NSNumber *> *f in formatting) {
         if (f.count != 3) continue;
         NSInteger kind = f[0].integerValue, loc = f[1].integerValue, len = f[2].integerValue;
         if (kind < 0 || kind > 2 || loc < 0 || len <= 0 || (NSUInteger)loc >= length) continue;
         NSRange r = NSMakeRange((NSUInteger)loc, MIN((NSUInteger)len, length - (NSUInteger)loc));
-        if (![ranges respondsToSelector:adds[kind]]) continue;
-        ((void (*)(id, SEL, NSRange))objc_msgSend)(ranges, adds[kind], r);
+        if (kind == 0) [ranges addBoldRange:r]; else if (kind == 1) [ranges addItalicRange:r]; else [ranges addUnderlineRange:r];
     }
-    id language = ((id (*)(id, SEL))objc_msgSend)(table, tableID);
-    id params = ((id (*)(id, SEL, id, NSUInteger, BOOL, BOOL, NSRange, id))objc_msgSend)([P alloc], init, language, (NSUInteger)1, NO, NO, NSMakeRange(NSNotFound, 0), ranges);
+    id params = [[P alloc] initWithLanguage:[table tableIdentifier] mode:1 partial:NO useTechnicalTable:NO textPositionsRange:NSMakeRange(NSNotFound, 0) textFormattingRanges:ranges];
     if (!params) return [self brailleForText:text locations:locations];
     id loc = nil;
-    id out = ((id (*)(id, SEL, id, id, id *))objc_msgSend)(inner, translate, text, params, &loc);
+    id out = [inner brailleForText:text parameters:params locations:&loc];
     if (![out isKindOfClass:NSString.class]) return [self brailleForText:text locations:locations];
     if (locations) {
         // The table's own translator gives its map as 64-bit offsets in data (the service turns them into numbers).
