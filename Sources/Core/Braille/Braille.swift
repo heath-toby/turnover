@@ -994,9 +994,11 @@ public enum Braille {
         // VoiceOver's "Turn pages when panning": a paged view (Kindle's book) turns the page at its edge, then the
         // display shows the new page's line (its first, or going back its last line's end) (14 Nov 2026).
         if config.braille.turnPagesWhenPanning, case .text(let info, _) = source, info.obj.element.pid > 0,
-           AppModuleHandler.shared.appModule(for: info.obj.element.pid).brailleTurnPage(forward: forward, done: {
+           AppModuleHandler.shared.appModule(for: info.obj.element.pid).brailleTurnPage(forward: forward, speak: config.braille.speakWhenPanning, done: { turned in
+               // Only a page that turned moves the display to its last window: at the book's start (or a key pressed
+               // meanwhile) the window jumped to the end of the line still shown (a review, 14 Nov 2026).
                refresh()
-               if !forward { windowStart = windows.last ?? 0; show() }
+               if turned, !forward { windowStart = windows.last ?? 0; show() }
            }) { return }
         line(forward ? 1 : -1, toEnd: !forward, fromTimer: fromTimer)
     }

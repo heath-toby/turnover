@@ -283,6 +283,16 @@ public struct Config: Codable {
         }
         /// The EQ as the speech player takes it.
         public var eq: [Float] { [Float(bass), Float(middle), Float(treble)] }
+        /// Rate, pitch and volume within the ranges Settings offers (rate 0.1 to 1, pitch 0 to 1, volume 10 to 200),
+        /// for each language and voice too: an imported file with volume 0 left TurnOver silent (a review, 14 Nov 2026).
+        public mutating func keepAudible() {
+            func r(_ x: Float) -> Float { x.isFinite ? min(1, max(0.1, x)) : 0.55 }
+            func p(_ x: Float) -> Float { x.isFinite ? min(1, max(0, x)) : 0.5 }
+            func v(_ x: Int) -> Int { min(200, max(10, x)) }
+            rate = r(rate); pitch = p(pitch); volume = v(volume)
+            languageRates = languageRates.mapValues(r); languagePitches = languagePitches.mapValues(p); languageVolumes = languageVolumes.mapValues(v)
+            voiceTunings = voiceTunings.mapValues { var t = $0; t.rate = r(t.rate); t.volume = v(t.volume); return t }
+        }
     }
     public struct Keyboard: Codable {
         public var speakTypedCharacters: TypingEcho = .editControls
@@ -621,10 +631,12 @@ public struct Config: Codable {
         /// it is; "low" shows the name and value only, "medium" adds the kind and states, "high" adds help text,
         /// shortcut, position and level. The order stays the speech list's; speech itself is never changed (14 Nov 2026).
         public static let brailleLevels = ["speech", "high", "medium", "low"]
-        public func forBraille(_ level: String) -> Verbosity {
+        /// `toggles`: the item is a check box, radio button or switch, whose state ("checked") is its value: kept at
+        /// low, or a check box showed only its name (a review, 14 Nov 2026).
+        public func forBraille(_ level: String, toggles: Bool = false) -> Verbosity {
             let shown: [String]
             switch level {
-            case "low": shown = ["name", "value"]
+            case "low": shown = toggles ? ["name", "value", "state"] : ["name", "value"]
             case "medium": shown = ["name", "value", "role", "state"]
             case "high": shown = Self.pieces
             default: return self

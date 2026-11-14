@@ -42,7 +42,8 @@ public final class ObjectNavigator {
     /// where it is as the focus moves. A saved setting since 14 Nov 2026 (Settings, Keyboard, Moving around).
     public var tracksFocus: Bool {
         get { config.keyboard.reviewFollowsFocus }
-        set { config.keyboard.reviewFollowsFocus = newValue; config.save() }
+        // An open Settings window is told, so its switch shows the key's change (a review, 14 Nov 2026).
+        set { config.keyboard.reviewFollowsFocus = newValue; config.save(); SettingsBridge.sendState() }
     }
 
     /// The hook for mouse tracking (NVDA's "Follow mouse cursor", 14 Nov 2026): whoever watches the mouse calls this
@@ -120,16 +121,22 @@ public final class ObjectNavigator {
     }
 
     // VoiceOver Utility's Navigation options (14 Nov 2026). Both cost nothing at their defaults: no accessibility call.
-    /// The window the focus was last in, for "first item in window".
-    private var lastFocusWindow: AXUIElement?
+    /// The windows the focus was last in, newest last, for "first item in window": a few, so Command-Tab back to a
+    /// window just left keeps the cursor where it was, not on its first item again (a review, 14 Nov 2026).
+    private var recentFocusWindows: [AXUIElement] = []
     private func startingPlace(for e: AXUIElement) {
         let g = config.general
         // Initial position, first item in window: a window the focus comes into puts the cursor on its first item
         // (the keyboard focus stays where the app put it).
         if g.cursorStart == "firstItem", let w = e.element(kAXWindowAttribute) {
-            let isNew = !(lastFocusWindow.map { $0.isSame(w) } ?? false)
-            lastFocusWindow = w
-            if isNew, g.movesByGroups, let first = Self.groupItems(w).first {
+            let isNew = !recentFocusWindows.contains { $0.isSame(w) }
+            recentFocusWindows.removeAll { $0.isSame(w) }
+            recentFocusWindows.append(w)
+            if recentFocusWindows.count > 5 { recentFocusWindows.removeFirst() }
+            // Time-limited: this runs on every focus move into a window, on main, and a big window's whole walk asked
+            // thousands of questions (a review, 14 Nov 2026). The first item is found early in the walk.
+            let until = Date().addingTimeInterval(0.15)
+            if isNew, g.movesByGroups, let first = Self.groupItems(w, stoppingWhen: { Date() >= until }).first {
                 current = first; currentPid = first.pid
                 Log.io("review: a new window; the cursor starts on its first item")
                 return
@@ -149,16 +156,24 @@ public final class ObjectNavigator {
         }
     }
 
-    /// Fast searching (FastSearch): the next item in the cursor's list, or its group, starting with the letter.
+    /// Fast searching (FastSearch): the next item in the focused list starting with the letter.
+    /// The list is the keyboard focus's, not the review cursor's: the key is offered only with the focus on a list, and
+    /// a cursor left elsewhere searched its own group (a review, 14 Nov 2026). The search starts after the cursor when
+    /// it is in that list, else after the chosen row.
     public func fastSearch(_ letter: String) {
-        guard let cur = element else { Tones.edge(); return }
-        let lists: Set<String> = ["AXTable", "AXOutline", "AXList", "AXBrowser"]
-        guard let container = lists.contains(cur.role) ? cur : groupContainer(of: cur) else { Tones.edge(); return }
-        let items = Self.groupItems(container)
-        let start = cur.isSame(container) ? nil : indexIn(items, of: cur)
-        // Names are read one by one from the start, so a near match is found without reading the whole list; a
-        // long list is searched to 500 items at most.
-        for i in FastSearch.order(count: items.count, after: start).prefix(500) where FastSearch.matches(ObjectFactory.make(items[i]).name, letter) {
+        guard let container = API.focusObject?.element, FastSearch.listAXRoles.contains(container.role) else { Tones.edge(); return }
+        // Time-limited, as VO-J is: a long list's walk and its names are read on main (the watchdog hands over at 4 s).
+        let walkUntil = Date().addingTimeInterval(FastSearch.budget)
+        let items = Self.groupItems(container) { Date() >= walkUntil }
+        var start: Int?
+        if let cur = element, !cur.isSame(container) { start = indexIn(items, of: cur) }
+        if start == nil, let chosen = Self.chosenRow(in: container) { start = items.firstIndex { $0.isSame(chosen) } }
+        // Names are read one by one from the start, so a near match is found without reading the whole list; they are
+        // read for FastSearch.budget at most (each name is several accessibility questions).
+        let readUntil = Date().addingTimeInterval(FastSearch.budget)
+        for i in FastSearch.order(count: items.count, after: start) {
+            if Date() >= readUntil { Log.io("fast searching: stopped after \(FastSearch.budget) s"); break }
+            guard FastSearch.matches(ObjectFactory.make(items[i]).name, letter) else { continue }
             let item = items[i]
             // A row the keyboard follows is selected too, as VoiceOver's cursor does in a list.
             if config.general.cursorMovesFocus, item.role == "AXRow" { _ = item.set(kAXSelectedAttribute, kCFBooleanTrue) }

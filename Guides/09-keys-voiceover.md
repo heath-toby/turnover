@@ -151,7 +151,7 @@ Switch styles with Command Control Comma, then K. TurnOver's own commands behind
 | TurnOver Shift H | Reads the item's help tag (VO-Shift-H) |
 | TurnOver Shift Home | In text, the first word in view; elsewhere the first item in the group (VO-Shift-Home) |
 | TurnOver Shift J | Jumps to the input method or autocorrect panel (VO-Shift-J) |
-| TurnOver Shift K | Option key Commander on or off: right Option with a letter runs a command (VO-Shift-K) |
+| TurnOver Shift K | Keyboard Commander on or off: the Commander key (right Option unless changed) with a letter runs a command (VO-Shift-K) |
 | TurnOver Shift L | Describes the image or photo; anywhere else, what the window looks like (VO-Shift-L) |
 | TurnOver Shift M | The shortcut menu for the item (VO-Shift-M) |
 | TurnOver Shift N | Reads the hint for the item (VO-Shift-N) |

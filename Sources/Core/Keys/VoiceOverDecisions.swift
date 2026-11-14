@@ -125,8 +125,8 @@ extension VoiceOverKeysPlugin {
         // 2. VO-V: verbosity. (Handing over: Command Control Shift T.)
         add("verbosity", String(localized: "Verbosity: punctuation, item details and hints (VO-V)", comment: "A command, as the key list and keyboard help say it"), ["kb:turnover+v"]) { _ in TurnOverMenu.shared.openVerbosity() }
         // 3. VO-Shift-K: the Option key Commander. (The keyboard style: Command Control K.)
-        add("optionCommander", String(localized: "Option key Commander on or off: right Option with a letter runs a command (VO-Shift-K)", comment: "A command, as the key list and keyboard help say it"), ["kb:turnover+shift+k"]) { _ in
-            config.keyboard.optionCommander.toggle(); config.save(); KeySettings.refresh()
+        add("optionCommander", String(localized: "Keyboard Commander on or off: the Commander key (right Option unless changed) with a letter runs a command (VO-Shift-K)", comment: "A command, as the key list and keyboard help say it"), ["kb:turnover+shift+k"]) { _ in
+            config.keyboard.optionCommander.toggle(); config.save(); KeySettings.refresh(); SettingsBridge.sendState()
             Speech.speakMessage(config.keyboard.optionCommander ? String(localized: "Option key commander on", comment: "Spoken message") : String(localized: "Option key commander off", comment: "Spoken message"))
         }
         // 4. VO-Shift-J: the input method or autocorrect panel. (The "that was wrong" mark: Command Control J.)

@@ -949,6 +949,8 @@ func pureTests() {
         expect(Speech.arranged(pieces, by: speech.forBraille("medium")), ["button", "Save", "on", "dimmed"], "medium: kind and states, speech's order")
         expect(Speech.arranged(pieces, by: speech.forBraille("high")), ["button", "Save", "on", "dimmed", "Saves the file", "Command-S", "2 of 5", "level 2"], "high: everything, help text and position too")
         expect(speech.forBraille("unknown"), speech, "an unknown level is the speech list")
+        let box: [(String, [String])] = [("name", ["Wrap"]), ("role", ["check box"]), ("state", ["checked"])]
+        expect(Speech.arranged(box, by: speech.forBraille("low", toggles: true)), ["Wrap", "checked"], "low keeps a check box's state")
         expect(Braille.brailleText(Speech.arranged(pieces, by: Config.Verbosity().forBraille("medium")), role: .button), "Save btn (x) unavbl", "medium abbreviates the kind and states")
         let decode: (String) -> Config.Braille = { try! JSONDecoder().decode(Config.Braille.self, from: Data($0.utf8)) }
         expect(decode("{}").verbosity, "speech", "the default keeps today's display")

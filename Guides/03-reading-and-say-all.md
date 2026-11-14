@@ -72,7 +72,8 @@ Settings has VoiceOver's and NVDA's choices for how text is read:
   "no indent"), as tones (higher for deeper), or both, as NVDA does.
 - **Documents, Fonts:** colour, with the font's name, size and style.
 - **Item details:** how long a pause before a hint, and whether a dialog reads its text as it opens.
-- **Keyboard:** Caps Lock on and off said or not; right Option with a letter as VoiceOver's Keyboard Commander; and
+- **Keyboard:** Caps Lock on and off said or not; the Commander key (right Option unless changed) with a letter as
+  VoiceOver's Keyboard Commander; and
   NVDA's timings, how soon a key pressed again counts as twice, and how long to wait for the caret.
 - **Moving around:** at the end of a group, wrap round to its start, with VoiceOver's wrap sound.
 
