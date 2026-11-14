@@ -366,6 +366,9 @@ open class TurnOverObject: ScriptableObject {
     private lazy var _value: String? = {
         guard let v = element.attr(kAXValueAttribute) else { return incrementorValue }
         if let s = v as? String {
+            // A toggle's state given as text, "1" or "0" (FaceTime's microphone and camera switches, 14 Nov 2026): its
+            // state, said as on or off, never "1" as a value (the tester heard "Microphone switch 1 off").
+            if Role.toggles.contains(role), ["0", "1", "2"].contains(s) { return nil }
             if s.isEmpty, let n = incrementorValue { return n }
             // Some toolkits (wxWidgets: Bambu Studio) hand over an object's debug description as its value.
             if s.hasPrefix("<NS"), s.contains(" 0x") { return nil }
@@ -412,7 +415,9 @@ open class TurnOverObject: ScriptableObject {
            (element.attr(kAXFocusedAttribute) as? Bool) != true { s.insert(.unavailable) }
         if let f = element.attr(kAXFocusedAttribute) as? Bool, f { s.insert(.focused) }
         if let sel = element.attr(kAXSelectedAttribute) as? Bool, sel { s.insert(.selected) }
-        if let n = element.attr(kAXValueAttribute) as? NSNumber {
+        // (A toggle's state as the text "1" or "0" counts as the number: FaceTime.)
+        let rawValue = element.attr(kAXValueAttribute)
+        if let n = (rawValue as? NSNumber) ?? ((rawValue as? String).flatMap { ["0", "1", "2"].contains($0) && Role.toggles.contains(role) ? NSNumber(value: Int($0)!) : nil }) {
             switch role {
             case .checkBox, .checkMenuItem, .radioButton, .radioMenuItem, .toggleButton:
                 if n.intValue == 2 { s.insert(.halfChecked) } else if n.intValue != 0 { s.insert(role == .toggleButton ? .pressed : .checked) }
