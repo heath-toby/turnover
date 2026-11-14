@@ -68,7 +68,7 @@ public enum MouseTracking {
 
     private static var anyOn: Bool {
         let m = config.mouse
-        return m.tracking || m.audioCoordinates || m.pointer == "moves" || m.announceWindow
+        return m.tracking || m.audioCoordinates || m.pointer == "moves" || m.announceWindow || config.keyboard.reviewFollowsMouse
     }
 
     /// The monitor on while any of the mouse settings needs it, off otherwise. At the start and after each settings change.
@@ -94,7 +94,7 @@ public enum MouseTracking {
         let m = config.mouse
         let p = VoiceOverKeysPlugin.mouseLocation()
         if m.audioCoordinates { beep(at: p) }
-        guard m.tracking || m.pointer == "moves" || m.announceWindow else { return }
+        guard m.tracking || m.pointer == "moves" || m.announceWindow || config.keyboard.reviewFollowsMouse else { return }
         if m.delayMs > 0 {
             // VoiceOver's delay: said once the pointer has rested.
             restGeneration += 1
@@ -150,6 +150,8 @@ public enum MouseTracking {
         }
         // VoiceOver's "Moves VoiceOver cursor": the cursor goes where the pointer is, without the keyboard following.
         if m.pointer == "moves", entered { ObjectNavigator.shared.place(hit) }
+        // NVDA's "Review cursor follows mouse": silently, where the pointer is (Keyboard, Moving around).
+        else if entered, m.pointer != "moves" { _ = ObjectNavigator.shared.mouseMoved(to: hit, pid: hit.pid) }
         let speaks = m.tracking || m.pointer == "moves"
         if speaks {
             let obj = ObjectFactory.make(hit)
