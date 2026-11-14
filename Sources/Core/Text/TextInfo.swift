@@ -562,12 +562,13 @@ open class AXTextInfo: TextInfo {
         let a = r.location, b = r.location + r.length
         // Chromium (Signal's message box, measured 14 Nov 2026) gives every character the same bounds, so the drawn-row
         // check can't see the rows; its text-marker lines are the real rows: walked from the start, summing lengths.
-        if r.length > 40, let row = Self.markerRow(containing: probe, in: textElement, within: (a, b)) { return row }
         if r.length > 40, let first = Self.drawnRow(of: a, in: textElement), let last = Self.drawnRow(of: max(a, b - 2), in: textElement),
            abs(first.mid - last.mid) >= max(first.height, last.height) / 2,
            let row = DrawnRows.drawnRow(probe: probe, guess: (a, b), length: n, text: { [self] x, y in offsetText(x, y) }, row: { Self.drawnRow(of: $0, in: self.textElement) }) {
             return row
         }
+        // A long line whose characters all report one place (Chromium: Signal's message box): its text-marker rows.
+        if r.length > 50, let row = Self.markerRow(containing: probe, in: textElement, within: (a, b)) { return row }
         return (a, b)
     }
 
@@ -578,8 +579,8 @@ open class AXTextInfo: TextInfo {
             var v: CFTypeRef?
             return AXUIElementCopyParameterizedAttributeValue(e, name as CFString, arg, &v) == .success ? v as AnyObject : nil
         }
-        // WebKit maps an index to a marker, and its lines are right already: only Chromium, which can't, is walked.
-        if p("AXTextMarkerForIndex", offset as NSNumber) != nil { return nil }
+        // (Chromium answers AXTextMarkerForIndex, but the row it gives from there is a fragment: 9, 8, 58 characters
+        // where the rows walked from the start are 36, 41, 34… and add up. Walked, 14 Nov 2026.)
         guard let whole = p("AXTextMarkerRangeForUIElement", e), CFGetTypeID(whole) == AXTextMarkerRangeGetTypeID() else { return nil }
         var marker: AnyObject = AXTextMarkerRangeCopyStartMarker(whole as! AXTextMarkerRange)
         var at = 0
