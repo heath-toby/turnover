@@ -259,9 +259,11 @@ extension SettingsPanePlugin {
         }
         // Counted towards a short loop as the app's own landings are: Freeform's Tab went sidebar, toolbar, sidebar
         // (its own Tab from the sidebar back to the toolbar, TurnOver's from the toolbar on to the sidebar) and never
-        // reached the board (12 Nov 2026).
-        Self.noteLanding(all[n], forward: forward)
-        Self.focus(all[n], byTrap: Self.inTrapZone || Self.inLoopWindow(all[n]))
+        // reached the board (12 Nov 2026). The trap's move notes it itself (focus): noted here too, each landing went
+        // in twice, and the loop of two never showed (a review, 14 Nov 2026).
+        let trap = Self.inTrapZone || Self.inLoopWindow(all[n])
+        if !trap { Self.noteLanding(all[n], forward: forward) }
+        Self.focus(all[n], byTrap: trap)
         Self.setTrapState(for: all[n])
     }
 
