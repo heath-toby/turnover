@@ -132,6 +132,10 @@ func pureTests() {
         check(TurnOverObject.isFarLeftLabel(far, of: field, between: [CGRect(x: 120, y: 160, width: 120, height: 22)]), "a control on another row doesn't stand between")
         check(TurnOverObject.isFarLeftLabel(far, of: field, between: [CGRect(x: 0, y: 90, width: 600, height: 40)]), "a box around the row doesn't stand between")
         check(!TurnOverObject.isFarLeftLabel(CGRect(x: -100, y: 102, width: 60, height: 17), of: field, between: []), "not past 300 points")
+        check(TurnOverObject.labelSide(left: far, hasAbove: true, of: field) == .above, "a label above beats a far text on the row")
+        check(TurnOverObject.labelSide(left: far, hasAbove: false, of: field) == .farLeft, "a far text on the row only with no label above")
+        check(TurnOverObject.labelSide(left: CGRect(x: 200, y: 102, width: 90, height: 17), hasAbove: true, of: field) == .left, "a near label on the row beats one above")
+        check(TurnOverObject.labelSide(left: nil, hasAbove: false, of: field) == .none, "no text: no label")
     }
     test("pronunciations: whole words, any case, longest first, comments skipped") {
         let list = PronunciationDictionary.parse("# mine\nTurnOver = turn over\nNew York = new york\nNew York City = big apple\nbad line\nLBRF = L B R F")

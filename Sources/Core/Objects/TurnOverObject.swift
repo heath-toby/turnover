@@ -175,9 +175,12 @@ open class TurnOverObject: ScriptableObject {
         }
         // The nearest text on the row, further than 150 points: a label only with no control between it and the field
         // (a wide form's labels in a column; a review, 13 Nov 2026). Asked only then: the siblings' frames cost a question each.
-        if let (_, f) = left, !Self.isLeftLabel(f, of: me) {
+        switch Self.labelSide(left: left?.1, hasAbove: above != nil, of: me) {
+        case .left: break
+        case .farLeft:
             let others = parent.elements(kAXChildrenAttribute).prefix(80).filter { $0.role != "AXStaticText" && !CFEqual($0, element) }.compactMap { Self.frame($0) }
-            if !Self.isFarLeftLabel(f, of: me, between: others) { left = nil }
+            if let (_, f) = left, !Self.isFarLeftLabel(f, of: me, between: others) { left = nil }
+        case .above, .none: left = nil
         }
         return (left.map { ($0.0, $0.1.maxX) } ?? above).map { $0.0.trimmingCharacters(in: CharacterSet(charactersIn: ": ")) }
     }
@@ -188,6 +191,16 @@ open class TurnOverObject: ScriptableObject {
     nonisolated public static func isLeftLabel(_ f: CGRect, of me: CGRect, reach: CGFloat = 150) -> Bool {
         abs(f.midY - me.midY) <= max(6, me.height / 2) && f.minY < me.maxY && f.maxY > me.minY
             && f.maxX <= me.minX + 8 && me.minX - f.maxX < reach
+    }
+
+    /// Which neighbour labels a field: a text within 150 points on its row, else a text just above it, else the nearest
+    /// text on the row up to 300 points away (`farLeft`: still to be checked for a control between). A far text on the
+    /// row beat a real label above (a read-only value in a form with its labels above, a review, 13 Nov 2026). Pure.
+    nonisolated package enum LabelSide { case left, farLeft, above, none }
+    nonisolated package static func labelSide(left: CGRect?, hasAbove: Bool, of me: CGRect) -> LabelSide {
+        if let f = left, isLeftLabel(f, of: me) { return .left }
+        if hasAbove { return .above }
+        return left == nil ? .none : .farLeft
     }
 
     /// How far a left label may be when it is the nearest text on the row and nothing stands between.
