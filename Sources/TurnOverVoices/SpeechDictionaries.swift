@@ -1,28 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Speech dictionaries (NVDA's: a voice's, then the default; 14 Nov 2026, Oliver: "in NVDA's style"), shared by
-// TurnOver, which reads them as it speaks, and the Settings window, which edits them. Here because both use it: which
-// files there are and in what order they apply, and the pronunciations made in System Settings (Accessibility, Read &
-// Speak, Pronunciation), which TurnOver uses after its own.
+// The speech dictionary (NVDA's speech dictionaries, as one list: 14 Nov 2026, Oliver), shared by TurnOver, which
+// reads it as it speaks, and the Settings window, which edits it. Here because both use it: the file, its format, the
+// order entries apply in, and the pronunciations made in System Settings (Accessibility, Read & Speak,
+// Pronunciation), which TurnOver uses after its own.
 //
-// Three kinds of dictionary, each a text file of `word = say` lines (and, since 14 Nov 2026, typed entries: see
-// `lines(fromText:)`) in ~/Library/Application Support/TurnOver:
-//     pronunciations.txt                          the default: every voice and language
-//     pronunciations/language-de.txt              one language's, by its base code
-//     pronunciations/voice-<identifier>.txt       one voice's
-// Applied as NVDA does: the voice's, then the language's, then the default; each to the text the one before left.
+// One file, pronunciations.txt in ~/Library/Application Support/TurnOver, of `word = say` lines (and typed entries:
+// see `lines(fromText:)`). Each entry has a scope: every voice and language, one language (by its base code), or
+// one voice (by its identifier). Applied in NVDA's order: the voice's entries, then the language's, then those for
+// every voice, each group in the order listed and each entry to the text the one before left.
+// (The same day it was three kinds of file, pronunciations/language-<code>.txt and pronunciations/voice-<id>.txt
+// beside the default, edited one at a time; Oliver asked for one list with a scope per entry instead. Those files
+// are merged into pronunciations.txt once, by `migrate(in:)`, and kept renamed to *.migrated.)
 //
 // The words in System Settings' list can be names from the user's contacts: they are never logged or printed, only
 // counted (privacy, 14 Nov 2026).
 import Foundation
 
 public enum SpeechDictionaries {
+    /// Which speech an entry is for.
     public enum Scope: Hashable, Sendable {
+        /// Every voice and language.
         case standard
+        /// One language, by its base code ("de").
         case language(String)
+        /// One voice, by its identifier ("com.apple.voice.premium.en-GB.Malcolm", "external:af_heart").
         case voice(String)
 
-        /// The scope as text, for the TurnOver menu to ask the Settings window for it: "default", "language-de",
-        /// "voice-com.apple.voice.premium.en-GB.Malcolm".
+        /// The scope as text, for the Settings window's filter: "default", "language-de", "voice-…".
         public var id: String {
             switch self {
             case .standard: return "default"
@@ -36,6 +40,23 @@ public enum SpeechDictionaries {
             else if id.hasPrefix("voice-"), id.count > 6 { self = .voice(String(id.dropFirst(6))) }
             else { return nil }
         }
+
+        /// Whether an entry of this scope is used for speech in this voice and language.
+        public func applies(voice: String?, language: String?) -> Bool {
+            switch self {
+            case .standard: return true
+            case .language(let code): return language.map { SpeechDictionaries.baseLanguage($0) == SpeechDictionaries.baseLanguage(code) } ?? false
+            case .voice(let identifier): return voice == identifier
+            }
+        }
+        /// NVDA's order: a voice's entries first (0), then a language's (1), then every voice's (2).
+        public var rank: Int {
+            switch self {
+            case .voice: return 0
+            case .language: return 1
+            case .standard: return 2
+            }
+        }
     }
 
     /// "en-GB" → "en".
@@ -48,31 +69,9 @@ public enum SpeechDictionaries {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("TurnOver", isDirectory: true)
     }
 
-    /// A dictionary's file, relative to TurnOver's folder. A voice's identifier keeps letters, digits, dots and dashes;
-    /// anything else (the colon of "external:af_heart", a slash) becomes an underscore, so it is always one file name.
-    public static func fileName(_ scope: Scope) -> String {
-        func safe(_ s: String) -> String {
-            String(String.UnicodeScalarView(s.unicodeScalars.map { c -> Unicode.Scalar in
-                c.isASCII && (CharacterSet.alphanumerics.contains(c) || c == "." || c == "-") ? c : "_"
-            }))
-        }
-        switch scope {
-        case .standard: return "pronunciations.txt"
-        case .language(let code): return "pronunciations/language-\(safe(baseLanguage(code))).txt"
-        case .voice(let identifier): return "pronunciations/voice-\(safe(identifier)).txt"
-        }
-    }
-    public static func fileURL(_ scope: Scope, in folder: URL = SpeechDictionaries.folder) -> URL {
-        folder.appendingPathComponent(fileName(scope))
-    }
-
-    /// The dictionaries for an utterance, in the order they apply: the voice's, the language's, the default.
-    public static func scopes(voice: String?, language: String?) -> [Scope] {
-        var out: [Scope] = []
-        if let voice, !voice.isEmpty { out.append(.voice(voice)) }
-        if let language, !baseLanguage(language).isEmpty { out.append(.language(language)) }
-        out.append(.standard)
-        return out
+    /// The dictionary's file.
+    public static func fileURL(in folder: URL = SpeechDictionaries.folder) -> URL {
+        folder.appendingPathComponent("pronunciations.txt")
     }
 
     // MARK: Entries (14 Nov 2026, Oliver: an editor "NVDA-style", with a type for each entry)
@@ -96,8 +95,11 @@ public enum SpeechDictionaries {
         public var caseSensitive: Bool
         /// A note of the user's own, kept on the `#` line before the entry.
         public var comment: String
-        public init(kind: Kind = .word, pattern: String, replacement: String, caseSensitive: Bool = false, comment: String = "") {
+        /// Which speech it is for (14 Nov 2026): every voice, a language or a voice.
+        public var scope: Scope
+        public init(kind: Kind = .word, pattern: String, replacement: String, caseSensitive: Bool = false, comment: String = "", scope: Scope = .standard) {
             self.kind = kind; self.pattern = pattern; self.replacement = replacement; self.caseSensitive = caseSensitive; self.comment = comment
+            self.scope = scope
         }
 
         /// The longest pattern used; a longer one is skipped (a guard, as for a regular expression's time).
@@ -132,6 +134,8 @@ public enum SpeechDictionaries {
     ///     Siobhan = /ʃɪˈvɔːn/             a whole word said with these sounds (IPA between slashes)
     ///     @anywhere & = and               a type, and `case` for case sensitive, after an @:
     ///     @regex,case (\d+)px = $1 pixels    word, anywhere, regex, phonemes
+    ///     @phonemes,lang=de Bach = bax    a scope too: lang=<base code> or voice=<identifier>, the value
+    ///     @word,voice=external%3Aaf_heart LBRF = L B R F    percent-encoded past letters, digits and . - _
     ///     # a comment                     kept with the entry after it
     /// An = inside the pattern is written \= (and a backslash before one \\); the replacement is the rest of the line.
     public static func lines(fromText text: String) -> [Line] {
@@ -180,22 +184,59 @@ public enum SpeechDictionaries {
         let pattern = escapePattern(e.pattern)
         let replacement = e.kind == .phonemes ? "/" + e.replacement + "/" : e.replacement
         let looksLikeSounds = e.replacement.count > 2 && e.replacement.hasPrefix("/") && e.replacement.hasSuffix("/")
-        let plain = !e.caseSensitive && !e.pattern.hasPrefix("@") && !e.pattern.hasPrefix("#")
+        let plain = !e.caseSensitive && e.scope == .standard && !e.pattern.hasPrefix("@") && !e.pattern.hasPrefix("#")
             && (e.kind == .phonemes || (e.kind == .word && !looksLikeSounds))
-        let head = plain ? "" : "@" + ([e.kind.rawValue] + (e.caseSensitive ? ["case"] : [])).joined(separator: ",") + " "
+        var words = [e.kind.rawValue]
+        if e.caseSensitive { words.append("case") }
+        switch e.scope {
+        case .standard: break
+        case .language(let code): words.append("lang=" + encodeScopeValue(baseLanguage(code)))
+        case .voice(let identifier): words.append("voice=" + encodeScopeValue(identifier))
+        }
+        let head = plain ? "" : "@" + words.joined(separator: ",") + " "
         return head + pattern + " = " + replacement
+    }
+
+    /// A scope's value in its @ word: letters, digits, dot, dash, underscore as they are, anything else percent-encoded
+    /// (a voice's "external:af_heart" as external%3Aaf_heart), so a comma, space or = can never end the word early.
+    public static func encodeScopeValue(_ s: String) -> String {
+        var out = ""
+        for b in s.utf8 {
+            let c = Character(Unicode.Scalar(b))
+            if b < 0x80, c.isLetter || c.isNumber || c == "." || c == "-" || c == "_" { out.append(c) }
+            else { out += String(format: "%%%02X", b) }
+        }
+        return out
+    }
+    /// The value back; nil when it is empty or not valid percent-encoding.
+    public static func decodeScopeValue(_ s: Substring) -> String? {
+        guard !s.isEmpty, let v = s.removingPercentEncoding, !v.isEmpty else { return nil }
+        return v
     }
 
     /// An entry from a line; nil for a blank line, a comment, or one without a pattern and an =.
     public static func entry(fromLine raw: String) -> Entry? {
         var rest = Substring(raw.trimmingCharacters(in: .whitespaces))
         guard !rest.isEmpty, !rest.hasPrefix("#") else { return nil }
-        var kind = Entry.Kind.word, caseSensitive = false, typed = false
-        // "@anywhere,case …": only when every word after the @ is one of these; else "@home = …" is a word, as before.
+        var kind = Entry.Kind.word, caseSensitive = false, typed = false, scope = Scope.standard
+        // "@anywhere,case,lang=de …": only when every word after the @ is one of these; else "@home = …" is a word, as
+        // before. A scope's value keeps its case (a voice's identifier), the rest is read in any case.
         if rest.hasPrefix("@"), let space = rest.firstIndex(where: { $0 == " " || $0 == "\t" }) {
-            let words = rest[rest.index(after: rest.startIndex)..<space].lowercased().split(separator: ",").map(String.init)
-            if !words.isEmpty, words.allSatisfy({ typeWords[$0] != nil || $0 == "case" }) {
-                for w in words { if let k = typeWords[w] { kind = k } else { caseSensitive = true } }
+            var known = true
+            var k = kind, c = false, sc = Scope.standard
+            let words = rest[rest.index(after: rest.startIndex)..<space].split(separator: ",", omittingEmptySubsequences: false)
+            for w in words {
+                if let eq = w.firstIndex(of: "=") {
+                    let key = w[..<eq].lowercased(), value = decodeScopeValue(w[w.index(after: eq)...])
+                    if key == "lang", let value, !baseLanguage(value).isEmpty { sc = .language(baseLanguage(value)) }
+                    else if key == "voice", let value { sc = .voice(value) }
+                    else { known = false; break }
+                } else if let t = typeWords[w.lowercased()] { k = t }
+                else if w.lowercased() == "case" { c = true }
+                else { known = false; break }
+            }
+            if known, !words.isEmpty {
+                kind = k; caseSensitive = c; scope = sc
                 typed = true
                 rest = rest[space...].drop(while: { $0 == " " || $0 == "\t" })
             }
@@ -219,7 +260,7 @@ public enum SpeechDictionaries {
         let slashed = replacement.count > 2 && replacement.hasPrefix("/") && replacement.hasSuffix("/")
         if !typed && slashed { kind = .phonemes }
         if kind == .phonemes && slashed { replacement = String(replacement.dropFirst().dropLast()) }
-        return Entry(kind: kind, pattern: pattern, replacement: replacement, caseSensitive: caseSensitive)
+        return Entry(kind: kind, pattern: pattern, replacement: replacement, caseSensitive: caseSensitive, scope: scope)
     }
 
     /// A pattern as written in the file: = as \=, and a backslash that would read as an escape doubled.
@@ -232,6 +273,87 @@ public enum SpeechDictionaries {
             else { out.append(c) }
         }
         return out
+    }
+
+    /// The entries the Settings window shows for its filter, by their number among all: those of the scope, or
+    /// every one (nil). The filter only narrows what is shown.
+    public static func shown(_ entries: [Entry], filter: Scope?) -> [Int] {
+        entries.indices.filter { filter == nil || entries[$0].scope == filter }
+    }
+
+    // MARK: The files of the morning of 14 Nov 2026, merged into one
+
+    /// The folder those files were in, inside TurnOver's.
+    public static let legacyFolderName = "pronunciations"
+
+    /// Its file name for a voice: letters, digits, dots and dashes kept, anything else an underscore (as it was).
+    public static func legacyFileName(voice identifier: String) -> String {
+        "voice-" + String(String.UnicodeScalarView(identifier.unicodeScalars.map { c -> Unicode.Scalar in
+            c.isASCII && (CharacterSet.alphanumerics.contains(c) || c == "." || c == "-") ? c : "_"
+        })) + ".txt"
+    }
+
+    /// The scope of an old file by its name; nil for any other file. A voice's identifier lost its colon to an
+    /// underscore: one of `knownVoices` with that file name is taken, else "external_…" is a natural voice's
+    /// "external:…" (Apple's identifiers have letters, digits, dots, dashes and underscores, kept as they were).
+    public static func legacyScope(fileName name: String, knownVoices: [String] = []) -> Scope? {
+        guard name.hasSuffix(".txt") else { return nil }
+        let stem = name.dropLast(4)
+        if stem.hasPrefix("language-"), stem.count > 9 {
+            let code = baseLanguage(String(stem.dropFirst(9)))
+            return code.isEmpty ? nil : .language(code)
+        }
+        guard stem.hasPrefix("voice-"), stem.count > 6 else { return nil }
+        if let known = knownVoices.first(where: { legacyFileName(voice: $0) == name }) { return .voice(known) }
+        let id = String(stem.dropFirst(6))
+        if id.hasPrefix("external_") { return .voice("external:" + id.dropFirst(9)) }
+        return .voice(id)
+    }
+
+    /// Entries of pronunciations/language-*.txt and voice-*.txt added to pronunciations.txt with their scope (any
+    /// already there, scope and all, not twice: a merge cut short is merged again safely), then each old file renamed
+    /// to *.migrated, never deleted. Only when pronunciations.txt is missing or can be read, and an old file only once
+    /// it is read; written atomically, and nothing renamed if the write fails. Returns how many files were merged.
+    /// Run by TurnOver as it first speaks and by the Settings window as it shows the dictionary.
+    @discardableResult
+    public static func migrate(in folder: URL = SpeechDictionaries.folder, knownVoices: [String] = []) -> Int {
+        let fm = FileManager.default
+        let old = folder.appendingPathComponent(legacyFolderName, isDirectory: true)
+        guard let names = try? fm.contentsOfDirectory(atPath: old.path) else { return 0 }
+        let found = names.sorted().compactMap { name in legacyScope(fileName: name, knownVoices: knownVoices).map { (name, $0) } }
+        guard !found.isEmpty else { return 0 }
+        let main = fileURL(in: folder)
+        var text = ""
+        if fm.fileExists(atPath: main.path) {
+            guard let t = try? String(contentsOf: main, encoding: .utf8) else { return 0 }
+            text = t
+        }
+        var lines = self.lines(fromText: text)
+        // Compared without their comments: the same rule with another note is still the same rule.
+        func bare(_ e: Entry) -> Entry { var e = e; e.comment = ""; return e }
+        var have = lines.compactMap(\.entry).map(bare)
+        var merged: [String] = []
+        for (name, scope) in found {
+            guard let t = try? String(contentsOf: old.appendingPathComponent(name), encoding: .utf8) else { continue }
+            for var e in entries(fromText: t) {
+                e.scope = scope
+                if !have.contains(bare(e)) { lines.append(.entry(e)); have.append(bare(e)) }
+            }
+            merged.append(name)
+        }
+        guard !merged.isEmpty else { return 0 }
+        let newText = self.text(of: lines)
+        if newText != text {
+            do { try newText.write(to: main, atomically: true, encoding: .utf8) } catch { return 0 }
+        }
+        for name in merged {
+            let from = old.appendingPathComponent(name)
+            var to = old.appendingPathComponent(name + ".migrated")
+            var n = 2
+            while fm.fileExists(atPath: to.path) { to = old.appendingPathComponent("\(name).\(n).migrated"); n += 1 }
+            try? fm.moveItem(at: from, to: to)
+        }
+        return merged.count
     }
 
     // MARK: Wiktionary (the Settings window's Look up on Wiktionary, 14 Nov 2026)

@@ -13,10 +13,11 @@
 // braille, the copy of the last thing said and the log keep the text as written. A file is read again when it
 // changes, so an edit applies at once.
 //
-// Since 14 Nov 2026 there are three, as in NVDA (SpeechDictionaries, in TurnOverVoices: the Settings window edits
-// them): the voice's own, the language's, and the default (pronunciations.txt, the one there was before), applied in
-// that order; then, unless switched off, the pronunciations made in System Settings (Accessibility, Read & Speak,
-// Pronunciation), read from its preferences and never changed. Their words are never logged: they can be names.
+// Since 14 Nov 2026 each entry has a scope, as NVDA's voice, language and default dictionaries in one list
+// (SpeechDictionaries, in TurnOverVoices: the Settings window edits it): the voice's entries apply first, then the
+// language's, then those for every voice; then, unless switched off, the pronunciations made in System Settings
+// (Accessibility, Read & Speak, Pronunciation), read from its preferences and never changed. Their words are never
+// logged: they can be names.
 import Foundation
 import TurnOverSpeech
 import TurnOverVoices
@@ -24,16 +25,18 @@ import TurnOverVoices
 public enum PronunciationDictionary {
     public typealias IPAMark = SpeechPlayer.IPAMark
     public typealias Entries = [Compiled]
-    /// The default dictionary.
-    public static var fileURL: URL { SpeechDictionaries.fileURL(.standard) }
+    /// The dictionary's file.
+    public static var fileURL: URL { SpeechDictionaries.fileURL() }
 
     /// An entry made ready: its pattern and what a match becomes.
     public final class Compiled {
         let re: NSRegularExpression
         let template: String
+        /// Which speech it is for.
+        let scope: SpeechDictionaries.Scope
         /// Set when it ran too long or grew the text too much: skipped until its file changes.
         var disabled = false
-        init(re: NSRegularExpression, template: String) { self.re = re; self.template = template }
+        init(re: NSRegularExpression, template: String, scope: SpeechDictionaries.Scope) { self.re = re; self.template = template; self.scope = scope }
     }
 
     /// Each file as last read, by path, and when it was last looked at (no more than once a second).
@@ -58,18 +61,26 @@ public enum PronunciationDictionary {
     package static func compile(_ e: SpeechDictionaries.Entry) -> Compiled? {
         guard e.problem == nil else { return nil }
         let options: NSRegularExpression.Options = e.caseSensitive ? [] : [.caseInsensitive]
+        func made(_ re: NSRegularExpression?, _ template: String) -> Compiled? { re.map { Compiled(re: $0, template: template, scope: e.scope) } }
         switch e.kind {
         case .word:
-            return wordPattern(e.pattern, ignoreCase: !e.caseSensitive).map { Compiled(re: $0, template: NSRegularExpression.escapedTemplate(for: e.replacement)) }
+            return made(wordPattern(e.pattern, ignoreCase: !e.caseSensitive), NSRegularExpression.escapedTemplate(for: e.replacement))
         case .phonemes:
-            return wordPattern(e.pattern, ignoreCase: !e.caseSensitive).map { Compiled(re: $0, template: ipaTemplate(e.replacement)) }
+            return made(wordPattern(e.pattern, ignoreCase: !e.caseSensitive), ipaTemplate(e.replacement))
         case .anywhere:
-            return (try? NSRegularExpression(pattern: NSRegularExpression.escapedPattern(for: e.pattern), options: options))
-                .map { Compiled(re: $0, template: NSRegularExpression.escapedTemplate(for: e.replacement)) }
+            return made(try? NSRegularExpression(pattern: NSRegularExpression.escapedPattern(for: e.pattern), options: options),
+                        NSRegularExpression.escapedTemplate(for: e.replacement))
         case .regex:
             // The replacement as the user wrote it: $1 for the first group, \$ for a dollar sign.
-            return (try? NSRegularExpression(pattern: e.pattern, options: options)).map { Compiled(re: $0, template: e.replacement) }
+            return made(try? NSRegularExpression(pattern: e.pattern, options: options), e.replacement)
         }
+    }
+
+    /// The entries for this voice and language in NVDA's order: the voice's, then the language's, then every
+    /// voice's, each group in the order listed. Pure (tested).
+    package static func ordered(_ list: Entries, voice: String?, language: String?) -> Entries {
+        list.enumerated().filter { $0.element.scope.applies(voice: voice, language: language) }
+            .sorted { ($0.element.scope.rank, $0.offset) < ($1.element.scope.rank, $1.offset) }.map(\.element)
     }
 
     /// The entries of a dictionary file's text, in the order listed (for the tests too).
@@ -112,18 +123,23 @@ public enum PronunciationDictionary {
         }.sorted { $0.re.pattern.count > $1.re.pattern.count }
     }
 
-    /// The text as the voice should say it: the voice's dictionary, the language's, the default, then System Settings'
-    /// (`system`), for the voice and language that will say it (`language`, a code; the app in front for System
-    /// Settings' entries kept to some apps).
+    /// Folders whose old per-language and per-voice files were looked for this run (SpeechDictionaries.migrate).
+    private static var migrated: Set<String> = []
+
+    /// The text as the voice should say it: the dictionary's entries for this voice, for its language, for every
+    /// voice, then System Settings' (`system`), for the voice and language that will say it (`language`, a code; the
+    /// app in front for System Settings' entries kept to some apps).
     /// (`folder`: TurnOver's own, but another for the tests.)
     public static func apply(_ text: String, voice: String?, language: String?, system useSystem: Bool, app: String? = nil,
                              folder: URL = SpeechDictionaries.folder) -> String {
         let now = Date()
-        var s = text
-        for scope in SpeechDictionaries.scopes(voice: voice, language: language) {
-            let list = entries(at: SpeechDictionaries.fileURL(scope, in: folder), now: now)
-            if !list.isEmpty { s = apply(s, list) }
+        if migrated.insert(folder.path).inserted {
+            let n = SpeechDictionaries.migrate(in: folder, knownVoices: voice.map { [$0] } ?? [])
+            if n > 0 { Log.info("pronunciations: \(n) old dictionary files merged into pronunciations.txt") }
         }
+        var s = text
+        let list = ordered(entries(at: SpeechDictionaries.fileURL(in: folder), now: now), voice: voice, language: language)
+        if !list.isEmpty { s = apply(s, list) }
         guard useSystem else { return s }
         refreshSystem(now: now)
         return applySystem(s, systemEntries, voice: voice, language: language, app: app)

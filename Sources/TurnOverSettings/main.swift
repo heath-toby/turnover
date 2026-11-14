@@ -25,14 +25,10 @@ final class Model: ObservableObject {
     /// A section TurnOver asked the window to show (a settings key pressed): with the first state, or on its own
     /// while the window is open. The sidebar follows it and then clears it.
     @Published var requestedSection: Pane?
-    /// A speech dictionary TurnOver asked the window to show (SpeechDictionaries.Scope.id): the TurnOver menu's
-    /// Settings, Speech dictionaries asks for "Speech dictionaries|voice-…" (14 Nov 2026).
-    @Published var requestedDictionary: String?
-    /// The section asked for, and the dictionary when one comes after a bar.
+    /// The section asked for. (A dictionary after a bar, "Speech dictionaries|voice-…", went when the speech
+    /// dictionaries became one list, 14 Nov 2026: anything after a bar is ignored.)
     private func request(_ name: String) {
-        let parts = name.split(separator: "|", maxSplits: 1).map(String.init)
-        if parts.count == 2 { requestedDictionary = parts[1] }
-        requestedSection = Pane(rawValue: parts.first ?? name)
+        requestedSection = Pane(rawValue: String(name.split(separator: "|", maxSplits: 1).first ?? Substring(name)))
     }
     private var connection: ControlClient.Connection?
 
@@ -143,7 +139,7 @@ final class Model: ObservableObject {
 
 enum Pane: String, CaseIterable, Identifiable {
     // NVDA's order, with TurnOver's own at the end: every setting the menu offered lives here since 21 Oct 2026.
-    case general = "General", speech = "Speech", dictionaries = "Speech dictionaries", sounds = "Sounds", braille = "Braille", vision = "Vision", keyboard = "Keyboard", mouse = "Mouse", items = "Item details", webPages = "Web pages", documents = "Documents",
+    case general = "General", speech = "Speech", dictionary = "Speech dictionary", sounds = "Sounds", braille = "Braille", vision = "Vision", keyboard = "Keyboard", mouse = "Mouse", items = "Item details", webPages = "Web pages", documents = "Documents",
          recognition = "Screen recognition", otherApps = "Other apps' speech", readers = "Screen reader behaviour"
     var id: String { rawValue }
     /// As the sidebar shows it. (The raw value stays English: TurnOver asks for a section by it.)
@@ -151,7 +147,7 @@ enum Pane: String, CaseIterable, Identifiable {
         switch self {
         case .general: return String(localized: "General", comment: "A section of the Settings window")
         case .speech: return String(localized: "Speech", comment: "A section of the Settings window")
-        case .dictionaries: return String(localized: "Speech dictionaries", comment: "A section of the Settings window")
+        case .dictionary: return String(localized: "Speech dictionary", comment: "A section of the Settings window")
         case .sounds: return String(localized: "Sounds", comment: "A section of the Settings window")
         case .braille: return String(localized: "Braille", comment: "A section of the Settings window")
         case .vision: return String(localized: "Vision", comment: "A section of the Settings window")
@@ -187,7 +183,7 @@ struct ContentView: View {
                 switch section ?? .general {
                 case .general: GeneralView()
                 case .speech: SpeechView()
-                case .dictionaries: SpeechDictionariesView()
+                case .dictionary: SpeechDictionaryView()
                 case .sounds: SoundsView()
                 case .braille: BrailleView()
                 case .vision: VisionView()
@@ -442,7 +438,7 @@ struct SpeechView: View {
                     LanguagesTable(languages: otherLanguages)
                 }
             }
-            // (Pronunciations moved to their own section, Speech dictionaries, 14 Nov 2026.)
+            // (Pronunciations moved to their own section, Speech dictionary, 14 Nov 2026.)
             // Folded away: the list is long by nature (every voice the rotor could step through).
             let rotorTitle = rotorChosen.isEmpty ? String(localized: "Show the voices in the rotor: every voice", comment: "A switch in Speech settings")
                 : String(localized: "Show the voices in the rotor: \(String(rotorChosen.count)) chosen", comment: "A switch in Speech settings")
@@ -491,74 +487,85 @@ struct OtherLanguage {
 
 // PronunciationsEditor, the entries of one dictionary, is in DictionaryEditor.swift (14 Nov 2026).
 
-/// Speech dictionaries (14 Nov 2026, NVDA's): which dictionary to edit, its words, and System Settings' pronunciations
-/// used as well. Plain controls in a form, a real list, no fold-outs.
-struct SpeechDictionariesView: View {
+/// Speech dictionary (14 Nov 2026, NVDA's speech dictionaries as one list, Oliver): every entry, a filter that only
+/// narrows what is shown, each entry's own scope, and System Settings' pronunciations used as well. Plain controls in
+/// a form, a real list, no fold-outs. (The same day it was a picker of three dictionaries, each its own file.)
+struct SpeechDictionaryView: View {
+    typealias Scope = SpeechDictionaries.Scope
     @EnvironmentObject var model: Model
     @ObservedObject private var voiceLists = VoiceLists.shared
-    @State private var chosen = SpeechDictionaries.Scope.standard.id
+    /// "all", or the scope shown (Scope.id).
+    @State private var filter = "all"
     /// System Settings' list, counted, read when the section appears; and those given as sounds, which the editor
     /// offers to copy when an entry is phonemes (shown only there, in the user's own window; never logged).
     @State private var systemCount: (all: Int, on: Int)?
     @State private var systemSounds: [(word: String, ipa: String)] = []
 
     private var mainVoice: String { model.get("speech", "voice") as? String ?? "" }
+    private var languageVoices: [String: String] { (model.get("speech", "languageVoices") as? [String: String]) ?? [:] }
     private func languageName(_ code: String) -> String { Locale.current.localizedString(forLanguageCode: code) ?? code }
     private func voiceName(_ id: String) -> String {
         if let v = AVSpeechSynthesisVoice(identifier: id) { return voiceLists.label(for: v) }
         let natural = (model.special("_naturalVoiceEntries") as? [[String: Any]]) ?? []
         return natural.first { $0["id"] as? String == id }?["name"] as? String ?? id
     }
-    /// Default; each language (the main voice's, then the languages table's); each voice (the main voice, then those
-    /// chosen per language).
-    private var choices: [(id: String, title: String)] {
-        var out = [(SpeechDictionaries.Scope.standard.id, String(localized: "Default dictionary (all voices and languages)", comment: "Speech dictionaries: the dictionary for every voice"))]
-        var languages: [String] = []
-        if let v = AVSpeechSynthesisVoice(identifier: mainVoice) { languages.append(SpeechDictionaries.baseLanguage(v.language)) }
+    /// The languages: the main voice's, then the languages table's, by base code.
+    private var languages: [String] {
+        var out: [String] = []
+        if let v = AVSpeechSynthesisVoice(identifier: mainVoice) { out.append(SpeechDictionaries.baseLanguage(v.language)) }
         for entry in (model.special("_otherLanguages") as? [[String: Any]]) ?? [] {
-            if let code = entry["code"] as? String { languages.append(SpeechDictionaries.baseLanguage(code)) }
+            if let code = entry["code"] as? String { out.append(SpeechDictionaries.baseLanguage(code)) }
         }
         var seen = Set<String>()
-        for code in languages where !code.isEmpty && seen.insert(code).inserted {
-            out.append((SpeechDictionaries.Scope.language(code).id, String(localized: "Language: \(languageName(code))", comment: "Speech dictionaries: one language's dictionary")))
+        return out.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+    /// The voices: the main voice, the natural voice when it speaks, and those chosen per language.
+    private var voices: [String] {
+        var out = [mainVoice]
+        if (model.special("_kokoroMode") as? String ?? "off") != "off", let v = model.special("_kokoroVoice") as? String { out.append("external:" + v) }
+        out += languageVoices.sorted { $0.key < $1.key }.map(\.value)
+        var seen = Set<String>()
+        return out.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+    private var scopes: [Scope] { [.standard] + languages.map(Scope.language) + voices.map(Scope.voice) }
+    /// A scope as the editor's Applies to offers it ("Only in German"), or in a row ("only in German").
+    private func scopeName(_ scope: Scope, inRow: Bool) -> String {
+        switch scope {
+        case .standard:
+            return inRow ? String(localized: "all voices", comment: "Speech dictionary row: the entry is for every voice")
+                         : String(localized: "All voices and languages", comment: "Speech dictionary entry's scope")
+        case .language(let code):
+            return inRow ? String(localized: "only in \(languageName(code))", comment: "Speech dictionary row: the entry is for one language")
+                         : String(localized: "Only in \(languageName(code))", comment: "Speech dictionary entry's scope: one language")
+        case .voice(let id):
+            return inRow ? String(localized: "only for \(voiceName(id))", comment: "Speech dictionary row: the entry is for one voice")
+                         : String(localized: "Only for \(voiceName(id))", comment: "Speech dictionary entry's scope: one voice")
         }
-        // A natural voice speaking everything or say all has its own dictionary too.
-        var voices = [mainVoice]
-        if (model.special("_kokoroMode") as? String ?? "off") != "off", let v = model.special("_kokoroVoice") as? String { voices.append("external:" + v) }
-        voices += ((model.get("speech", "languageVoices") as? [String: String]) ?? [:]).sorted { $0.key < $1.key }.map(\.value)
-        seen = []
-        for id in voices where !id.isEmpty && seen.insert(id).inserted {
-            out.append((SpeechDictionaries.Scope.voice(id).id, String(localized: "Voice: \(voiceName(id))", comment: "Speech dictionaries: one voice's dictionary")))
-        }
-        // One asked for from the TurnOver menu that isn't listed (a voice since changed): still offered.
-        if !out.contains(where: { $0.0 == chosen }), let scope = SpeechDictionaries.Scope(id: chosen) {
-            switch scope {
-            case .language(let code): out.append((chosen, String(localized: "Language: \(languageName(code))", comment: "Speech dictionaries: one language's dictionary")))
-            case .voice(let id): out.append((chosen, String(localized: "Voice: \(voiceName(id))", comment: "Speech dictionaries: one voice's dictionary")))
-            case .standard: break
-            }
-        }
+    }
+    private var filterChoices: [(id: String, title: String)] {
+        var out = [("all", String(localized: "All entries", comment: "Speech dictionary filter: every entry shown")),
+                   (Scope.standard.id, String(localized: "For all voices and languages", comment: "Speech dictionary filter"))]
+        out += languages.map { (Scope.language($0).id, String(localized: "Language: \(languageName($0))", comment: "Speech dictionary filter: one language's entries")) }
+        out += voices.map { (Scope.voice($0).id, String(localized: "Voice: \(voiceName($0))", comment: "Speech dictionary filter: one voice's entries")) }
         return out.map { (id: $0.0, title: $0.1) }
     }
-    private var url: URL { SpeechDictionaries.fileURL(SpeechDictionaries.Scope(id: chosen) ?? .standard) }
     private func countSystem() {
         let entries = (try? Data(contentsOf: SpeechDictionaries.systemPreferencesURL)).flatMap(SpeechDictionaries.systemEntries(fromPreferences:)) ?? []
         systemCount = (entries.count, entries.filter(\.active).count)
         systemSounds = entries.compactMap { e in e.phonemes.map { (e.original, $0) } }
     }
-    /// The voice that says the chosen dictionary's words, for Hear it: the voice's own (a Mac voice; a natural voice
-    /// can't say sounds, so the main voice stands in), the language's voice, or the main voice.
-    private var hearing: (voice: String?, language: String) {
+    /// The voice that says an entry of this scope, for Hear it, and its language, for Wiktionary: the voice's own (a
+    /// Mac voice; a natural voice can't say sounds, so the main voice stands in), the language's voice, or the main voice.
+    private func hearing(_ scope: Scope) -> (voice: String?, language: String) {
         let main = AVSpeechSynthesisVoice(identifier: mainVoice)
         let mainLanguage = main.map { SpeechDictionaries.baseLanguage($0.language) } ?? "en"
-        switch SpeechDictionaries.Scope(id: chosen) ?? .standard {
+        switch scope {
         case .voice(let id):
             if let v = AVSpeechSynthesisVoice(identifier: id) { return (id, SpeechDictionaries.baseLanguage(v.language)) }
             return (main?.identifier, mainLanguage)
         case .language(let code):
             if mainLanguage == code { return (main?.identifier, code) }
-            let chosenVoice = ((model.get("speech", "languageVoices") as? [String: String]) ?? [:])
-                .first { SpeechDictionaries.baseLanguage($0.key) == code }?.value
+            let chosenVoice = languageVoices.first { SpeechDictionaries.baseLanguage($0.key) == code }?.value
             let v = chosenVoice.flatMap(AVSpeechSynthesisVoice.init(identifier:)) ?? AVSpeechSynthesisVoice(language: code)
             return (v?.identifier, code)
         case .standard: return (main?.identifier, mainLanguage)
@@ -566,31 +573,26 @@ struct SpeechDictionariesView: View {
     }
     var body: some View {
         Form {
-            Picker(String(localized: "Dictionary", comment: "Speech dictionaries: which dictionary is edited below"), selection: $chosen) {
-                ForEach(choices, id: \.id) { Text($0.title).tag($0.id) }
+            Picker(String(localized: "Show", comment: "Speech dictionary: which entries the list shows"), selection: $filter) {
+                ForEach(filterChoices, id: \.id) { Text($0.title).tag($0.id) }
             }
-            Text("A voice's dictionary applies first, then its language's, then the default.").font(.caption)
-            Section(String(localized: "Entries", comment: "A group in Speech dictionaries: the chosen dictionary's entries")) {
-                PronunciationsEditor(url: url, voice: hearing.voice, language: hearing.language, systemSounds: systemSounds)
+            .accessibilityHint(String(localized: "Narrows the list to the entries for every voice, for one language or for one voice. It changes only what is shown.", comment: "Speech dictionary filter"))
+            Text("A voice's entries apply first, then its language's, then those for all voices.").font(.caption)
+            Section(String(localized: "Entries", comment: "A group in Speech dictionary: its entries")) {
+                PronunciationsEditor(url: SpeechDictionaries.fileURL(), filter: filter == "all" ? nil : Scope(id: filter),
+                                     scopes: scopes, scopeName: scopeName, hearing: hearing, systemSounds: systemSounds, knownVoices: voices)
             }
-            Section(String(localized: "System Settings", comment: "A group in Speech dictionaries")) {
+            Section(String(localized: "System Settings", comment: "A group in Speech dictionary")) {
                 Toggle("Also use the pronunciations from System Settings", isOn: model.bool("speech", "systemPronunciations"))
-                    .accessibilityHint(String(localized: "The words given in System Settings, Accessibility, Read & Speak, Pronunciation, said that way too, after TurnOver's own dictionaries. TurnOver only reads them.", comment: "Speech dictionaries"))
+                    .accessibilityHint(String(localized: "The words given in System Settings, Accessibility, Read & Speak, Pronunciation, said that way too, after TurnOver's own dictionary. TurnOver only reads them.", comment: "Speech dictionary"))
                 if let c = systemCount {
-                    Text(c.all == 0 ? String(localized: "System Settings has no pronunciations.", comment: "Speech dictionaries")
-                         : String(localized: "System Settings has \(String(c.all)) pronunciations, \(String(c.on)) switched on.", comment: "Speech dictionaries: how many pronunciations System Settings has"))
+                    Text(c.all == 0 ? String(localized: "System Settings has no pronunciations.", comment: "Speech dictionary")
+                         : String(localized: "System Settings has \(String(c.all)) pronunciations, \(String(c.on)) switched on.", comment: "Speech dictionary: how many pronunciations System Settings has"))
                 }
             }
         }
-        .formStyle(.grouped).navigationTitle(String(localized: "Speech dictionaries", comment: "A section of the Settings window"))
-        .onAppear {
-            countSystem()
-            if let asked = model.requestedDictionary { chosen = asked; model.requestedDictionary = nil }
-        }
-        .onReceive(model.$requestedDictionary) { asked in
-            guard let asked else { return }
-            chosen = asked; model.requestedDictionary = nil
-        }
+        .formStyle(.grouped).navigationTitle(String(localized: "Speech dictionary", comment: "A section of the Settings window"))
+        .onAppear { countSystem() }
     }
 }
 

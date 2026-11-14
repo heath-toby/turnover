@@ -321,7 +321,7 @@ public final class TurnOverMenu {
     private func rootItems() -> [MenuItem] {
         var items: [MenuItem] = []
         if let app = thisAppItem() { items.append(app) }
-        items.append(MenuItem("Settings", .submenu { self.settingsItems() }, hint: "The Settings window, speech dictionaries and keyboard shortcuts"))
+        items.append(MenuItem("Settings", .submenu { self.settingsItems() }, hint: "The Settings window, the speech dictionary and keyboard shortcuts"))
         items.append(MenuItem("Tools", .submenu { self.toolItems() }, hint: "The apps TurnOver reads, the VoiceOver settings copy, feedback, force quit, plugins"))
         items.append(MenuItem("Help", .submenu { self.helpItems() }, hint: "The guide, about TurnOver, updates and previous builds"))
         items.append(Self.supportItem)
@@ -457,34 +457,18 @@ public final class TurnOverMenu {
     }
 
     /// Settings (14 Nov 2026, Oliver: "in NVDA's style"): NVDA's Preferences submenu. Settings opens the window at
-    /// General, as the single Settings item did; then the speech dictionaries, and the keys (NVDA keeps Input Gestures
+    /// General, as the single Settings item did; then the speech dictionary, and the keys (NVDA keeps Input Gestures
     /// under Preferences), which were a "Keys" item of their own at the top until then. An item per section of the
-    /// window was tried the same day and taken out (Oliver: just Settings, Speech dictionaries, Keyboard shortcuts).
+    /// window was tried the same day and taken out (Oliver: just Settings, Speech dictionary, Keyboard shortcuts).
+    /// Speech dictionary was a submenu of three dictionaries (every voice, this language, this voice) until Oliver
+    /// asked for one list with a scope per entry, the same day: now one item, opening the window at its section.
     private func settingsItems() -> [MenuItem] {
         [
             MenuItem("Settings", .action { SettingsBridge.open(section: "General") }, hint: "Opens the Settings window"),
-            MenuItem("Speech dictionaries", .submenu { self.dictionaryItems() }, hint: "Words said your way: for every voice, for this language, or for this voice"),
+            MenuItem("Speech dictionary", .action { SettingsBridge.open(section: SettingsBridge.dictionarySection) },
+                     hint: "Words said your way, for every voice, one language or one voice"),
             MenuItem("Keyboard shortcuts", .submenu { self.keysItems() }, hint: "Every shortcut here, keyboard help, and your own keys"),
         ]
-    }
-
-    /// The three speech dictionaries of the voice in use, each opening the Settings window on it.
-    private func dictionaryItems() -> [MenuItem] {
-        let voice = AVSpeechSynthesisVoice(identifier: config.speech.voice)
-        let languageCode = voice.map { Languages.base($0.language) } ?? ""
-        let languageName = Locale.current.localizedString(forLanguageCode: languageCode) ?? languageCode
-        func open(_ scope: SpeechDictionaries.Scope) { SettingsBridge.open(section: SettingsBridge.dictionariesSection + "|" + scope.id) }
-        var items = [MenuItem("Default dictionary", .action { open(.standard) }, hint: "For all voices and languages")]
-        if !languageCode.isEmpty {
-            items.append(MenuItem("This language's dictionary (\(languageName))", .action { open(.language(languageCode)) },
-                                  hint: "For every voice speaking this language"))
-        }
-        // The voice that speaks: a natural voice chosen for everything, else the Mac voice (as Speech picks the dictionary).
-        let natural = KokoroVoice.mode == "everything" ? KokoroVoice.voiceEntries.first { $0.id == "external:" + KokoroVoice.voice } : nil
-        let voiceID = natural?.id ?? config.speech.voice
-        items.append(MenuItem("This voice's dictionary (\(natural?.name ?? voice?.name ?? config.speech.voice))", .action { open(.voice(voiceID)) },
-                              hint: "For this voice only"))
-        return items
     }
 
     private func keysItems() -> [MenuItem] {

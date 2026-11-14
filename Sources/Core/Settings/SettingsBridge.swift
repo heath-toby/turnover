@@ -31,12 +31,12 @@ public enum SettingsBridge {
         case "Screen recognition": return String(localized: "Screen recognition", comment: "A section of the Settings window")
         case "Other apps' speech": return String(localized: "Other apps' speech", comment: "A section of the Settings window")
         case "Screen reader behaviour": return String(localized: "Screen reader behaviour", comment: "A section of the Settings window")
-        case dictionariesSection: return String(localized: "Speech dictionaries", comment: "A section of the Settings window")
+        case dictionarySection: return String(localized: "Speech dictionary", comment: "A section of the Settings window")
         default: return section
         }
     }
-    /// The Speech dictionaries section; "Speech dictionaries|voice-…" opens it on one dictionary (SpeechDictionaries.Scope.id).
-    nonisolated public static let dictionariesSection = "Speech dictionaries"
+    /// The Speech dictionary section (one list since 14 Nov 2026; before, "Speech dictionaries|voice-…" chose a file).
+    nonisolated public static let dictionarySection = "Speech dictionary"
     /// An EQ slider's name, as a change announces it: from a list in the window, so the catalog has the three
     /// spelled out (a tester heard "Treble" under a Russian interface, 8 Nov 2026).
     nonisolated public static func eqName(_ name: String) -> String {

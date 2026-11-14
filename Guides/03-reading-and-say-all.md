@@ -76,18 +76,22 @@ Settings has VoiceOver's and NVDA's choices for how text is read:
 - **Emoji and symbols:** emoji are named by the voice itself ("grinning face"), in the voice's language. Symbols a
   voice would pass over in silence, such as arrows, maths and shapes, are said by their Unicode names ("rightwards
   arrow"). Emoticons such as :-) and <3 are said by name ("smiley", "heart"), unless you turn that off in Speech.
-- **Speech dictionaries** (its own section, after Speech): words said your way, as NVDA's speech dictionaries.
-  There are three kinds: the default dictionary, for every voice and language; a language's, for any voice speaking
-  it; and a voice's, for that voice only. Choose which to edit in **Dictionary** at the top; the list has the
-  default, your main voice's language and the other languages with voices, then your main voice and the voices you
-  chose for other languages. The dictionaries apply in NVDA's order: the voice's first, then the language's, then
-  the default. They change speech only; braille shows the text as written.
-  - **Entries** lists the chosen dictionary's entries, each read as its pattern, its type and what it is said as:
-    "LBRF, whole word, said as L B R F". Within a dictionary they apply in the order listed, each to the text the one
-    before left; **Move up** and **Move down** change the order.
-  - To add one, choose its **Type**, fill in **Pattern** and **Replacement**, and press **Add**. To change one,
-    choose it in the list, change the fields and press **Change**; **Remove** takes it away. **Case sensitive**
-    makes it match only in the case typed; **Comment** is a note of your own.
+- **Speech dictionary** (its own section, after Speech): words said your way, as NVDA's speech dictionaries, in one
+  list. Each entry has its own **Applies to**: **All voices and languages**, **Only in** a language (your main
+  voice's, or one in the languages table), or **Only for** a voice (your main voice, a voice chosen for another
+  language, or the natural voice if you use it). So a German name can be fixed for the German voice without
+  touching English. Entries apply in NVDA's order: those for the voice speaking first, then those for its
+  language, then those for all voices. They change speech only; braille shows the text as written.
+  - **Show**, at the top, narrows the list: **All entries**, **For all voices and languages**, one language or one
+    voice. It only changes what is shown. With a language or voice chosen there, a new entry is for that language
+    or voice unless you change its Applies to.
+  - **Entries** lists the entries, each read as its pattern, its type, what it is said as and who it is for:
+    "LBRF, whole word, said as L B R F, all voices", "Siobhan, phonemes, said as ʃɪˈvɔːn, only in English". They
+    apply in the order listed, each to the text the one before left; **Move up** and **Move down** change the
+    order (with Show narrowed, past the entry before or after it in the list as shown).
+  - To add one, choose its **Type**, fill in **Pattern** and **Replacement**, choose **Applies to**, and press
+    **Add**. To change one, choose it in the list, change the fields and press **Change**; **Remove** takes it
+    away. **Case sensitive** makes it match only in the case typed; **Comment** is a note of your own.
   - The types: **Whole word**, the pattern as a word on its own ("LBRF", not inside "LBRFs"); **Anywhere**, the
     pattern wherever it is, inside words too, for a symbol such as "&" or letters inside longer words; **Regular
     expression**, a pattern in which the replacement can use $1 for what the first group in brackets found, $2 for
@@ -96,18 +100,24 @@ Settings has VoiceOver's and NVDA's choices for how text is read:
     match no text at all, is refused, and the section says why; one that runs too long while speaking is left out
     until the dictionary changes.
   - For phonemes, three ways to find the sounds: **Use a pronunciation from System Settings** copies those of one
-    you made there; **Hear it** says the word with the sounds typed, in the dictionary's voice; and **Look up on
-    Wiktionary** sends the word in Pattern, and only that, to Wiktionary and lists its pronunciations to choose
-    from. The Mac's voices say IPA, which VoiceOver can't; a natural voice says the word as written.
-  - The TurnOver menu, Settings, Speech dictionaries, opens the window on the default dictionary, this language's
-    or this voice's.
-  - The dictionaries are text files in TurnOver's folder in Application Support (pronunciations.txt, and the
-    pronunciations folder), a line each: `LBRF = L B R F` is a whole word, `Siobhan = /ʃɪˈvɔːn/` phonemes, and
-    the other types start with an @: `@anywhere & = and`, `@regex,case (\d+)px = $1 pixels`. A comment line, starting
-    with `#`, just before an entry is that entry's comment.
-- **Also use the pronunciations from System Settings** (Speech dictionaries, on unless you turn it off): the words
+    you made there; **Hear it** says the word with the sounds typed, in the voice of the entry's Applies to; and
+    **Look up on Wiktionary** sends the word in Pattern, and only that, to Wiktionary and lists its pronunciations
+    in the entry's language to choose from. The Mac's voices say IPA, which VoiceOver can't; a natural voice says
+    the word as written.
+  - The TurnOver menu, Settings, Speech dictionary, opens the window at this section.
+  - The dictionary is a text file in TurnOver's folder in Application Support, pronunciations.txt, a line each:
+    `LBRF = L B R F` is a whole word for all voices, `Siobhan = /ʃɪˈvɔːn/` phonemes, and the other types and the
+    scopes start with an @: `@anywhere & = and`, `@regex,case (\d+)px = $1 pixels`, `@phonemes,lang=de Bach = /bax/`,
+    `@word,voice=com.apple.voice.premium.en-GB.Malcolm LBRF = L B R F` (in a voice's name, anything but letters,
+    digits, dots, dashes and underscores is written with a % code: `voice=external%3Aaf_heart`). A comment line,
+    starting with `#`, just before an entry is that entry's comment.
+  - Earlier builds of the same day kept a language's and a voice's words in files of their own, in the
+    pronunciations folder. The first time TurnOver speaks, or the Settings window shows this section, their
+    entries are added to pronunciations.txt with their language or voice, and the old files renamed to end in
+    .migrated; they are never deleted.
+- **Also use the pronunciations from System Settings** (Speech dictionary, on unless you turn it off): the words
   you gave in System Settings, Accessibility, Read & Speak, Pronunciation, are said that way too, after TurnOver's
-  own dictionaries, for the languages and voices they were given for. TurnOver only reads that list; change it in
+  own dictionary, for the languages and voices they were given for. TurnOver only reads that list; change it in
   System Settings. The section says how many there are.
 - **Documents, Lines:** line indentation as the caret moves by line, when it changes: spoken ("4 space", "tab",
   "no indent"), as tones (higher for deeper), or both, as NVDA does.

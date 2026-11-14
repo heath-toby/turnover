@@ -235,36 +235,114 @@ func pureTests() {
         check(Date().timeIntervalSince(started) < 1, "and stops within its time")
         expect(PronunciationDictionary.apply("aab", slow), "aab", "and stays off until its dictionary changes")
     }
-    test("speech dictionaries: file names, and NVDA's order: the voice's, the language's, then the default") {
-        expect(SpeechDictionaries.fileName(.standard), "pronunciations.txt", "the default is the file there was before")
-        expect(SpeechDictionaries.fileName(.language("de-DE")), "pronunciations/language-de.txt", "a language by its base code")
-        expect(SpeechDictionaries.fileName(.voice("com.apple.voice.premium.en-GB.Malcolm")), "pronunciations/voice-com.apple.voice.premium.en-GB.Malcolm.txt", "a voice by its identifier")
-        expect(SpeechDictionaries.fileName(.voice("external:af_heart/../x")), "pronunciations/voice-external_af_heart_.._x.txt", "a colon or slash never makes another folder")
-        expect(SpeechDictionaries.scopes(voice: "v1", language: "fr-CA"), [.voice("v1"), .language("fr-CA"), .standard], "voice, language, default")
-        expect(SpeechDictionaries.scopes(voice: nil, language: nil), [.standard], "the default alone")
-        for scope in [SpeechDictionaries.Scope.standard, .language("de"), .voice("com.apple.eloquence.en-GB.Reed")] {
-            expect(SpeechDictionaries.Scope(id: scope.id), scope, "the menu's request names the dictionary: \(scope.id)")
+    test("speech dictionary: scope tokens written and read back, identifiers with dots and colons kept") {
+        typealias E = SpeechDictionaries.Entry
+        for e in [E(kind: .phonemes, pattern: "Bach", replacement: "bax", scope: .language("de")),
+                  E(pattern: "LBRF", replacement: "L B R F", scope: .voice("com.apple.voice.premium.en-GB.Malcolm")),
+                  E(kind: .anywhere, pattern: "&", replacement: "and", caseSensitive: true, scope: .voice("external:af_heart")),
+                  E(pattern: "x", replacement: "y", scope: .voice("odd, voice=1 %20@x")),
+                  E(kind: .regex, pattern: "a=b", replacement: "c", comment: "note", scope: .voice("com.apple.ttsbundle.siri_female_en-GB_compact"))] {
+            let line = SpeechDictionaries.line(for: e)
+            var back = SpeechDictionaries.entry(fromLine: line)
+            back?.comment = e.comment
+            expect(back, e, "written and read back: \(line)")
         }
-        expect(SpeechDictionaries.Scope(id: "nonsense"), nil, "anything else is no dictionary")
-        // Made-up dictionaries in a folder of the test's own.
+        expect(SpeechDictionaries.line(for: E(pattern: "LBRF", replacement: "L B R F", scope: .voice("external:af_heart"))),
+               "@word,voice=external%3Aaf_heart LBRF = L B R F", "a colon percent-encoded")
+        expect(SpeechDictionaries.line(for: E(kind: .phonemes, pattern: "Bach", replacement: "bax", scope: .language("de-DE"))),
+               "@phonemes,lang=de Bach = /bax/", "a language by its base code")
+        expect(SpeechDictionaries.entry(fromLine: "@Phonemes,LANG=DE Bach = bax")?.scope, .language("de"), "the keys in any case")
+        expect(SpeechDictionaries.entry(fromLine: "@voice=Com.Apple.X a = b")?.scope, .voice("Com.Apple.X"), "a voice keeps its case")
+        expect(SpeechDictionaries.entry(fromLine: "@colour=red a = b"), E(pattern: "@colour", replacement: "red a = b"), "an unknown @ word: read as before")
+        expect(SpeechDictionaries.entry(fromLine: "@voice= a = b")?.scope, .standard, "an empty voice is no scope")
+        expect(SpeechDictionaries.entry(fromLine: "LBRF = L B R F")?.scope, .standard, "an old line is for every voice")
+        let file = "# mine\nLBRF = L B R F\n# Bach in German\n@phonemes,lang=de Bach = /bax/\n"
+        expect(SpeechDictionaries.text(of: SpeechDictionaries.lines(fromText: file)), file, "a file with scopes written back as it was")
+        for scope in [SpeechDictionaries.Scope.standard, .language("de"), .voice("com.apple.eloquence.en-GB.Reed"), .voice("external:af_heart")] {
+            expect(SpeechDictionaries.Scope(id: scope.id), scope, "the filter names the scope: \(scope.id)")
+        }
+        expect(SpeechDictionaries.Scope(id: "nonsense"), nil, "anything else is no scope")
+    }
+    test("speech dictionary: NVDA's order, the voice's entries, the language's, then every voice's; the filter") {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("turnover-dict-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: folder) }
-        func write(_ scope: SpeechDictionaries.Scope, _ text: String) {
-            let url = SpeechDictionaries.fileURL(scope, in: folder)
-            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? text.write(to: url, atomically: true, encoding: .utf8)
-        }
-        write(.voice("testvoice"), "Zorbly = voice word\n")
-        write(.language("xx"), "voice word = language word\nQuimby = from the language\n")
-        write(.standard, "language word = default word\nQuimby = from the default\nFlib = flob\n")
-        let said = PronunciationDictionary.apply("Zorbly, Quimby, Flib", voice: "testvoice", language: "xx-YY", system: false, folder: folder)
-        expect(said, "default word, from the language, flob", "the voice's first, its result through the language's, then the default; the language's word wins over the default's")
-        expect(PronunciationDictionary.apply("Zorbly, Quimby", voice: "other", language: "zz", system: false, folder: folder), "Zorbly, from the default",
-               "another voice and language: only the default")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let text = """
+            language word = default word
+            Quimby = from the default
+            Flib = flob
+            @word,lang=xx voice word = language word
+            @word,lang=xx Quimby = from the language
+            @word,voice=test%3Avoice.1 Zorbly = voice word
+            @word,voice=other Flib = not this voice
+            """
+        try? text.write(to: SpeechDictionaries.fileURL(in: folder), atomically: true, encoding: .utf8)
+        let said = PronunciationDictionary.apply("Zorbly, Quimby, Flib", voice: "test:voice.1", language: "xx-YY", system: false, folder: folder)
+        expect(said, "default word, from the language, flob", "the voice's first, its result through the language's, then every voice's; another voice's left out")
+        expect(PronunciationDictionary.apply("Zorbly, Quimby", voice: "nobody", language: "zz", system: false, folder: folder), "Zorbly, from the default",
+               "another voice and language: only those for every voice")
+        let entries = SpeechDictionaries.entries(fromText: text)
+        expect(SpeechDictionaries.shown(entries, filter: nil), Array(0..<7), "All entries: every one")
+        expect(SpeechDictionaries.shown(entries, filter: .language("xx")), [3, 4], "a language: its own only")
+        expect(SpeechDictionaries.shown(entries, filter: .voice("test:voice.1")), [5], "a voice: its own only")
+        expect(SpeechDictionaries.shown(entries, filter: .standard), [0, 1, 2], "for all voices")
         // A word given its sounds isn't marked again by a later dictionary.
         let twice = PronunciationDictionary.apply(PronunciationDictionary.apply("say Brannagh", PronunciationDictionary.parse("Brannagh = /bɹænə/")),
                                                   PronunciationDictionary.parse("Brannagh = /bɹɑːnə/"))
         expect(PronunciationDictionary.phonemes(in: twice).ipa.map(\.ipa), ["bɹænə"], "the first dictionary's sounds kept")
+    }
+    test("speech dictionary: the old per-language and per-voice files merged into one, once, and kept as .migrated") {
+        typealias E = SpeechDictionaries.Entry
+        let fm = FileManager.default
+        let folder = fm.temporaryDirectory.appendingPathComponent("turnover-dict-migrate-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: folder) }
+        let old = folder.appendingPathComponent("pronunciations", isDirectory: true)
+        try? fm.createDirectory(at: old, withIntermediateDirectories: true)
+        func write(_ name: String, _ text: String) { try? text.write(to: old.appendingPathComponent(name), atomically: true, encoding: .utf8) }
+        let main = SpeechDictionaries.fileURL(in: folder)
+        expect(SpeechDictionaries.legacyScope(fileName: "language-de.txt"), .language("de"), "a language's file")
+        expect(SpeechDictionaries.legacyScope(fileName: "voice-external_af_heart.txt"), .voice("external:af_heart"), "a natural voice's colon back")
+        expect(SpeechDictionaries.legacyScope(fileName: "voice-com.apple.voice.premium.en-GB.Malcolm.txt"), .voice("com.apple.voice.premium.en-GB.Malcolm"), "a Mac voice")
+        expect(SpeechDictionaries.legacyScope(fileName: SpeechDictionaries.legacyFileName(voice: "x:y/z"), knownVoices: ["x:y/z"]), .voice("x:y/z"), "a known voice by its file name")
+        expect(SpeechDictionaries.legacyScope(fileName: "notes.txt"), nil, "any other file is left")
+        // Unreadable pronunciations.txt (not UTF-8): nothing merged, nothing renamed.
+        write("language-de.txt", "# German\nBach = /bax/\n")
+        write("voice-external_af_heart.txt", "@anywhere & = and\n")
+        try? Data([0xFF, 0xFE, 0x00, 0xD8]).write(to: main)
+        expect(SpeechDictionaries.migrate(in: folder), 0, "an unreadable dictionary: not merged into")
+        check(fm.fileExists(atPath: old.appendingPathComponent("language-de.txt").path), "and the old file is still there")
+        try? "LBRF = L B R F\n".write(to: main, atomically: true, encoding: .utf8)
+        expect(SpeechDictionaries.migrate(in: folder), 2, "both old files merged")
+        let merged = SpeechDictionaries.entries(fromText: (try? String(contentsOf: main, encoding: .utf8)) ?? "")
+        expect(merged, [E(pattern: "LBRF", replacement: "L B R F"),
+                        E(kind: .phonemes, pattern: "Bach", replacement: "bax", comment: "German", scope: .language("de")),
+                        E(kind: .anywhere, pattern: "&", replacement: "and", scope: .voice("external:af_heart"))], "each with its scope, after those there")
+        check(!fm.fileExists(atPath: old.appendingPathComponent("language-de.txt").path), "the old file moved")
+        check(fm.fileExists(atPath: old.appendingPathComponent("language-de.txt.migrated").path), "to .migrated, not deleted")
+        expect(SpeechDictionaries.migrate(in: folder), 0, "and only once")
+        // A merge cut short (an old file back after its entries were merged): merged again, nothing twice; the
+        // earlier .migrated kept.
+        write("language-de.txt", "Bach = /bax/\nMünchen = /ˈmʏnçn̩/\n")
+        expect(SpeechDictionaries.migrate(in: folder), 1, "merged again")
+        let again = SpeechDictionaries.entries(fromText: (try? String(contentsOf: main, encoding: .utf8)) ?? "")
+        expect(again.filter { $0.pattern == "Bach" }.count, 1, "an entry already there isn't added twice")
+        expect(again.last?.pattern, "München", "a new one is")
+        check(fm.fileExists(atPath: old.appendingPathComponent("language-de.txt.2.migrated").path), "and the second old file kept beside the first")
+        // No pronunciations.txt at all: made from the old files.
+        let fresh = fm.temporaryDirectory.appendingPathComponent("turnover-dict-migrate-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: fresh) }
+        try? fm.createDirectory(at: fresh.appendingPathComponent("pronunciations"), withIntermediateDirectories: true)
+        try? "Quimby = quim bee\n".write(to: fresh.appendingPathComponent("pronunciations/voice-v1.txt"), atomically: true, encoding: .utf8)
+        expect(SpeechDictionaries.migrate(in: fresh), 1, "with no dictionary yet")
+        expect(SpeechDictionaries.entries(fromText: (try? String(contentsOf: SpeechDictionaries.fileURL(in: fresh), encoding: .utf8)) ?? ""),
+               [E(pattern: "Quimby", replacement: "quim bee", scope: .voice("v1"))], "one is made")
+        // TurnOver merges them as it first speaks in a folder.
+        let speaking = fm.temporaryDirectory.appendingPathComponent("turnover-dict-migrate-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: speaking) }
+        try? fm.createDirectory(at: speaking.appendingPathComponent("pronunciations"), withIntermediateDirectories: true)
+        try? "Zorbly = zorb lee\n".write(to: speaking.appendingPathComponent("pronunciations/language-xx.txt"), atomically: true, encoding: .utf8)
+        expect(PronunciationDictionary.apply("Zorbly", voice: "v", language: "xx-YY", system: false, folder: speaking), "zorb lee", "merged and used at once")
+        expect(PronunciationDictionary.apply("Zorbly", voice: "v", language: "en", system: false, folder: speaking), "Zorbly", "for its language only")
     }
     test("speech dictionaries: System Settings' list decoded from a made-up archive, and filtered by active, language and voice") {
         func record(_ word: String, say: String? = nil, ipa: String? = nil, active: Bool = true, ignoreCase: Bool = true,

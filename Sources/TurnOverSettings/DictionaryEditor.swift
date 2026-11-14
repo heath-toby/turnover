@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// A speech dictionary's entries, edited as in NVDA (14 Nov 2026, Oliver: "a proper editor", replacing the slashes):
-// each entry has a type (whole word, anywhere, regular expression, phonemes), may be case sensitive and may have a
-// comment. The list, then the chosen entry's fields, then Add, Change, Remove and Move up and down: entries apply in
-// the order listed. The file format is SpeechDictionaries.lines(fromText:); TurnOver reads the file again within a
-// second of a change.
+// The speech dictionary's entries, edited as in NVDA (14 Nov 2026, Oliver: "a proper editor", replacing the slashes):
+// each entry has a type (whole word, anywhere, regular expression, phonemes), may be case sensitive, has a scope
+// (every voice, one language or one voice: one list rather than NVDA's three dictionaries, Oliver, the same day) and
+// may have a comment. The list (narrowed by the section's filter), then the chosen entry's fields, then Add, Change,
+// Remove and Move up and down: entries apply in the order listed. The file format is
+// SpeechDictionaries.lines(fromText:); TurnOver reads the file again within a second of a change.
 //
 // For phonemes, three ways to find the sounds: a pronunciation already made in System Settings (copied from its
 // list, which this window may show: it is the user's own window, but the words are never logged), Hear it (the word
-// said with the sounds typed, by the dictionary's voice), and Look up on Wiktionary (the word, and only it, sent
+// said with the sounds typed, by the voice of the entry's scope), and Look up on Wiktionary (the word, and only it, sent
 // when that button is pressed).
 //
 // What was tried and isn't here (probes of 14 Nov 2026, macOS 27.2):
@@ -86,12 +87,22 @@ func announceInSettings(_ message: String) {
 
 struct PronunciationsEditor: View {
     typealias Entry = SpeechDictionaries.Entry
+    typealias Scope = SpeechDictionaries.Scope
     let url: URL
-    /// The voice that says the dictionary's words (Hear it), and its language (Wiktionary's section).
-    let voice: String?
-    let language: String
+    /// The entries shown: those of this scope, or all (nil). It only narrows the list; a new entry takes it as scope.
+    let filter: Scope?
+    /// The scopes Applies to offers: every voice, the languages, the voices.
+    let scopes: [Scope]
+    /// A scope's name, in Applies to or in a row.
+    let scopeName: (Scope, _ inRow: Bool) -> String
+    /// The voice that says an entry of a scope (Hear it), and its language (Wiktionary's section).
+    let hearing: (Scope) -> (voice: String?, language: String)
     /// System Settings' pronunciations given as sounds, to copy from (read by the section; never logged).
     let systemSounds: [(word: String, ipa: String)]
+    /// The voices in use, to name the old per-voice files correctly when they are merged.
+    let knownVoices: [String]
+    /// Whether this run of the window has merged the old files yet (SpeechDictionaries.migrate).
+    private static var migrated = false
 
     @State private var lines: [SpeechDictionaries.Line] = []
     @State private var selected: Int?
@@ -100,6 +111,7 @@ struct PronunciationsEditor: View {
     @State private var replacement = ""
     @State private var caseSensitive = false
     @State private var comment = ""
+    @State private var scope = Scope.standard
     @State private var unreadable = false
     @State private var systemChoice = -1
     @State private var found: [Wiktionary.Pronunciation] = []
@@ -107,11 +119,15 @@ struct PronunciationsEditor: View {
     @State private var lookupNote = ""
 
     private var entries: [Entry] { lines.compactMap(\.entry) }
+    /// The entries shown, by their number among all entries.
+    private var visible: [Int] { SpeechDictionaries.shown(entries, filter: filter) }
     private var editing: Entry {
         Entry(kind: kind, pattern: pattern.trimmingCharacters(in: .whitespaces),
               replacement: kind == .phonemes ? Self.bareIPA(replacement) : replacement.trimmingCharacters(in: .whitespaces),
-              caseSensitive: caseSensitive, comment: comment.trimmingCharacters(in: .whitespacesAndNewlines))
+              caseSensitive: caseSensitive, comment: comment.trimmingCharacters(in: .whitespacesAndNewlines), scope: scope)
     }
+    /// Applies to's choices, with the entry's own if it isn't among them (a voice no longer used).
+    private var scopeOptions: [Scope] { scopes.contains(scope) ? scopes : scopes + [scope] }
     /// IPA typed with its slashes or brackets, as it is often copied, without them.
     static func bareIPA(_ s: String) -> String {
         var t = s.trimmingCharacters(in: .whitespaces)
@@ -135,8 +151,8 @@ struct PronunciationsEditor: View {
         case .phonemes: return String(localized: "The pattern as a whole word, said with the sounds you give in IPA, such as ʃɪˈvɔːn for Siobhan. The Mac's voices say them; VoiceOver and the natural voices can't.", comment: "Speech dictionary type explained")
         }
     }
-    /// How a row reads: "LBRF, whole word, said as L B R F".
-    static func rowText(_ e: Entry) -> String {
+    /// How a row reads: "LBRF, whole word, said as L B R F, all voices".
+    static func rowText(_ e: Entry, scope: String) -> String {
         let type = typeName(e.kind).lowercased(with: .current)
         var text = e.caseSensitive
             ? String(localized: "\(e.pattern), \(type), case sensitive", comment: "A speech dictionary entry: its pattern and type")
@@ -144,6 +160,7 @@ struct PronunciationsEditor: View {
         text += e.replacement.isEmpty
             ? String(localized: ", said as nothing", comment: "A speech dictionary entry that removes what it finds")
             : String(localized: ", said as \(e.replacement)", comment: "A speech dictionary entry: what is said instead")
+        text += ", " + scope
         if !e.comment.isEmpty { text += String(localized: ". \(e.comment)", comment: "A speech dictionary entry's comment, after it") }
         return text
     }
@@ -169,7 +186,7 @@ struct PronunciationsEditor: View {
         guard let l = read() else { unreadable = true; return }
         unreadable = false
         lines = l
-        if let s = selected, !entries.indices.contains(s) { selected = nil }
+        if let s = selected, !visible.contains(s) { selected = nil }
     }
     /// Read the file afresh and change it by entry number; refused, with a word, if it changed since it was shown.
     @discardableResult
@@ -188,13 +205,15 @@ struct PronunciationsEditor: View {
         load()
         return true
     }
+    /// The fields emptied for a new entry, its scope the filter's (a German name added with German shown is German's).
     private func clearFields() {
         pattern = ""; replacement = ""; comment = ""; caseSensitive = false; found = []; foundChoice = -1; lookupNote = ""; systemChoice = -1
+        scope = filter ?? .standard
     }
     private func show(_ i: Int) {
         guard entries.indices.contains(i) else { return }
         let e = entries[i]
-        kind = e.kind; pattern = e.pattern; replacement = e.replacement; caseSensitive = e.caseSensitive; comment = e.comment
+        kind = e.kind; pattern = e.pattern; replacement = e.replacement; caseSensitive = e.caseSensitive; comment = e.comment; scope = e.scope
         found = []; foundChoice = -1; lookupNote = ""; systemChoice = -1
     }
     /// The entry as typed, or nil (and the reason said) when TurnOver couldn't use it.
@@ -212,9 +231,11 @@ struct PronunciationsEditor: View {
                 Text("The dictionary's file can't be read, so it isn't changed here.").font(.caption)
             } else if entries.isEmpty {
                 Text("No entries yet. Choose a type, type the pattern and what to say, then Add.").font(.caption)
+            } else if visible.isEmpty {
+                Text("No entries for this choice in Show. Choose All entries to see them all, or add one here.").font(.caption)
             } else {
-                List(entries.indices, id: \.self, selection: $selected) { i in
-                    Text(Self.rowText(entries[i])).tag(i)
+                List(visible, id: \.self, selection: $selected) { i in
+                    Text(Self.rowText(entries[i], scope: scopeName(entries[i].scope, true))).tag(i)
                 }
                 .frame(minHeight: 80, maxHeight: 180)
                 .accessibilityLabel(String(localized: "Entries", comment: "The list of a speech dictionary's entries"))
@@ -228,6 +249,10 @@ struct PronunciationsEditor: View {
             TextField(kind == .phonemes ? String(localized: "Phonemes (IPA)", comment: "A speech dictionary entry's sounds, in IPA")
                                         : String(localized: "Replacement", comment: "What a speech dictionary entry says instead"), text: $replacement)
             Toggle(String(localized: "Case sensitive", comment: "A speech dictionary entry matches only in this case"), isOn: $caseSensitive)
+            Picker(String(localized: "Applies to", comment: "A speech dictionary entry's scope: which voices it is for"), selection: $scope) {
+                ForEach(scopeOptions, id: \.self) { Text(scopeName($0, false)).tag($0) }
+            }
+            .accessibilityHint(String(localized: "All voices and languages, only in one language, or only for one voice. A voice's entries apply first, then its language's, then those for all voices.", comment: "Speech dictionary editor"))
             TextField(String(localized: "Comment", comment: "A speech dictionary entry's note, optional"), text: $comment)
             if !pattern.trimmingCharacters(in: .whitespaces).isEmpty, let p = editing.problem, p != .noPhonemes || !replacement.isEmpty {
                 Text(Self.problemText(p)).font(.caption)
@@ -237,7 +262,8 @@ struct PronunciationsEditor: View {
                 guard let e = checked() else { return }
                 if change({ l, _ in l.append(.entry(e)) }) {
                     selected = nil; clearFields()
-                    announceInSettings(String(localized: "Added", comment: "A speech dictionary entry was added"))
+                    announceInSettings(filter == nil || filter == e.scope ? String(localized: "Added", comment: "A speech dictionary entry was added")
+                                       : String(localized: "Added. It isn't shown with this choice in Show.", comment: "A speech dictionary entry was added, outside the filter"))
                 }
             }
             Button(String(localized: "Change", comment: "Saves the fields into the chosen speech dictionary entry")) {
@@ -246,7 +272,12 @@ struct PronunciationsEditor: View {
                 }
                 guard let e = checked() else { return }
                 if change({ l, at in l[at[i]] = .entry(e) }) {
-                    announceInSettings(String(localized: "Changed", comment: "A speech dictionary entry was changed"))
+                    if filter == nil || filter == e.scope {
+                        announceInSettings(String(localized: "Changed", comment: "A speech dictionary entry was changed"))
+                    } else {
+                        selected = nil; clearFields()
+                        announceInSettings(String(localized: "Changed. It isn't shown with this choice in Show.", comment: "A speech dictionary entry was changed to a scope outside the filter"))
+                    }
                 }
             }
             .disabled(selected == nil)
@@ -259,20 +290,31 @@ struct PronunciationsEditor: View {
             }
             .disabled(selected == nil)
             Button(String(localized: "Move up", comment: "Moves the chosen speech dictionary entry earlier: entries apply in order")) { move(-1) }
-                .disabled((selected ?? 0) == 0)
+                .disabled(selected.flatMap { visible.firstIndex(of: $0) }.map { $0 == 0 } ?? true)
             Button(String(localized: "Move down", comment: "Moves the chosen speech dictionary entry later: entries apply in order")) { move(1) }
-                .disabled(selected.map { $0 + 1 >= entries.count } ?? true)
+                .disabled(selected.flatMap { visible.firstIndex(of: $0) }.map { $0 + 1 >= visible.count } ?? true)
             Text("Entries apply in the order listed, each to the text the one before left.").font(.caption)
         }
-        .onAppear { load() }
-        .onChange(of: url) { _, _ in selected = nil; clearFields(); kind = .word; load() }
+        .onAppear {
+            // The old per-language and per-voice files merged in, once (TurnOver does it too as it first speaks).
+            if !Self.migrated { Self.migrated = true; SpeechDictionaries.migrate(in: url.deletingLastPathComponent(), knownVoices: knownVoices) }
+            if selected == nil { scope = filter ?? .standard }
+            load()
+        }
+        .onChange(of: filter) { _, f in
+            if let s = selected, !visible.contains(s) { selected = nil; clearFields() }
+            else if selected == nil { scope = f ?? .standard }
+        }
     }
 
+    /// Past the entry before or after it in the list as shown (with a filter, the one shown, not one hidden between).
     private func move(_ by: Int) {
-        guard let i = selected, entries.indices.contains(i), entries.indices.contains(i + by) else { return }
-        if change({ l, at in l.swapAt(at[i], at[i + by]) }) {
-            selected = i + by
-            announceInSettings(String(localized: "Moved to \(String(i + by + 1)) of \(String(entries.count))", comment: "A speech dictionary entry moved: its place in the list"))
+        let shown = visible
+        guard let i = selected, let at = shown.firstIndex(of: i), shown.indices.contains(at + by) else { return }
+        let j = shown[at + by]
+        if change({ l, lineOf in l.swapAt(lineOf[i], lineOf[j]) }) {
+            selected = j
+            announceInSettings(String(localized: "Moved to \(String(at + by + 1)) of \(String(shown.count))", comment: "A speech dictionary entry moved: its place in the list"))
         }
     }
 
@@ -295,15 +337,15 @@ struct PronunciationsEditor: View {
             guard !word.isEmpty, !ipa.isEmpty else {
                 announceInSettings(String(localized: "Type the word and its sounds first.", comment: "Speech dictionary editor: Hear it with nothing to say")); return
             }
-            DictionaryVoice.shared.say(word, ipa: ipa, voice: voice)
+            DictionaryVoice.shared.say(word, ipa: ipa, voice: hearing(scope).voice)
         }
-        .accessibilityHint(String(localized: "Says the word with these sounds, in this dictionary's voice.", comment: "Speech dictionary editor"))
+        .accessibilityHint(String(localized: "Says the word with these sounds, in the voice of the entry's Applies to.", comment: "Speech dictionary editor"))
         Button(String(localized: "Look up on Wiktionary", comment: "Finds a word's pronunciation on Wiktionary")) {
             let word = pattern.trimmingCharacters(in: .whitespaces)
             guard !word.isEmpty else { announceInSettings(String(localized: "Type the word first.", comment: "Speech dictionary editor")); return }
             lookupNote = String(localized: "Looking up…", comment: "Wiktionary lookup under way")
             found = []; foundChoice = -1
-            let language = language
+            let language = hearing(scope).language
             Task {
                 let result = await Wiktionary.lookUp(word, language: language)
                 // The word may have changed while it looked.
