@@ -215,7 +215,7 @@ public final class SystemPrompts {
         // Read: the agent coming forward enters the window as a dialog, and it isn't read again ("system dialog, Crash
         // Test quit unexpectedly…", then "alert, Crash Test quit unexpectedly…", 12 Nov 2026). Its words outlast the
         // focus settling on a button.
-        Dialog.spokenAt = (window, Date())
+        Dialog.readAfresh(window)
         Speech.noteContext(words)
         let ax = AXUIElementCreateApplication(pid)
         // A prompt with nothing focused in it (the "quit unexpectedly" report: Ignore, Report, Reopen, and no focus at
