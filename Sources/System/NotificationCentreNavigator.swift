@@ -342,8 +342,10 @@ package enum NotificationCentreNavigator {
         let landing = Date() < closeLandingUntil
         // Before the landing is said, the closed one's app gone (its last closed): resolvePlace fell back to the
         // default app's first, and a second Delete closed one never heard (a review, 14 Nov 2026).
-        if landing, Self.rememberedGroupGone(groupNames: gs.map(\.name), itemWords: gs.map { $0.items.map(\.words) }, group: groupName) {
-            Log.io("notification centre: Delete before the landing, the app gone; not closed")
+        // Nor the one that moved up into the closed one's place, before it has been said: Delete closes only what was
+        // heard (a review, 14 Nov 2026).
+        if landing {
+            Log.io("notification centre: Delete before the landing was said; not closed")
             Tones.edge(); return
         }
         let (g, i) = place(in: gs, useCursor: !landing)

@@ -324,6 +324,18 @@ package enum DesktopNavigator {
             Speech.speakMessage(String(localized: "could not select that icon", comment: "Spoken message: a key that acts on the selected desktop icon was not sent"))
             return
         }
+        // Finder applies the key to its key window's selection: with a Finder window in front of the desktop, the file
+        // selected there went to the Bin (a review, 14 Nov 2026). Sent only when Finder's focus is the desktop's.
+        if let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first {
+            let app = AXUIElementCreateApplication(finder.processIdentifier)
+            AXUIElementSetMessagingTimeout(app, 0.25)
+            if let real = app.element(kAXFocusedUIElementAttribute), !real.isSame(desk), !SettingsPanePlugin.within(real, desk) {
+                Log.io("desktop: \(g.identifier) not sent; Finder's focus is in a window, not on the desktop")
+                Tones.edge()
+                Speech.speakMessage(String(localized: "could not select that icon", comment: "Spoken message: a key that acts on the selected desktop icon was not sent"))
+                return
+            }
+        }
         g.send()
     }
 

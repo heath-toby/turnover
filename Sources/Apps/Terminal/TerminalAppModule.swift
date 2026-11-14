@@ -365,7 +365,9 @@ final class TerminalText: TurnOverObject {
         // with no newline after it, is its prompt whatever its words ("[sudo] parola per toby:"): latched, where it
         // closed the secret as output and the password was read (a review, 14 Nov 2026). The typed-ahead echo starts
         // the first new line, so it is taken off only when the cursor's line is that one.
-        let inWindow = !s.secret.latched && s.secret.isSecret(now: Date()) && !isPrompt(s.anchorText)
+        // (Only as the first thing after the Return that opened it, not after a retry, and not under other output:
+        // a whole dialog of questions after it was starred, a review, 14 Nov 2026.)
+        let inWindow = !s.secret.latched && !s.secret.retryWindow && rest.count <= 1 && s.secret.isSecret(now: Date()) && !isPrompt(s.anchorText)
             && TerminalRules.isPromptInSecretWindow(s.anchorText, aheadKeys: rest.count <= 1 ? s.secret.aheadKeys : 0)
         if TerminalRules.isPasswordPrompt(s.anchorText) || inWindow { s.secret.sawPrompt() }
         else if !TerminalRules.allBlank(rest) { s.secret.outputArrived() }
@@ -587,6 +589,9 @@ package enum TerminalRules {
     /// prompts in other words closed the secret as output). Pure.
     package nonisolated static func isPromptInSecretWindow(_ line: String, aheadKeys: Int) -> Bool {
         guard let l = promptLine(withoutTypedAhead(line, keys: aheadKeys)) else { return false }
+        // A default in brackets ("Country Name (2 letter code) [AU]:", "Full Name []:") is never a password's: openssl
+        // req and gpg's questions were all starred (a review, 14 Nov 2026).
+        if l.trimmingCharacters(in: .whitespaces).hasSuffix("]:") { return false }
         return l.contains { $0.isLetter }
     }
 
@@ -678,6 +683,9 @@ package nonisolated struct TerminalSecret {
     package private(set) var aheadSince: Date?
     /// How many keys were typed ahead of the prompt (Backspace takes one off): their echo is not read. Only a count.
     package private(set) var aheadKeys = 0
+    /// The window was opened by Return at a latched prompt (a retry), not by a password-asking command: its colon lines
+    /// aren't taken for prompts by their colon alone (a review, 14 Nov 2026).
+    package private(set) var retryWindow = false
     package init() {}
 
     package mutating func sawPrompt() { latched = true; aheadFrom = nil; aheadKeys = 0 }
@@ -699,6 +707,7 @@ package nonisolated struct TerminalSecret {
         latched = false
         aheadKeys = 0
         aheadFrom = retry || TerminalRules.asksForPassword(commandLine: commandLine) ? now : nil
+        retryWindow = retry
         aheadSince = aheadFrom
     }
     package func isSecret(now: Date) -> Bool {

@@ -51,6 +51,8 @@ func pureTests() {
         check(TerminalRules.isPromptInSecretWindow("Geheimzahl eingeben:", aheadKeys: 0), "in the window, a line ending in a colon is the prompt")
         check(TerminalRules.isPromptInSecretWindow("abcGeheim:", aheadKeys: 3), "the typed-ahead echo taken off first")
         check(!TerminalRules.isPromptInSecretWindow("abc:", aheadKeys: 4), "the typed-ahead echo alone is no prompt")
+        check(!TerminalRules.isPromptInSecretWindow("Country Name (2 letter code) [AU]:", aheadKeys: 0), "openssl req's question with a default is no password prompt")
+        check(!TerminalRules.isPromptInSecretWindow("Full Name []:", aheadKeys: 0), "an empty default is none either")
         check(!TerminalRules.isPromptInSecretWindow("Connected.", aheadKeys: 0), "output without a colon is no prompt")
     }
     test("terminal: a command that asks for a password next, and keys typed ahead of its prompt are secret") {
