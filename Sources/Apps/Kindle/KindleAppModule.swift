@@ -204,17 +204,20 @@ final class KindleAppModule: AppModule {
     /// A page turn under way (up to 2 s): another Down or Page Down meanwhile (or the key repeating) sent more Right
     /// Arrows and skipped pages (a review, 14 Nov 2026). Until it settles, those keys bump instead.
     private var turning = false
-    private var bumpedKeyAt = Date.distantPast
+    /// Keys bumped during this turn.
+    private var bumps = 0
 
     private func turnAndRead(forward: Bool, atEnd: Bool, _ g: KeyboardGesture) {
-        if turning { Tones.edge(); bumpedKeyAt = InputManager.lastKeyDownAt; return }
-        let keyAt = InputManager.lastKeyDownAt
+        if turning { Tones.edge(); bumps += 1; return }
+        bumps = 0
+        let keysAt = InputManager.keyDownCount
         turnPage(forward: forward) { [weak self] turned in
             guard let self, let (doc, page) = self.bookDocument() else { return }
             // Another key came while the page turned: it has said or moved since; this reading would talk over it.
             // (Keys bumped while it turned don't count: holding Page Down ended in silence on a page that had turned.)
-            let last = InputManager.lastKeyDownAt
-            guard last == keyAt || last == self.bumpedKeyAt else { return }
+            // Counted, not timed: the last key's time alone let a bump after another key read over that key (a
+            // review, 14 Nov 2026).
+            guard InputManager.keyDownCount &- keysAt == self.bumps else { return }
             guard turned else { Tones.edge(); Speech.speakMessage(forward ? String(localized: "end of the book", comment: "Spoken message") : String(localized: "start of the book", comment: "Spoken message")); return }
             guard let lines = self.textLines(doc, page) else { Speech.speakMessage(Self.noTextWords); return }
             doc.position = doc.buffer.lines[atEnd ? lines.last : lines.first].start

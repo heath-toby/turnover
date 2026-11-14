@@ -85,6 +85,9 @@ public enum InputManager {
         set { lock.lock(); _lastKeyDownAt = newValue; lock.unlock() }
     }
     private static var _lastKeyDownAt = Date.distantPast
+    /// Keys gone down so far, counted where lastKeyDownAt is set (on main, in handleKeyDown): how many came since a
+    /// moment, which a time alone can't tell (Kindle's page turn, a review, 14 Nov 2026).
+    public internal(set) static var keyDownCount = 0
     /// The last key pressed (its gesture identifier), for focus rules that depend on how focus came.
     public static var lastKeyIdentifier: String {
         get { lock.lock(); defer { lock.unlock() }; return _lastKeyIdentifier }
@@ -118,6 +121,7 @@ public enum InputManager {
         ObjectNavigator.shared.cancelWindowSearch()
         FormattingFeedback.shared.cancel()
         lastKeyDownAt = Date()
+        keyDownCount &+= 1
         lastKeyWasTyped = false
         // The keyboard commands editor is waiting for a key: this one is it (Escape cancels). Nothing else runs.
         if let capture = captureNext, !gesture.isRepeat {
