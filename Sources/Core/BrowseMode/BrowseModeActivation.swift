@@ -79,9 +79,11 @@ extension BrowseModeDocument {
         // (a review, 14 Nov 2026). Several: the page is read again, and nothing is pressed until it is.
         if !text.isEmpty, Self.liveActionableCount(named: text, in: webArea) > 1 {
             Log.io("browse mode: \"\(Log.words(text))\" was stale and the page has several; reading the page again")
-            buffer.isDirty = true
             Tones.edge()
             Speech.speakMessage(String(localized: "the page changed; press again", comment: "Spoken message: browse mode activated something the page had replaced"))
+            // Read again now, so the next press finds the live control (marking it only, nothing read it again
+            // before Enter, and every press said the same: a review, 14 Nov 2026).
+            rebuildKeepingPlace()
             return
         }
         if !text.isEmpty, let live = Self.liveActionable(named: text, in: webArea) {

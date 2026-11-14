@@ -282,16 +282,16 @@ open class Dialog: TurnOverObject {
 
     private func pressChoice(_ g: KeyboardGesture) {
         let all = choices
-        guard var i = Self.choiceIndex[key], all.indices.contains(i) else {
-            // No choice picked yet: Return is the dialog's default button, as always.
-            g.send(); return
-        }
+        // The choice heard, by its element first: the list can have shrunk past its old place (a button disabled),
+        // and Return then went to the dialog's default button (a review, 14 Nov 2026).
+        let i: Int
         if let heard = Self.choiceElement[key] {
             guard let j = all.firstIndex(where: { $0.0.isSame(heard) }) else {
                 Tones.edge(); Speech.speakMessage(String(localized: "that choice has gone", comment: "Spoken message: the dialog's button heard is no longer there")); return
             }
             i = j
-        }
+        } else if let c = Self.choiceIndex[key], all.indices.contains(c) { i = c }
+        else { g.send(); return }   // no choice picked yet: Return is the dialog's default button, as always
         let (e, n) = all[i]
         if press(e) { Log.io("dialog: pressed \(Log.words(n))"); SystemPrompts.checkPress(of: e, name: n) }
         else if ["not now", "cancel", "close", "no", "don’t allow", "don't allow", "later"].contains(n.lowercased()) { cancel(g) }

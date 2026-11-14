@@ -54,7 +54,9 @@ public final class ObjectNavigator {
         // close button (issue 106, 26 Oct 2026).
         // Only such a bounce: no key pressed since, in the same app and window. Command Tab to another app or a
         // deliberate Tab within the second and a half was ignored too (a review, 13 Nov 2026).
-        if let f = followed, Self.isBounce(since: f.at, limit: 1.5, lastKeyAt: InputManager.lastKeyDownAt, now: Date(),
+        // News of an item followed a moment ago, the cursor since moved on by its own keys: the cursor stays.
+        if !(followed.map { CFEqual($0.element, e) } ?? false), isFollowedFocus(e) { Log.io("review: late focus news of an item followed before; the cursor stays"); return }
+        if let f = followed, Self.isBounce(since: f.at, limit: 1.5, lastKeyAt: keysSinceAreCursors ? f.at : InputManager.lastKeyDownAt, now: Date(),
                                            samePid: pid == f.element.pid, sameWindow: Self.sameWindow(e, f.window)), !CFEqual(f.element, e) {
             var p: AXUIElement? = e; var hops = 0; var inside = false
             while let x = p, hops < 10 { if x.isSame(f.element) { inside = true; break }; p = x.element(kAXParentAttribute); hops += 1 }
@@ -90,17 +92,16 @@ public final class ObjectNavigator {
         if recentFollowed.count > 3 { recentFollowed.removeFirst() }
     }
     public func isFollowedFocus(_ e: AXUIElement) -> Bool {
-        // A key since that follow (not counting the cursor's own next move): a Tab away and Shift Tab back within the
-        // time is the user's own move, and is spoken (a review, 14 Nov 2026).
-        guard let i = recentFollowed.firstIndex(where: { CFEqual($0.element, e) }) else { return false }
-        let f = recentFollowed[i]
-        guard Date().timeIntervalSince(f.at) < 1.5 else { return false }
-        let next = recentFollowed.indices.contains(i + 1) ? recentFollowed[i + 1].at : Date.distantFuture
-        // Keys up to the next follow are the cursor's own moves; one after the last follow is the user's.
-        guard InputManager.lastKeyDownAt <= f.at || (next != .distantFuture && InputManager.lastKeyDownAt <= next) else { return false }
-        recentFollowed.remove(at: i)
-        return true
+        // Any follow of the last second and a half, so long as no key but the cursor's own moves came since: a Tab
+        // away and Shift Tab back is the user's move, and spoken; a quick second VO-Right is the cursor's, and the
+        // first item's late focus news is not read again, nor taken for a move (a review, 14 Nov 2026).
+        guard let f = recentFollowed.last(where: { CFEqual($0.element, e) }), Date().timeIntervalSince(f.at) < 1.5 else { return false }
+        return InputManager.lastKeyDownAt <= f.at || keysSinceAreCursors
     }
+    /// The last key pressed was one that moved TurnOver's cursor (it landed the cursor as it was handled).
+    private var cursorKeyAt = Date.distantPast
+    private var keysSinceAreCursors: Bool { InputManager.lastKeyDownAt == cursorKeyAt }
+
 
     /// A focus move that is the app bouncing what TurnOver just did, not the user moving on: within `limit` of it,
     /// with no key pressed since, in the same app and window.
@@ -1396,6 +1397,7 @@ public final class ObjectNavigator {
     }
 
     private func land(on e: AXUIElement, followFocus: Bool = true) {
+        cursorKeyAt = InputManager.lastKeyDownAt
         landedByStep = false
         current = e
         currentPid = e.pid
