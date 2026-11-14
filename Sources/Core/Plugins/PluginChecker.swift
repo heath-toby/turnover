@@ -64,7 +64,7 @@ public enum PluginChecker {
             lines.append("to read Big Picture, TurnOver puts a file in Steam's folder that turns on Steam's debugging port. While Steam is open, any program on this Mac could control Steam's pages through that port. Remove this plugin to stop it, then restart Steam")
             risky = true
         }
-        for b in m.apps { if let name = PluginPolicy.closedApps[b] { lines.append("it works in \(name), which only official plugins may do in the library: be sure you trust it"); risky = true } }
+        for b in m.apps { if let name = PluginPolicy.closedAppName(b) { lines.append("it works in \(name), which only official plugins may do in the library: be sure you trust it"); risky = true } }
         return (lines, risky)
     }
 

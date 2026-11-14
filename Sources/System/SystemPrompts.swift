@@ -14,7 +14,7 @@ public final class SystemPrompts {
     /// The agents that draw the system's own prompts. UserNotificationCenter ("would like access to record your system
     /// audio") and CoreLocationAgent ("would like to use your current location") were not watched, so a prompt that
     /// came up behind Claude was never said (12 Oct 2026: VoiceOver says there is a system request).
-    static let agents = ["com.apple.LocalAuthentication.UIAgent", "com.apple.SecurityAgent", "com.apple.UserNotificationCenter",
+    package static let agents = ["com.apple.LocalAuthentication.UIAgent", "com.apple.SecurityAgent", "com.apple.UserNotificationCenter",
                          "com.apple.CoreLocationAgent", "com.apple.coreservices.uiagent"]
 
     /// Prompts macOS protects: an Accessibility press from TurnOver is refused (CoreLocationAgent put its focus back on
@@ -204,7 +204,13 @@ public final class SystemPrompts {
             if e.role == "AXStaticText", let v = e.string(kAXValueAttribute)?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty { texts.append(v) }
             stack.append(contentsOf: e.elements(kAXChildrenAttribute).reversed())
         }
-        guard !texts.isEmpty || window.element(kAXFocusedUIElementAttribute) != nil else { return }
+        // Nothing to read yet: out of `shown` again, so the next look retries; check() had already put it there, and
+        // the prompt was never read nor given the keyboard. The focus is the app's: a window answers none (a review,
+        // 14 Nov 2026).
+        guard !texts.isEmpty || AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute) != nil else {
+            shown.removeAll { $0.isSame(window) }
+            return
+        }
         summaries.removeAll { $0.window.isSame(window) }
         summaries.append((window, pid, texts.first.map { String($0.prefix(120)) } ?? "untitled"))
         // The same prompt again from the same agent, a new window for it while the first is open: not read out, nor given the keyboard, again.

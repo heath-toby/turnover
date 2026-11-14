@@ -98,7 +98,7 @@ public enum PluginTry {
 
     /// Why this request can't be done, or nil. Pure, given the consents.
     public static func refusal(bundle: String, steps: [String], consents: [String: Date], now: Date = Date()) -> String? {
-        if let name = PluginPolicy.closedApps[bundle] { return "\(name) is closed to plugins, so keys aren't tried there" }
+        if let name = PluginPolicy.closedAppName(bundle) { return "\(name) is closed to plugins, so keys aren't tried there" }
         guard consented(bundle, in: consents, now: now) else {
             return "TurnOver hasn't been asked to let an AI try keys in this app. In TurnOver's menu, Plugins, choose Make a plugin with the app in front; that allows it for three hours"
         }

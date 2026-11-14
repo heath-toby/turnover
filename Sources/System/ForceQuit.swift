@@ -25,7 +25,9 @@ public enum ForceQuit {
     private static func confirm(_ app: NSRunningApplication) {
         let name = app.localizedName ?? String(localized: "the application", comment: "An application with no name")
         DispatchQueue.main.async {
+            // Cancel comes first, so a stray Return on the confirmation does nothing (a review, 14 Nov 2026).
             TurnOverMenu.shared.openChooser("Force quit \(name)? Unsaved work is lost", items: [
+                MenuItem("Cancel", .action {}),
                 MenuItem("Force quit \(name)", .action {
                     let ok = app.forceTerminate()
                     Log.info("force quit: \(name) (pid \(app.processIdentifier)) \(ok ? "killed" : "could not be killed")")
@@ -35,7 +37,6 @@ public enum ForceQuit {
                     _ = app.terminate()
                     Speech.speakMessage(String(localized: "Asked \(name) to quit", comment: "An app asked to quit: its name"))
                 }),
-                MenuItem("Cancel", .action {}),
             ])
         }
     }

@@ -241,7 +241,11 @@ public final class TurnOverMenu {
             // Right opens a submenu or steps a value, as in a menu; it never runs a command (that is Enter's job).
             let item = top.items[top.index]
             if case .action = item.kind { Tones.edge() } else if case .select = item.kind { Tones.edge() } else { activate(item, forward: true) }
-        case "enter", "numpadEnter", "space": activate(top.items[top.index], forward: true)
+        case "enter", "numpadEnter", "space":
+            // A held key's repeats never activate: a Return held to choose an app in Force Quit went on to choose the
+            // first item of the confirmation that opened under it, killing the app unasked (a review, 14 Nov 2026).
+            if g.isRepeat { return }
+            activate(top.items[top.index], forward: true)
         case "leftArrow":
             // On a value (rate, a choice, a switch) Left steps it back, as Right steps it on: Right could raise the
             // rate but Left left the menu, so it could not come down again (5 Oct 2026). Anywhere else, Left goes up
