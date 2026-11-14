@@ -770,8 +770,12 @@ extension VoiceOverKeysPlugin {
         let what = resize ? (window ? String(localized: "resizing the window", comment: "Moving or resizing with the arrows") : String(localized: "resizing the item", comment: "Moving or resizing with the arrows"))
             : (window ? String(localized: "moving the window", comment: "Moving or resizing with the arrows") : String(localized: "moving the item", comment: "Moving or resizing with the arrows"))
         Speech.speakMessage(String(localized: "\(what). Arrows, Shift for small steps. Escape stops", comment: "Moving or resizing with the arrows: %@ says which"))
+        let pid = API.focusPid
         func next() {
             InputManager.captureNext = { g in
+                // As Excel's cell review: another app in front, or any Command, Control or TurnOver key, ends the
+                // mode and the key does what it always does; it was swallowed with an edge tone (a review, 14 Nov 2026).
+                if Self.modeLeft(by: g, since: pid) { return }
                 guard let g, !["enter", "numpadEnter"].contains(g.keyName) else { Speech.speakMessage(String(localized: "done", comment: "Spoken message")); return }
                 let step: CGFloat = g.modifiers.contains(.shift) ? 1 : 10
                 var dx: CGFloat = 0, dy: CGFloat = 0
@@ -785,6 +789,23 @@ extension VoiceOverKeysPlugin {
             }
         }
         next()
+    }
+
+    /// Whether a key ends a mode that captures the keys (move and resize, scroll): focus moved to another app, or a
+    /// Command, Control or TurnOver key. Says so and sends the key on through the keyboard's own path, so the
+    /// Windows style's translation and TurnOver's keys apply; Escape (nil here) away goes to the app now in front.
+    /// Main thread (a review, 14 Nov 2026, as Excel's cell review does).
+    static func modeLeft(by g: KeyboardGesture?, since pid: pid_t?) -> Bool {
+        let away = API.focusPid != pid
+        let other = g.map { !$0.modifiers.isDisjoint(with: [.command, .control, .turnover]) } ?? false
+        guard away || other else { return false }
+        Speech.speakMessage(String(localized: "done", comment: "Spoken message"))
+        if let g {
+            if let post = KeyboardGesture.typedPoster { post(g) } else { g.send() }
+        } else {
+            KeyboardGesture(identifier: "kb:escape")?.send()
+        }
+        return true
     }
 
     static func toggleInSelection() {

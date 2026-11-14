@@ -200,7 +200,13 @@ public enum ScriptHandler {
                 // the app first ("ba" for "ab": a review, 14 Nov 2026).
                 DispatchQueue.main.async {
                     // Keys went ahead in a hang since this key's lookup (its own lookup may have been what hung): dropped.
-                    if !taken, hangEpoch.value != epoch { Log.warning("keyboard: \(handled.logDescription()) dropped; keys went through while main was stuck") }
+                    // The epoch is checked before handleKeyDown too (above); one that changed while it ran (its own lookup
+                    // hung) can only be caught here, after the key was echoed as typed: the word being typed is
+                    // forgotten, so the word echo doesn't say a character the app never got (a review, 14 Nov 2026).
+                    if !taken, hangEpoch.value != epoch {
+                        Log.warning("keyboard: \(handled.logDescription()) dropped; keys went through while main was stuck")
+                        Speech.clearTypedWordBuffer()
+                    }
                     else if !taken { handled.send() }
                     outstandingLate.lock.lock(); outstandingLate.unsafeValue -= 1; outstandingLate.lock.unlock()
                 }

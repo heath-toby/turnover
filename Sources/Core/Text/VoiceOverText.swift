@@ -89,8 +89,12 @@ extension VoiceOverKeysPlugin {
             Speech.speakMessage(Phrases.percent(Int((value(bar) * 100).rounded())))
         }
         Speech.speakMessage(String(localized: "scrolling. Arrows, Page Up and Page Down; Escape stops", comment: "Spoken message"))
+        let pid = API.focusPid
         func next() {
             InputManager.captureNext = { g in
+                // Another app in front, or a Command, Control or TurnOver key: the mode ends and the key goes on
+                // (a review, 14 Nov 2026; it was swallowed with an edge tone and the capture re-armed).
+                if VoiceOverKeysPlugin.modeLeft(by: g, since: pid) { return }
                 guard let g, !["escape", "enter", "numpadEnter"].contains(g.keyName) else { Speech.speakMessage(String(localized: "done", comment: "Spoken message")); return }
                 let shift = g.modifiers.contains(.shift)
                 switch g.keyName {

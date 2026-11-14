@@ -100,6 +100,18 @@ public enum Keypad {
         Log.io("keypad \(g.identifier) → \(a)")
         // As every key: what was being said stops (the code review: keypad 9 pressed fast queued lines).
         Speech.cancel(); SayAll.stop(byGesture: true)
+        // The user's own numpad keys come first, as everywhere else: the tap swallows a keypad key with an action
+        // without asking (it can't read config there), so the user's assignment or removal is decided here, on main.
+        // Removed: the key goes on to the application, marked so the tap lets it through (a review, 14 Nov 2026).
+        switch UserGestures.lookup(g) {
+        case .script(let s)?:
+            if InputManager.isInputHelpActive { InputManager.handleInputHelp(g, script: s) } else { ScriptHandler.queueScript(s, gesture: g) }
+            return
+        case .removed?:
+            if !InputManager.isInputHelpActive { g.send() }
+            return
+        case nil: break
+        }
         // The first keypad key in the Windows style says once what the keypad does now (12 Oct 2026).
         if windows, !UserDefaults.standard.bool(forKey: "keypadHintGiven") {
             UserDefaults.standard.set(true, forKey: "keypadHintGiven")
