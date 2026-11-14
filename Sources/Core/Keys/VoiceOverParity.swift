@@ -797,7 +797,10 @@ extension VoiceOverKeysPlugin {
     /// Main thread (a review, 14 Nov 2026, as Excel's cell review does).
     static func modeLeft(by g: KeyboardGesture?, since pid: pid_t?) -> Bool {
         let away = API.focusPid != pid
-        let other = g.map { !$0.modifiers.isDisjoint(with: [.command, .control, .turnover]) } ?? false
+        // The TurnOver key counts only when it is really held: locked, every key carries it, and the first arrow
+        // ended the mode (a review, 14 Nov 2026).
+        let toHeld = !InputManager.turnOverKeyLocked || (KeyboardGesture.turnOverHeld?() ?? true)
+        let other = g.map { !$0.modifiers.isDisjoint(with: [.command, .control]) || ($0.modifiers.contains(.turnover) && toHeld) } ?? false
         guard away || other else { return false }
         Speech.speakMessage(String(localized: "done", comment: "Spoken message"))
         if let g {

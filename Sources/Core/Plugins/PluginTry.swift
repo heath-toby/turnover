@@ -172,6 +172,9 @@ public enum PluginTry {
         let started = Date()
         // States a key can leave on for the person, put back when the try ends whatever happened (a review, 14 Nov 2026).
         let lockedBefore = InputManager.turnOverKeyLocked, helpBefore = InputManager.isInputHelpActive
+        // Unlocked for the try: locked, every plain step became a TurnOver command past the checks ("q" quit with NVDA
+        // keys: a review, 14 Nov 2026). Put back in done().
+        InputManager.turnOverKeyLocked = false
         // The last moment the tried app was seen in front: what was said after it (another app, the person's own
         // reading) isn't the AI's to see (a review, 14 Nov 2026). Checked as each step starts, a wait's end included.
         var lastOnTarget = started
@@ -212,7 +215,7 @@ public enum PluginTry {
                // Allowed only if it reads or moves, and never if it changes anything (a list of what to refuse kept
                // missing commands: closeWindow, the speech settings ring, the commanders: a review, 14 Nov 2026).
                !(["report", "review", "read", "say", "where", "navigat", "next", "previous", "first", "last", "parent", "child", "current", "describe", "line", "word", "char", "sentence", "paragraph", "moveto", "top", "bottom"].contains(where: { name.contains($0) })
-                 && !["toggle", "set", "cycle", "close", "copy", "speak", "quit", "menu", "lock", "mode"].contains(where: { name.contains($0) })) ||
+                 && !["toggle", "set", "cycle", "close", "copy", "speak", "quit", "menu", "lock", "mode", "activate", "focus", "press"].contains(where: { name.contains($0) })) ||
                // (And anything that changes a setting or a mode that would outlast the try: the key lock, keyboard
                // help, pass next key, the speech ring's rate and volume.)
                ["quit", "copy", "clipboard", "menu", "notification", "speechmode", "sleep", "curtain", "chooser", "desktop", "force", "uninstall", "statusmenus", "dock", "plugin",

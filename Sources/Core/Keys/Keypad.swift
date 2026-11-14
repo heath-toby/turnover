@@ -108,7 +108,7 @@ public enum Keypad {
             if InputManager.isInputHelpActive { InputManager.handleInputHelp(g, script: s) } else { ScriptHandler.queueScript(s, gesture: g) }
             return
         case .removed?:
-            if !InputManager.isInputHelpActive { g.send() }
+            if InputManager.isInputHelpActive { InputManager.handleInputHelp(g, script: nil) } else { g.send() }   // (said in help, as other removed keys are)
             return
         case nil: break
         }

@@ -1214,7 +1214,10 @@ public final class BufferTextInfo: TextInfo {
             pieces.append(textRange(a, b))
             // VoiceOver's order: "About us, link", where the link ends (once, on the piece that ends it).
             // (Also when the next piece lies beyond what is spoken: a link over two lines said "link" on neither.)
-            let lastPiece = i + 1 >= segs.count || segs[i + 1].start >= end || !segs[i + 1].isLink || !(segs[i + 1].link ?? segs[i + 1].element).isSame(linkKey)
+            // (The next piece beyond what is spoken counts as the link's end only at the end of a line: reading by word,
+            // "Read, link" then "more, link" was said for one link.)
+            let lineEnd = buffer.lineIndex(at: s.start).map { buffer.lines[$0].end } ?? end
+            let lastPiece = i + 1 >= segs.count || (segs[i + 1].start >= end && end >= lineEnd) || !segs[i + 1].isLink || !(segs[i + 1].link ?? segs[i + 1].element).isSame(linkKey)
             if after, s.isLink, lastPiece, linkMode == .speech, s.end <= end, !(s.start < start && start > line.start && s.end > end) {
                 pieces.append(", " + Speech.ui(Role.link.displayString) + " ")
             }

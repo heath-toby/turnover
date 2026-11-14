@@ -665,7 +665,10 @@ public final class SettingsPanePlugin: GlobalPlugin {
             expected = nil
             // A key since (Command Tab), or the target's app no longer in front: stand down, or the old app's control
             // was read over the new app's (a review, 14 Nov 2026).
-            guard InputManager.lastKeyDownAt == keyAt, inFront(target.pid) else {
+            // Only another app stands it down: a key in the same app (Space, an arrow) left a Tab onto a control that
+            // won't take the focus unsaid and unheld (a review, 14 Nov 2026).
+            _ = keyAt
+            guard inFront(target.pid) else {
                 Log.io("settings: a key or another app since the move; standing down"); return
             }
             let app = AXUIElementCreateApplication(target.pid)
@@ -1273,7 +1276,8 @@ public final class SettingsPanePlugin: GlobalPlugin {
     /// move starts from the page's edge. The first of the name landed on the wrong one (a review, 14 Nov 2026).
     static func sameNamedRow(in fresh: [AXUIElement], name: String, oldY: CGFloat?, down: Bool) -> Int? {
         let named = fresh.indices.filter { ObjectFactory.make(fresh[$0]).name == name }
-        if named.count <= 1 { return named.first }
+        // (One of that name too: on the side the scroll moved it to, or it may be another row lower down.)
+        if named.count == 1, oldY == nil { return named.first }
         guard let oldY else { return nil }
         let placed = named.compactMap { i in TurnOverObject.frame(fresh[i]).map { (i, $0.minY) } }
             .filter { down ? $0.1 <= oldY + 1 : $0.1 >= oldY - 1 }

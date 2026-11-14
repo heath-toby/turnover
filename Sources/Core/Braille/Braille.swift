@@ -504,7 +504,7 @@ public enum Braille {
             let context: String, contextChanged: Bool
             if sameItem { context = lastContext; contextChanged = false }
             else {
-                context = focusContext(row == nil ? API.focusAncestors : API.focusAncestors + [focus])
+                context = focusContext(row == nil ? API.focusAncestors : [focus] + API.focusAncestors)   // nearest first, as the ancestors are
                 contextChanged = context != lastContext
                 lastContext = context
             }
@@ -932,7 +932,13 @@ public enum Braille {
             // message showing waits, above, and auto scroll went off three seconds after "auto scroll on".)
             // Screen recognition's result: on to its next line, as a pan by hand does. A message source with nothing held
             // (speech output mode): waits quietly for more.
-            if fromTimer, modalShowing, let mk = modalKey { mk("downArrow"); return }
+            if fromTimer, modalShowing, let mk = modalKey {
+                // Its last row: nothing moves, so auto scroll stops rather than repeating it for ever.
+                let before = modalLine?()?.0
+                mk("downArrow")
+                if modalLine?()?.0 == before { autoScroll?.invalidate(); autoScroll = nil; Speech.speakMessage(String(localized: "auto scroll off", comment: "Spoken message")) }
+                return
+            }
             if fromTimer, case .message = source { return }
             if fromTimer { autoScroll?.invalidate(); autoScroll = nil; Speech.speakMessage(String(localized: "auto scroll off", comment: "Spoken message")); return }
             Tones.edge(); return
@@ -1075,11 +1081,11 @@ public enum Braille {
         // Only over the item's own cells: a stray key over the blank cells after it, or over the focus context before
         // it, pressed a Delete button (a review, 14 Nov 2026; NVDA does nothing there).
         case .object(let obj):
-            guard cell >= objectOwnCell, cell < cells.count else { Tones.edge(); return }
+            guard !routedPastShown, cell >= objectOwnCell, cell < cells.count else { Tones.edge(); return }
             _ = AXUIElementPerformAction(obj.element, kAXPressAction as CFString)
         case .item:
             // TurnOver's cursor item: a routing key opens or presses it, as Return does.
-            guard cell < cells.count else { Tones.edge(); return }
+            guard !routedPastShown, cell < cells.count else { Tones.edge(); return }
             press("enter")
         default:
             break

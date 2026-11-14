@@ -97,7 +97,8 @@ extension ExcelAppModule {
                 // were each taken for the review and dropped: a review, 14 Nov 2026). Escape (nil) away from Excel
                 // goes on to what is in front.
                 let away = API.focusPid != pid
-                let other = g.map { !$0.modifiers.isDisjoint(with: [.command, .control]) || ($0.modifiers.contains(.turnover) && $0.keyName != "space") } ?? false
+                let toHeld = !InputManager.turnOverKeyLocked || (KeyboardGesture.turnOverHeld?() ?? true)   // (locked, every key has it)
+                let other = g.map { !$0.modifiers.isDisjoint(with: [.command, .control]) || ($0.modifiers.contains(.turnover) && toHeld && $0.keyName != "space") } ?? false
                 if away || other {
                     Speech.speakMessage(String(localized: "cell review off", comment: "Spoken message"))
                     guard let g else { KeyboardGesture(identifier: "kb:escape")?.send(); return }

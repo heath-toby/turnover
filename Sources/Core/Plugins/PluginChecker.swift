@@ -190,11 +190,14 @@ public enum PluginChecker {
         try fm.createDirectory(at: ProfileStore.folder, withIntermediateDirectories: true)
         // A plugin already there is moved aside, not deleted: a second plugin made for the same app had the same id
         // and deleted the first outright (a review, 14 Nov 2026).
+        // Installed from its own folder (edited in place): already there, nothing to move or copy.
+        if dest.standardizedFileURL == plugin.folder.standardizedFileURL { return dest }
         if fm.fileExists(atPath: dest.path) {
             let aside = ProfileStore.folder.deletingLastPathComponent().appendingPathComponent("plugins-replaced", isDirectory: true)
-            try? fm.createDirectory(at: aside, withIntermediateDirectories: true)
+            try fm.createDirectory(at: aside, withIntermediateDirectories: true)
             let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
-            if (try? fm.moveItem(at: dest, to: aside.appendingPathComponent("\(dest.lastPathComponent) \(stamp)"))) == nil { try? fm.removeItem(at: dest) }
+            // A name of its own each time, and never deleted if the move fails: the install stops instead.
+            try fm.moveItem(at: dest, to: aside.appendingPathComponent("\(dest.lastPathComponent) \(stamp) \(UUID().uuidString.prefix(8))"))
         }
         try fm.createDirectory(at: dest, withIntermediateDirectories: true)
         for f in ["manifest.json", "profile.json"] { try fm.copyItem(at: plugin.folder.appendingPathComponent(f), to: dest.appendingPathComponent(f)) }
