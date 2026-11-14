@@ -177,7 +177,16 @@ public final class SystemPrompts {
         announce(w, pid: pid)
     }
     private var lastAnnounced = Date.distantPast
-    private var readAt: [String: Date] = [:]
+    /// The prompts read, by window, with their words: the same words in another window are not read again only while
+    /// that window is still open. A two-minute block kept a prompt cancelled and asked again (Touch ID, an admin
+    /// password) silent and without the keyboard, so typing went to the app behind (a review, 14 Nov 2026).
+    private var readKeys: [(window: AXUIElement, key: String)] = []
+
+    /// Whether `key` was read in a window other than `window` that is still open: a new window for the same prompt.
+    package static func readElsewhere<W>(_ key: String, by window: W, in read: [(window: W, key: String)],
+                                         open: (W) -> Bool, same: (W, W) -> Bool) -> Bool {
+        read.contains { $0.key == key && !same($0.window, window) && open($0.window) }
+    }
 
     /// `fromTimer`: found by the regular look, where the same prompt in a new window isn't read again; asked for
     /// (the agent came to the front, the user went to it), it always is (a review, 11 Nov 2026).
@@ -193,11 +202,12 @@ public final class SystemPrompts {
         guard !texts.isEmpty || window.element(kAXFocusedUIElementAttribute) != nil else { return }
         summaries.removeAll { $0.window.isSame(window) }
         summaries.append((window, pid, texts.first.map { String($0.prefix(120)) } ?? "untitled"))
-        // The same prompt again from the same agent, a new window for it: not read out, nor given the keyboard, again.
+        // The same prompt again from the same agent, a new window for it while the first is open: not read out, nor given the keyboard, again.
         let key = "\(pid)|" + texts.joined(separator: "|")
-        if fromTimer, let at = readAt[key], Date().timeIntervalSince(at) < 120 { Log.io("system prompt from pid \(pid) again, the same; not read again"); return }
-        readAt[key] = Date()
-        if readAt.count > 50 { readAt = readAt.filter { Date().timeIntervalSince($0.value) < 120 } }
+        readKeys.removeAll { e in e.window.isSame(window) || !shown.contains { $0.isSame(e.window) } }
+        let again = fromTimer && Self.readElsewhere(key, by: window, in: readKeys, open: { _ in true }, same: { $0.isSame($1) })
+        readKeys.append((window, key))
+        if again { Log.io("system prompt from pid \(pid) again, the same; not read again"); return }
         Log.io("system prompt from pid \(pid): \(texts.count) lines")
         Speech.cancel()
         let words = ([Self.isProtected(pid) ? String(localized: "system dialog", comment: "A role: a macOS system dialog") : Role.dialog.displayString] + texts).joined(separator: ", ")
@@ -205,7 +215,7 @@ public final class SystemPrompts {
         // Read: the agent coming forward enters the window as a dialog, and it isn't read again ("system dialog, Crash
         // Test quit unexpectedly…", then "alert, Crash Test quit unexpectedly…", 12 Nov 2026). Its words outlast the
         // focus settling on a button.
-        Dialog.spokenAt = (window, Date())
+        Dialog.readAfresh(window)
         Speech.noteContext(words)
         let ax = AXUIElementCreateApplication(pid)
         // A prompt with nothing focused in it (the "quit unexpectedly" report: Ignore, Report, Reopen, and no focus at

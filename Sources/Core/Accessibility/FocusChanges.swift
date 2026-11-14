@@ -747,6 +747,10 @@ extension AXHandler {
         if ObjectNavigator.shared.isFollowedFocus(obj.element) {
             if let old { EventHandler.queue(Event(.loseFocus, old)) }
             API.setFocusObject(obj, ancestors: ancestors, interceptor: BrowseModeHandler.shared.document(for: obj, ancestors: ancestors))
+            // No gainFocus is queued, so the settings plugin is told itself: a place it held elsewhere is let go and
+            // its trap and toolbar state follow, or Up and Down read the old list and Tab went on from the old place
+            // (a review, 14 Nov 2026). It speaks nothing here.
+            SettingsPanePlugin.focusMoved(to: obj, followed: true)
             Log.io("focus followed the cursor to \(obj.element.role); not spoken")
             return
         }

@@ -152,9 +152,18 @@ open class Dialog: TurnOverObject {
     static var spokenAt: (AXUIElement, Date)?
     static var choiceIndex: [Int: Int] = [:]
 
+    /// A dialog read afresh: where Tab and the arrows were in it is forgotten. Kept by the element's hash and never
+    /// cleared, a later dialog with the same hash started on an old choice, and Return pressed it (a review,
+    /// 14 Nov 2026).
+    static func readAfresh(_ element: AXUIElement) {
+        spokenAt = (element, Date())
+        let key = Int(CFHash(element))
+        choiceIndex[key] = nil; lineIndex[key] = nil
+    }
+
     private func announce(choicesToo: Bool) {
         if let (e, at) = Self.spokenAt, e.isSame(element), Date().timeIntervalSince(at) < 0.8 { return }
-        Self.spokenAt = (element, Date())
+        Self.readAfresh(element)
         let list = choices.map(\.1)
         let text = dialogText
         // AppKit's alerts have no title, only the description "alert" (loginwindow's Log Out, Restart and Shut Down,
@@ -198,7 +207,7 @@ open class Dialog: TurnOverObject {
         if let (e, at) = Self.spokenAt, e.isSame(element), Date().timeIntervalSince(at) < 60 { return }
         // A web page inside the dialog (an account page): read it as a page, in browse mode.
         if let web = element.firstDescendant(role: "AXWebArea", maxVisited: 400) {
-            Self.spokenAt = (element, Date())
+            Self.readAfresh(element)
             Speech.speakMessage([name, role.displayString].filter { !$0.isEmpty }.joined(separator: ", "))
             let pid = element.pid
             DispatchQueue.main.async { AXHandler.shared.focusChanged(web, pid: pid) }
