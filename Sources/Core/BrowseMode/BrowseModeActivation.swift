@@ -242,7 +242,11 @@ extension BrowseModeDocument {
     private func finishWatch(_ id: Int, _ element: AXUIElement, changed: Bool, movedOn: Bool) {
         Self.endWatch(id)
         if movedOn { buffer.isDirty = true; return }
-        if changed || !hasWatches { rebuildKeepingPlace(anchor: element) }
+        guard changed || !hasWatches else { return }
+        // Not read again under a say all of this page (its offsets would mean other text): marked, as a page finishing
+        // loading under one is, and read again at its end (a review, 14 Nov 2026).
+        if SayAll.isReading(self) { buffer.isDirty = true; loadedUnderSayAll = SayAll.runID; return }
+        rebuildKeepingPlace(anchor: element)
     }
 
     /// NVDA's Elements List (NVDA+F7), VoiceOver's Item Chooser (VO-I): the page's headings, links, form fields,
