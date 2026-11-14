@@ -224,7 +224,10 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
 
         openHIDManager(into: mine)
 
-        let mask = CGEventMask(1 << CGEventType.flagsChanged.rawValue | 1 << CGEventType.keyDown.rawValue | 1 << CGEventType.keyUp.rawValue)
+        // Mouse downs too, only to cancel a lone modifier: Command, Option or Shift held to click, let go quickly,
+        // counted as pressed alone and opened the menus or the Dock (a review, 14 Nov 2026). They pass untouched.
+        let mask = CGEventMask(1 << CGEventType.flagsChanged.rawValue | 1 << CGEventType.keyDown.rawValue | 1 << CGEventType.keyUp.rawValue
+            | 1 << CGEventType.leftMouseDown.rawValue | 1 << CGEventType.rightMouseDown.rawValue | 1 << CGEventType.otherMouseDown.rawValue)
         // Coexisting with VoiceOver: at the head of the HID level, before VoiceOver sees a chord (TapProbe, 16 Oct 2026).
         guard let t = CGEvent.tapCreate(tap: Coexist.on ? .cghidEventTap : .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
                                         eventsOfInterest: mask, callback: { proxy, type, event, refcon in
@@ -297,10 +300,17 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
     }
 
     private func hidValue(_ value: IOHIDValue) {
-        guard let generation = layer?.generation, isReady(generation), !Self.bypass else { return }
+        guard let generation = layer?.generation, isReady(generation) else { return }
         let element = IOHIDValueGetElement(value)
         guard IOHIDElementGetUsagePage(element) == UInt32(kHIDPage_KeyboardOrKeypad),
               IOHIDElementGetUsage(element) == UInt32(kHIDUsage_KeyboardCapsLock) else { return }
+        // While the watchdog's bypass is on, Caps Lock's release is still seen: only that it is up, no double tap or
+        // lock. Ignored, the TurnOver key stayed held after the bypass, and every key became a TurnOver chord (a
+        // review, 14 Nov 2026).
+        if Self.bypass {
+            if IOHIDValueGetIntegerValue(value) == 0 { capsDown = false; Self.capsHeld.value = false; lastCapsUp = 0 }
+            return
+        }
         // Caps Lock is an ordinary key when the TurnOver key is Control+Option alone.
         guard KeySettings.current.capsIsTurnOver else { capsDown = false; return }
         let pressed = IOHIDValueGetIntegerValue(value) != 0
@@ -381,9 +391,16 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         quarantined.removeAll(); passedDown.removeAll(); remapped.removeAll(); keypadTaken.removeAll(); arrowHeld = nil
         // A Left whose release went by unseen made a much later bare Right the Quick Nav chord (a review, 13 Nov 2026).
         arrowDownWhileOff = nil
+        // Keypad 0's release went by unseen too: kept, it made later keypad keys its chords (a review, 14 Nov 2026).
+        keypadZeroDown = false
     }
 
     private func tapEvent(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
+        // A click with a modifier held: that modifier is not pressed alone. The click itself goes on, untouched.
+        if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
+            loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
+            return Unmanaged.passUnretained(event)
+        }
         guard let generation = layer?.generation, isRequested(generation) else { return Unmanaged.passUnretained(event) }
         if Self.bypass, type != .tapDisabledByTimeout, type != .tapDisabledByUserInput {
             // Their key-ups pass now, untouched: none must be swallowed or translated later, and a held Quick Nav
@@ -546,8 +563,10 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             return nil
         }
         // Right Option+T: the date and time, as the owner has it under VoiceOver (4 Oct 2026). Right Option only, so
-        // left Option+T still types its character.
-        if code == 17, optionCode == 61, settings.optionCommander, event.flags.intersection([.maskControl, .maskCommand, .maskShift]).isEmpty, event.flags.contains(.maskAlternate) {
+        // left Option+T still types its character. Not for pass next key, a key capture or keyboard help: the key goes
+        // the usual way there, as the keypad's and Quick Nav's do; it ran the time regardless (a review, 14 Nov 2026).
+        if code == 17, optionCode == 61, settings.optionCommander, event.flags.intersection([.maskControl, .maskCommand, .maskShift]).isEmpty, event.flags.contains(.maskAlternate),
+           !InputManager.passNextKey, !InputManager.isCapturing, !InputManager.isInputHelpActive {
             let g = KeyboardGesture(keyCode: code, modifiers: .option, characters: "", timestamp: 0, isRepeat: false, flags: event.flags)
             // Through the user's keys, where right Option T is the time and date unless they gave it something else
             // (UserGestures.defaults). It asked for "vo_dateTime", a name no command has had since, so it did nothing
@@ -657,6 +676,11 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         // The key itself is wanted (pass next key; the keyboard commands editor or MenuAnywhere waiting for a key): the
         // press goes the usual way, where InputManager hands it on or captures it (a review, 14 Nov 2026).
         if type == .keyDown, InputManager.passNextKey || InputManager.isCapturing { return nil }
+        // TurnOver's menu, input help, an app's menu (read here at once), and its find, recognition result and the held
+        // menu bar (ArrowQuickNav.arrowsElsewhere, a quarter second behind) want the arrows themselves: with Quick Nav
+        // on they never reached them (a review, 14 Nov 2026). A held arrow's release is still Quick Nav's, below.
+        if type == .keyDown, TurnOverMenu.anyOpen.value || AXHandler.anyMenuOpen.value || InputManager.isInputHelpActive
+            || ArrowQuickNav.arrowsElsewhere.value { return nil }
         if type == .keyUp {
             if code == arrowDownWhileOff { arrowDownWhileOff = nil }
             guard code == arrowHeld else { return nil }   // the chord's second arrow is let go through `quarantined`

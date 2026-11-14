@@ -86,6 +86,15 @@ public enum ScriptHandler {
     /// Keys deferred (main did not answer within `lookupLimit`) whose turn on main has not finished yet.
     nonisolated private static let outstandingLate = Locked(0)
 
+    /// With main stuck: a TurnOver chord made with the TurnOver key held (Caps Lock) is dropped, since passed it typed
+    /// its letter (Caps L typed "l", a review, 14 Nov 2026). Ordinary keys still go through; so does every key while
+    /// the TurnOver key is locked, and Control Option chords, which are still the Mac's keys (the VO keys).
+    nonisolated public static func stuckDecision(for gesture: KeyboardGesture, turnOverKeyLocked: Bool) -> KeyDecision {
+        guard gesture.modifiers.contains(.turnover), !turnOverKeyLocked,
+              !(gesture.flags.contains(.maskControl) && gesture.flags.contains(.maskAlternate)) else { return .passed }
+        return .taken
+    }
+
     nonisolated public static func askMain(_ gesture: KeyboardGesture) -> KeyDecision { askMain(gesture, otherwise: nil).decision }
 
     /// As askMain, with the Windows style's translation in the same round trip: when TurnOver has no script for
@@ -95,7 +104,13 @@ public enum ScriptHandler {
     /// time; a late answer sends on whichever it chose).
     nonisolated public static func askMain(_ gesture: KeyboardGesture, otherwise alternative: KeyboardGesture?) -> (decision: KeyDecision, usedAlternative: Bool) {
         keysArrived.lock.lock(); keysArrived.unsafeValue &+= 1; keysArrived.lock.unlock()
-        guard !(mainStuck?() ?? false) else { Log.warning("keyboard: the main thread is not beating; \(gesture.logDescription()) goes through"); return (.passed, false) }
+        if mainStuck?() ?? false {
+            let d = stuckDecision(for: gesture, turnOverKeyLocked: InputManager.turnOverKeyLocked)
+            let what: String
+            if case .passed = d { what = "goes through" } else { what = "dropped" }
+            Log.warning("keyboard: the main thread is not beating; \(gesture.logDescription()) \(what)")
+            return (d, false)
+        }
         InputManager.cancelSpeechEarly(for: gesture)
         let state = Locked(Wait.waiting); let done = DispatchSemaphore(value: 0)
         let usedAlternative = Locked(false)

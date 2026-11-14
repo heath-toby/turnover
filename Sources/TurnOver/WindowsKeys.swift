@@ -173,7 +173,10 @@ nonisolated final class WindowsKeyLayer: @unchecked Sendable {   // its state be
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(kIOHIDSystemClass))
         if service != 0 { IOServiceOpen(service, mach_task_self_, UInt32(kIOHIDParamConnectType), &mine.connect); IOObjectRelease(service) }
         openHID(mine)
-        let mask = CGEventMask(1 << CGEventType.flagsChanged.rawValue | 1 << CGEventType.keyDown.rawValue | 1 << CGEventType.keyUp.rawValue)
+        // Mouse downs only cancel a lone tap: Command or Option held to click opened the menu bar or the Dock (a
+        // review, 14 Nov 2026). They pass untouched (handle).
+        let mask = CGEventMask(1 << CGEventType.flagsChanged.rawValue | 1 << CGEventType.keyDown.rawValue | 1 << CGEventType.keyUp.rawValue
+            | 1 << CGEventType.leftMouseDown.rawValue | 1 << CGEventType.rightMouseDown.rawValue | 1 << CGEventType.otherMouseDown.rawValue)
         if let tp = CGEvent.tapCreate(tap: .cghidEventTap, place: .headInsertEventTap, options: .defaultTap, eventsOfInterest: mask, callback: { _, type, event, refcon in
             guard let refcon else { return Unmanaged.passUnretained(event) }
             return Unmanaged<WindowsKeyLayer>.fromOpaque(refcon).takeUnretainedValue().handle(type, event)
@@ -339,6 +342,11 @@ nonisolated final class WindowsKeyLayer: @unchecked Sendable {   // its state be
     }()
 
     private func handle(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
+        // A click with a modifier held: not a lone tap. The click goes on untouched.
+        if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
+            loneCommand.cancel(); loneOption.cancel()
+            return Unmanaged.passUnretained(event)
+        }
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let t = tap { CGEvent.tapEnable(tap: t, enable: true) }
             // Releases went by unseen while the tap was off: one kept here would swallow or translate the next real

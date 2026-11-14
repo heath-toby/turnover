@@ -47,6 +47,16 @@ func keyboardSessionTests() {
         check(!ran.value, "the translation's command did not run")
     }
 
+    // With main stuck, Caps L passed and typed "l" (a review, 14 Nov 2026).
+    test("keys: with main stuck a TurnOver key chord is dropped, other keys go through") {
+        let caps = KeyboardGesture(keyCode: 37, modifiers: .turnover, characters: "l", timestamp: 0, isRepeat: false, flags: [])
+        expect(ScriptHandler.stuckDecision(for: caps, turnOverKeyLocked: false), .taken, "Caps L is dropped")
+        expect(ScriptHandler.stuckDecision(for: caps, turnOverKeyLocked: true), .passed, "locked: every key still types")
+        let vo = KeyboardGesture(keyCode: 37, modifiers: .turnover, characters: "l", timestamp: 0, isRepeat: false, flags: [.maskControl, .maskAlternate])
+        expect(ScriptHandler.stuckDecision(for: vo, turnOverKeyLocked: false), .passed, "Control Option L is still the Mac's")
+        expect(ScriptHandler.stuckDecision(for: KeyboardGesture(identifier: "kb:l")!, turnOverKeyLocked: false), .passed, "a plain key types")
+    }
+
     test("keyboard permission recovery: automatic VoiceOver restoration permits permission-grant retry") {
         let activation = KeyboardActivation()
         var worker = KeyboardSessionState()

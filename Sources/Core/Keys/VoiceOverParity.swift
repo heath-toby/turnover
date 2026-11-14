@@ -592,6 +592,20 @@ public enum ArrowQuickNav {
     nonisolated(unsafe) static var on = false   // main thread only
     /// Read by the keyboard thread: whether the arrows are Quick Nav's at this moment (refreshed on the main thread).
     nonisolated public static let applies = Locked(false)
+    /// Read by the keyboard thread: something else wants the bare arrows now (TurnOver's menu, find or recognition
+    /// result, input help, an app's menu, the menu bar held), so they go the usual way, not held as Quick Nav's. With
+    /// Quick Nav on they never reached those (a review, 14 Nov 2026). Refreshed with `applies`; the keyboard thread
+    /// also reads the flags that are already its to read (KeyboardHandler.quickNavArrow).
+    nonisolated public static let arrowsElsewhere = Locked(false)
+    static var arrowsWantedElsewhere: Bool {
+        TurnOverMenu.shared.isOpen || AXHandler.anyMenuOpen.value || InputManager.isInputHelpActive
+            || MenuNavigationPlugin.heldBar != nil || MenuNavigationPlugin.heldStatus != nil
+            || ScreenRecognition.shared.isOpen || FindPrompt.shared.isOpen
+    }
+    private static func refresh() {
+        applies.value = isActiveHere
+        arrowsElsewhere.value = on && arrowsWantedElsewhere
+    }
     private static var timer: Timer?
     /// The Quick Nav rotor's kind on pages: nil is item by item.
     private static var kind: Int?
@@ -663,9 +677,9 @@ public enum ArrowQuickNav {
         timer?.invalidate(); timer = nil
         if on {
             // Kept current four times a second while on, for the keyboard thread (focus and browse mode change often).
-            timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in MainActor.assumeIsolated { applies.value = isActiveHere } }
+            timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in MainActor.assumeIsolated { refresh() } }
         }
-        applies.value = isActiveHere
+        refresh()
         guard sound else { return }
         if !VoiceOverSounds.play(on ? "QuickNavArrowKeyOn.wav" : "QuickNavArrowKeyOff.wav") { Speech.speakMessage(on ? String(localized: "Quick Nav on", comment: "Spoken message") : String(localized: "Quick Nav off", comment: "Spoken message")) }
     }
