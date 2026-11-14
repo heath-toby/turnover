@@ -197,6 +197,9 @@ public final class BrowseModeDocument: ScriptableObject {
                 singleLetterNavigation = true; lastFocusElement = nil
             }
             selectionAnchor = nil
+            // A mark of the page before found dead (read in the moment before this address came) is not a reload of
+            // this one (a review, 14 Nov 2026).
+            pageGone = nil
             // And the places kept for it: where it was before it emptied, a module's wish to enter it at its last
             // control, its line said instead of a say all. Left over, they placed or silenced the new page (a review,
             // 13 Nov 2026). A wish made in the last second, or while the page before was still empty (it never arrived:
@@ -346,7 +349,7 @@ public final class BrowseModeDocument: ScriptableObject {
             speakUnit(.line)
             return
         }
-        if BrowseModeHandler.wasAnnounced(webArea, url: url), Date().timeIntervalSince(pageGoneAt) > 30 {
+        if BrowseModeHandler.wasAnnounced(webArea, url: url), !reloadNoticed {
             Log.io("browse mode: back on a page announced before; its title and line are said, not a say all")
             let title = pageTitle()
             if !title.isEmpty { Speech.speakMessage(title) }
@@ -380,8 +383,21 @@ public final class BrowseModeDocument: ScriptableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// When a read of the page again found the copy's elements gone (`pageIsGone`): the page was reloaded.
-    var pageGoneAt = Date.distantPast
+    /// When a read of the page again found the copy's elements gone (`pageIsGone`), and the address then: the page was
+    /// reloaded, if it is still at that address. Marked by any read that finds the copy dead, so also by a read in the
+    /// moment before a new page's address arrives (Down while the next page loads, a press watch finishing as the page
+    /// goes): by time alone, that page's AXLoadComplete was taken for a reload, its say all stopped and its title said
+    /// twice, and Back to an announced page was read out whole (a review, 14 Nov 2026).
+    var pageGone: (url: String, at: Date)?
+    func markPageGone() { pageGone = (url, Date()) }
+    /// A reload noticed in the last 30 s, at the address the page is at now.
+    var reloadNoticed: Bool { Self.reloadMarkHolds(pageGone, url: url, now: Date()) }
+    /// Whether a mark of the copy found dead (`pageGone`) means a reload of the page at `url`: made at that address, in
+    /// the last 30 s. Pure, for the tests.
+    package static func reloadMarkHolds(_ mark: (url: String, at: Date)?, url: String, now: Date) -> Bool {
+        guard let mark, !url.isEmpty, mark.url == url else { return false }
+        return now.timeIntervalSince(mark.at) < 30
+    }
 
     /// The page finished loading at the same address (AXLoadComplete, from AXHandlerNotifications): read again keeping
     /// the place; and if it was a reload (Command R: the same address and web area, every element made anew), its title
@@ -389,8 +405,8 @@ public final class BrowseModeDocument: ScriptableObject {
     /// (a review, 13 Nov 2026).
     public func pageLoadCompleted() {
         // A reload is told by the copy's elements gone, asked before anything is read again.
-        if !buffer.lines.isEmpty, pageIsGone() { pageGoneAt = Date() }
-        guard Date().timeIntervalSince(pageGoneAt) < 30 else {
+        if !buffer.lines.isEmpty, pageIsGone() { markPageGone() }
+        guard reloadNoticed else {
             // Only changed: not read again under a say all of this page (its offsets would mean other text), nor more
             // often than a key may (a slow page held the main thread, a review, 13 Nov 2026). The next key reads it.
             if SayAll.isReading(self) || !mayRebuildNow() {
@@ -416,9 +432,9 @@ public final class BrowseModeDocument: ScriptableObject {
     /// reads the page again at its end, once, and clears this.
     var loadedUnderSayAll: Int?
 
-    /// A reload noticed (pageGoneAt): said by its title, as a page arriving says it.
+    /// A reload noticed (pageGone): said by its title, as a page arriving says it.
     func sayReloaded() {
-        pageGoneAt = .distantPast
+        pageGone = nil
         Log.io("browse mode: the page was reloaded; read again at \(position)")
         guard !passThrough else { return }
         let title = pageTitle()
@@ -451,7 +467,7 @@ public final class BrowseModeDocument: ScriptableObject {
         VoiceOverSounds.play("WebAreaLoaded.aiff")   // VoiceOver's "web area loaded", the sound its list has for a page
         Log.io("browse mode: page arrived — resuming at \(position)\(kept ? " (where it was before it emptied)" : saved == nil ? "" : " (saved \(saved!.offset))")")
         if announce, url != announcedURL { announcePage(); return true }
-        if kept, announce, Date().timeIntervalSince(pageGoneAt) < 30 { sayReloaded() }   // a reload read mid-way: said, not silent
+        if kept, announce, reloadNoticed { sayReloaded() }   // a reload read mid-way: said, not silent
         // Not announced here: the line-instead-of-say-all placeOnArrival may have set was for this arrival only; left
         // set, it silenced the say all of a later page (a review, 13 Nov 2026).
         noAutoRead = false

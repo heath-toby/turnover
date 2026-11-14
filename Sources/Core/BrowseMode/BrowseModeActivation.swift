@@ -365,7 +365,7 @@ extension BrowseModeDocument {
         let lineStart = buffer.lineIndex(at: position).map { buffer.lines[$0].start } ?? position
         let lead = (String(raw.prefix(while: { $0.isWhitespace || $0.isNewline })) as NSString).length
         let into = max(0, oldPosition - lineStart - lead)
-        if !buffer.lines.isEmpty, pageIsGone() { pageGoneAt = Date() }   // a reload, noticed for pageLoadCompleted
+        if !buffer.lines.isEmpty, pageIsGone() { markPageGone() }   // a reload, noticed for pageLoadCompleted
         buffer.build(until: deadline)
         // Read in the middle of a reload, nothing yet: the place is kept for the page coming back (loadedAfterBlank).
         if buffer.lines.isEmpty, !oldLine.isEmpty || oldPosition > 0 {

@@ -182,4 +182,13 @@ func browseModeReviewTests() {
         expect(BrowseModeDocument.backToBrowseModeHint(keyName: "TurnOver", windowsKeys: true), "TurnOver Space returns to browse mode")
         expect(BrowseModeDocument.backToBrowseModeHint(keyName: "VO", windowsKeys: false), "VO Q returns to browse mode")
     }
+
+    test("browse mode review: a copy found dead is a reload only at the address it was found at (a review, 14 Nov 2026)") {
+        let t = Date()
+        check(BrowseModeDocument.reloadMarkHolds((url: "https://example.com/a", at: t), url: "https://example.com/a", now: t.addingTimeInterval(2)), "Command R: the same address")
+        check(!BrowseModeDocument.reloadMarkHolds((url: "https://example.com/a", at: t), url: "https://example.com/b", now: t.addingTimeInterval(2)), "found dead as the next page loaded: not its reload")
+        check(!BrowseModeDocument.reloadMarkHolds((url: "https://example.com/a", at: t), url: "https://example.com/a", now: t.addingTimeInterval(31)), "too long ago")
+        check(!BrowseModeDocument.reloadMarkHolds(nil, url: "https://example.com/a", now: t), "no mark")
+        check(!BrowseModeDocument.reloadMarkHolds((url: "", at: t), url: "", now: t), "no address")
+    }
 }
