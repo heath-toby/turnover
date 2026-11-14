@@ -505,7 +505,7 @@ public final class TurnOverMenu {
             items.append(MenuItem("Gesture control", .toggle(get: { Trackpad.controlOn }, set: { Trackpad.set($0) }), hint: "The trackpad's gestures: VoiceOver's, or NVDA's in the Windows style. Also Command Control Comma, G"))
         }
         // Until the Settings window has a Braille section (a contributor's, 21 Oct 2026), braille stays here.
-        items.append(MenuItem("Braille", .submenu { self.brailleItems() }, hint: "Until braille has its section in Settings"))
+        items.append(MenuItem("Braille", .submenu { self.brailleItems() }, hint: "The table and the most used braille choices; all of them are in Settings, Braille"))
         return items
     }
 
@@ -745,6 +745,10 @@ public final class TurnOverMenu {
         var tables = TOBrailleTranslatorTables.forUser()
         if tables.isEmpty { tables = [("", String(localized: "Computer braille", comment: "A braille table"))] }
         return [
+            MenuItem("All braille settings", .action { SettingsBridge.open(section: "Braille") }, hint: "The display, the input table, formatting marks and the rest, in the Settings window"),
+            MenuItem("Bold, italic and underline", .cycle(options: [String(localized: "off", comment: "A choice in the TurnOver menu"), String(localized: "the table's own signs", comment: "A choice in the TurnOver menu"), String(localized: "dots 7 and 8", comment: "A choice in the TurnOver menu")],
+                get: { ["off", "table", "dots78"].firstIndex(of: config.braille.formattingMarks) ?? 0 },
+                set: { config.braille.formattingMarks = ["off", "table", "dots78"][$0]; config.save(); Braille.settingsChanged() })),
             MenuItem("Bluetooth displays", .toggle(get: { config.braille.bluetooth }, set: {
                 config.braille.bluetooth = $0
                 if $0 { Speech.speakMessage(String(localized: "Looking for a paired braille display. macOS may ask whether TurnOver can use Bluetooth.", comment: "Bluetooth braille displays turned on")); BrailleDisplays.shared.lookNow() }
