@@ -166,6 +166,11 @@ func pureTests() {
         expect(PronunciationDictionary.apply("turnover reads LBRF files", list), "turn over reads L B R F files", "replaced whole, whatever the case")
         expect(PronunciationDictionary.apply("TurnOvers and xLBRF", list), "TurnOvers and xLBRF", "not inside another word")
         expect(PronunciationDictionary.apply("New York City at night", list), "big apple at night", "the longer entry first")
+        let ipaList = PronunciationDictionary.parse("Siobhan = /ʃɪˈvɔːn/")
+        let marked = PronunciationDictionary.apply("Hello Siobhan, hi", ipaList)
+        let (plain, marks) = PronunciationDictionary.phonemes(in: marked)
+        expect(plain, "Hello Siobhan, hi", "an IPA pronunciation keeps the word in the text")
+        expect(marks, [PronunciationDictionary.IPAMark(location: 6, length: 7, ipa: "ʃɪˈvɔːn")], "and marks it with its phonemes")
     }
     test("Help make TurnOver: every way to help named, by the menu's own words, and it opens by itself once") {
         let body = HelpMakeTurnOver.body

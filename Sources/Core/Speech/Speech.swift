@@ -198,7 +198,7 @@ public enum Speech {
         // No player (the plugin tool and the tests start no speech): nothing to say it with (a plugin list crashed
         // here, 13 Oct 2026).
         guard player != nil else { completion?(false); return }
-        let said = PronunciationDictionary.apply(s)
+        let (said, ipa) = PronunciationDictionary.phonemes(in: PronunciationDictionary.apply(s))
         if said != s, Self.logsWords, !privateNext, !redactNext { Log.io("say, as pronounced: \(said.prefix(160))") }
         // Another language's own pitch and volume, from the languages table (a tester, 14 Nov 2026).
         let langPitch = voice == nil ? nil : Languages.pitch(for: language).map { 0.5 * pow(4, min(1, max(0, $0))) }
@@ -207,7 +207,7 @@ public enum Speech {
         // ahead, and the caption ran a paragraph early (a review, 14 Nov 2026). Never private speech.
         let start = !privateNext && VisionAids.captionWanted ? Self.withCaption(s, onStart) : onStart
         player.speak(said, interrupt: false, voice: kokoro ?? voice, rate: voice == nil ? nil : Languages.rate(for: language), pitch: pitch,
-                     voicePitch: langPitch, voiceVolume: langVolume,
+                     voicePitch: langPitch, voiceVolume: langVolume, ipa: kokoro == nil ? ipa : [],
                      // The capital's tone as its letter starts, not as it is queued (a review: three at once for "ABC").
                      onStart: tone ? Self.withCapitalTone(start) : start, completion: completion)
     }

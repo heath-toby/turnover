@@ -67,7 +67,8 @@ Settings has VoiceOver's and NVDA's choices for how text is read:
   arrow"). Emoticons such as :-) and <3 are said by name ("smiley", "heart"), unless you turn that off in Speech.
 - **Pronunciations** (Speech): words said your way. Choose one in the list to change or remove it, or type a word and
   how to say it and Add. "LBRF" said as "L B R F", for instance. It changes speech only; braille shows the word as
-  written.
+  written. For the exact sounds, give them in IPA between slashes: Siobhan said as /ʃɪˈvɔːn/. The Mac's voices
+  say IPA, which VoiceOver can't; a natural voice says the word as written.
 - **Documents, Lines:** line indentation as the caret moves by line, when it changes: spoken ("4 space", "tab",
   "no indent"), as tones (higher for deeper), or both, as NVDA does.
 - **Documents, Fonts:** colour, with the font's name, size and style.

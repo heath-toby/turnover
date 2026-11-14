@@ -467,8 +467,12 @@ public final class SpeechPlayer: @unchecked Sendable {
     /// Speak `text`. With `interrupt`, whatever is playing or queued is dropped
     /// first. `requestedAt` lets the caller pass the originating event's time.
     /// `voice`: this utterance only (another language's voice); nil is the current voice.
+    /// A word to be said by its phonemes: its range in the text (UTF-16) and its IPA.
+    public struct IPAMark: Sendable, Equatable { public let location: Int, length: Int, ipa: String
+        public init(location: Int, length: Int, ipa: String) { self.location = location; self.length = length; self.ipa = ipa } }
+
     public func speak(_ text: String, interrupt: Bool = true, requestedAt: UInt64 = mach_absolute_time(), voice: String? = nil, rate rateOverride: Float? = nil,
-                      pitch: Float? = nil, voicePitch: Float? = nil, voiceVolume: Float? = nil,
+                      pitch: Float? = nil, voicePitch: Float? = nil, voiceVolume: Float? = nil, ipa: [IPAMark] = [],
                       onStart: (@Sendable () -> Void)? = nil,
                       completion: (@Sendable (_ finished: Bool) -> Void)? = nil) {
         if interrupt { outputHealth.cancel() }
@@ -476,7 +480,7 @@ public final class SpeechPlayer: @unchecked Sendable {
             if interrupt { cancelOnQueue() }
             // One utterance renders at a time, in order: a second write while the first was rendering played their
             // buffers interleaved (a typed word and its punctuation queued together).
-            let job = { [self] in render(text, requestedAt: requestedAt, voice: voice, rate: rateOverride, pitch: pitch, voicePitch: voicePitch, voiceVolume: voiceVolume, onStart: onStart, completion: completion) }
+            let job = { [self] in render(text, requestedAt: requestedAt, voice: voice, rate: rateOverride, pitch: pitch, voicePitch: voicePitch, voiceVolume: voiceVolume, ipa: ipa, onStart: onStart, completion: completion) }
             if rendering { waiting.append((job, completion)) } else { job() }
         }
     }
@@ -506,7 +510,7 @@ public final class SpeechPlayer: @unchecked Sendable {
 
     /// `voicePitch` and `voiceVolume`: another language's own (its pitch multiplier, its volume 0.1 to 2), for this
     /// utterance only.
-    private func render(_ text: String, requestedAt: UInt64, voice: String?, rate rateOverride: Float? = nil, pitch: Float? = nil, voicePitch: Float? = nil, voiceVolume: Float? = nil, onStart: (@Sendable () -> Void)?, completion: (@Sendable (Bool) -> Void)?) {
+    private func render(_ text: String, requestedAt: UInt64, voice: String?, rate rateOverride: Float? = nil, pitch: Float? = nil, voicePitch: Float? = nil, voiceVolume: Float? = nil, ipa: [IPAMark] = [], onStart: (@Sendable () -> Void)?, completion: (@Sendable (Bool) -> Void)?) {
         do {
             let state = UtteranceState(completion: completion)
             state.hasWords = text.contains { $0.isLetter || $0.isNumber }
@@ -521,7 +525,15 @@ public final class SpeechPlayer: @unchecked Sendable {
             let timing = TimingBox(made)   // the speech queue's
             state.startedAt = Date()
             pending.append(state); noteBusy()
-            let utterance = AVSpeechUtterance(string: text)
+            // Words with their own phonemes (the pronunciation dictionary's IPA): the voice says those sounds.
+            let utterance: AVSpeechUtterance
+            if ipa.isEmpty { utterance = AVSpeechUtterance(string: text) } else {
+                let a = NSMutableAttributedString(string: text), length = (text as NSString).length
+                for m in ipa where m.location >= 0 && m.location + m.length <= length {
+                    a.addAttribute(NSAttributedString.Key(AVSpeechSynthesisIPANotationAttribute), value: m.ipa, range: NSRange(location: m.location, length: m.length))
+                }
+                utterance = AVSpeechUtterance(attributedString: a)
+            }
             utterance.voice = voice.flatMap(AVSpeechSynthesisVoice.init(identifier:)) ?? AVSpeechSynthesisVoice(identifier: voiceIdentifier) ?? AVSpeechSynthesisVoice(language: nil) ?? AVSpeechSynthesisVoice(language: "en-GB")   // (language nil: the system language's voice; a Spanish tester heard English: code review, 16 Oct 2026)
             let wanted = voice ?? voiceIdentifier
             // An external voice's silence is its own: counted as the Mac voice's, two slow starts of the natural voice
@@ -551,7 +563,7 @@ public final class SpeechPlayer: @unchecked Sendable {
                         self.pending.removeAll { $0 === state }; self.noteBusy()
                         self.rendering = false
                         let mac = self.fallbackVoiceIdentifier.isEmpty ? nil : self.fallbackVoiceIdentifier
-                        self.render(text, requestedAt: requestedAt, voice: mac ?? AVSpeechSynthesisVoice(language: nil)?.identifier ?? "com.apple.voice.compact.en-GB.Daniel", rate: rateOverride, pitch: pitch, voicePitch: voicePitch, voiceVolume: voiceVolume, onStart: onStart, completion: completion)
+                        self.render(text, requestedAt: requestedAt, voice: mac ?? AVSpeechSynthesisVoice(language: nil)?.identifier ?? "com.apple.voice.compact.en-GB.Daniel", rate: rateOverride, pitch: pitch, voicePitch: voicePitch, voiceVolume: voiceVolume, ipa: ipa, onStart: onStart, completion: completion)
                     }
                 }
                 doing("external voice render")

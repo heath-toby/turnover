@@ -535,6 +535,7 @@ struct PronunciationsEditor: View {
             }
             TextField(String(localized: "Word", comment: "A pronunciation's word"), text: $word)
             TextField(String(localized: "Say it as", comment: "A pronunciation's replacement"), text: $say)
+            Text("To give the sounds themselves, put them in IPA between slashes, such as /ʃɪˈvɔːn/ for Siobhan. The Mac's voices say them; VoiceOver can't.").font(.caption)
             Button(String(localized: "Add or change", comment: "Adds a pronunciation, or changes the one for that word")) {
                 let w = word.trimmingCharacters(in: .whitespaces), sy = say.trimmingCharacters(in: .whitespaces)
                 guard !w.isEmpty, !w.contains("="), !w.hasPrefix("#") else { return }
