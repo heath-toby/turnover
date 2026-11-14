@@ -520,7 +520,10 @@ public enum Braille {
                 if !context.isEmpty {
                     let n = display?.cellCount ?? 40
                     let fill = config.braille.focusContext == "always" || (config.braille.focusContext == "changes" && contextChanged)
-                    windowOrigin = fill ? min(ownCell, max(0, cells.count - n)) : ownCell
+                    var origin = fill ? min(ownCell, max(0, cells.count - n)) : ownCell
+                    // Filled from the end, the display starts at a word, not inside one ("cents wnd" for "Recents").
+                    while origin > 0, origin < ownCell, cells[origin - 1] & 0x3F != 0 { origin += 1 }
+                    windowOrigin = origin
                     windows = windowStarts()
                 }
             }
@@ -555,8 +558,11 @@ public enum Braille {
     private static func focusContext(_ ancestors: [TurnOverObject]) -> String {
         let worth: Set<Role> = [.list, .table, .treeView, .outline, .toolBar, .dialog, .menu, .menuBar, .tabControl, .groupBox, .window]
         var parts: [String] = []
-        for a in ancestors where a.role != .application {
-            let name = a.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The ancestors come nearest first (speech reverses them too): outermost first here, so it reads "Recents wnd
+        // tlbr", not the toolbar before its window. A name of only an object placeholder is no name (it showed as a
+        // blank cell: 14 Nov 2026).
+        for a in ancestors.reversed() where a.role != .application {
+            let name = a.name.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{FFFC}")))
             guard !name.isEmpty || worth.contains(a.role) else { continue }
             let s = brailleText([name, a.role.displayString], role: a.role).trimmingCharacters(in: .whitespaces)
             if !s.isEmpty, parts.last != s { parts.append(s) }
