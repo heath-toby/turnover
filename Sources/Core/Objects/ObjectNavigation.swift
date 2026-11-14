@@ -64,6 +64,7 @@ public final class ObjectNavigator {
             if !inside { Log.io("review: the focus moved on to \(e.role) after following the cursor; the cursor stays"); return }
         }
         current = Self.chosenRow(in: e) ?? e; currentPid = pid; labelSource = nil; heldList = nil
+        startingPlace(for: e)
     }
     /// A list or table with the focus is read by its chosen row, and the cursor starts there: it started on the list
     /// itself, so TurnOver Right from Finder's fifth file went to the first (12 Nov 2026).
@@ -91,6 +92,56 @@ public final class ObjectNavigator {
         recentFollowed.removeAll { Date().timeIntervalSince($0.at) >= 1.5 }
         recentFollowed.append((e, Date()))
         if recentFollowed.count > 3 { recentFollowed.removeFirst() }
+    }
+
+    // VoiceOver Utility's Navigation options (14 Nov 2026). Both cost nothing at their defaults: no accessibility call.
+    /// The window the focus was last in, for "first item in window".
+    private var lastFocusWindow: AXUIElement?
+    private func startingPlace(for e: AXUIElement) {
+        let g = config.general
+        // Initial position, first item in window: a window the focus comes into puts the cursor on its first item
+        // (the keyboard focus stays where the app put it).
+        if g.cursorStart == "firstItem", let w = e.element(kAXWindowAttribute) {
+            let isNew = !(lastFocusWindow.map { $0.isSame(w) } ?? false)
+            lastFocusWindow = w
+            if isNew, g.movesByGroups, let first = Self.groupItems(w).first {
+                current = first; currentPid = first.pid
+                Log.io("review: a new window; the cursor starts on its first item")
+                return
+            }
+        }
+        // Automatically interact when using Tab, off: a Tab into a group leaves the cursor on the outermost group
+        // holding the focus, not inside it; VO Shift Down goes in.
+        if !g.interactOnTab, g.movesByGroups, Date().timeIntervalSince(InputManager.lastKeyDownAt) < 1,
+           ["kb:tab", "kb:shift+tab"].contains(InputManager.lastKeyIdentifier) {
+            var outer: AXUIElement?
+            var p = e.element(kAXParentAttribute); var hops = 0
+            while let x = p, hops < 60, x.role != "AXWindow", x.role != "AXSheet" {
+                if Self.isGroup(x), !["AXTable", "AXOutline", "AXList", "AXWebArea"].contains(x.role) { outer = x }
+                p = x.element(kAXParentAttribute); hops += 1
+            }
+            if let outer { current = outer; currentPid = outer.pid; Log.io("review: Tab without interacting; the cursor on the group") }
+        }
+    }
+
+    /// Fast searching (FastSearch): the next item in the cursor's list, or its group, starting with the letter.
+    public func fastSearch(_ letter: String) {
+        guard let cur = element else { Tones.edge(); return }
+        let lists: Set<String> = ["AXTable", "AXOutline", "AXList", "AXBrowser"]
+        guard let container = lists.contains(cur.role) ? cur : groupContainer(of: cur) else { Tones.edge(); return }
+        let items = Self.groupItems(container)
+        let start = cur.isSame(container) ? nil : indexIn(items, of: cur)
+        // Names are read one by one from the start, so a near match is found without reading the whole list; a
+        // long list is searched to 500 items at most.
+        for i in FastSearch.order(count: items.count, after: start).prefix(500) where FastSearch.matches(ObjectFactory.make(items[i]).name, letter) {
+            let item = items[i]
+            // A row the keyboard follows is selected too, as VoiceOver's cursor does in a list.
+            if config.general.cursorMovesFocus, item.role == "AXRow" { _ = item.set(kAXSelectedAttribute, kCFBooleanTrue) }
+            land(on: item)
+            return
+        }
+        Tones.edge()
+        Speech.speakMessage(String(localized: "nothing starting with \(letter.uppercased())", comment: "Fast searching found nothing: %@ is the letter"))
     }
     public func isFollowedFocus(_ e: AXUIElement) -> Bool {
         // Any follow of the last second and a half, so long as no key but the cursor's own moves came since: a Tab

@@ -30,6 +30,7 @@ public enum Core {
         startStep = "settings"
         config = Config.load()
         KeySettings.refresh()
+        SettingsBridge.applyLogLevel()
         Recipes.load(plugins: [])
         // Every accessibility question waits at most 2 s (macOS's default is about 6): a page that stops answering
         // (Safari's web content, 2 Oct 2026) froze TurnOver call after call until the watchdog relaunched it.

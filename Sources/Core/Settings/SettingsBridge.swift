@@ -125,6 +125,8 @@ public enum SettingsBridge {
         dict["_brailleTables"] = BrailleSettingsLists.tables
         dict["_brailleOutputTable"] = BrailleOutput.outputTable ?? ""
         dict["_brailleLanguages"] = BrailleSettingsLists.languages
+        if let auto = autoUpdateChecks?.get() { dict["_autoUpdateChecks"] = auto }
+        if let m = portableMessage { dict["_portableMessage"] = m }
         // The app the window's "For this app" means: the last ordinary app in front that isn't TurnOver's own.
         if let f = frontApp { dict["_frontApp"] = ["bundle": f.bundle, "name": f.name] }
         guard let out = try? JSONSerialization.data(withJSONObject: dict), let s = String(data: out, encoding: .utf8) else { return }
@@ -165,6 +167,9 @@ public enum SettingsBridge {
         }
         if let id = patch["_soundClear"] as? String { SoundChoices.clearCustom(id); SoundChoices.preview(id) }
         if let a = patch["_speechPortAllowed"] as? [String: Any], let id = a["id"] as? String, let on = a["allowed"] as? Bool { SpeechPort.shared.setAllowed(id, on) }
+        if let on = patch["_autoUpdateChecks"] as? Bool { autoUpdateChecks?.set(on) }
+        if let path = patch["_exportSettings"] as? String { exportSettings(to: path); sendState(); return }
+        if let path = patch["_importSettings"] as? String { importSettings(from: path); sendState(); return }
         if let on = patch["_coexist"] as? Bool, on != Coexist.wouldBeOn {
             UserDefaults.standard.set(on, forKey: "coexist")
             Speech.speakMessage(on ? String(localized: "CoExist on. TurnOver restarts.", comment: "Spoken message") : String(localized: "CoExist off. TurnOver restarts.", comment: "Spoken message"))
@@ -187,6 +192,15 @@ public enum SettingsBridge {
             guard let merged = try? JSONSerialization.data(withJSONObject: dict), let next = try? JSONDecoder().decode(Config.self, from: merged) else {
                 Log.warning("settings app: a change TurnOver couldn't read; nothing changed"); sendState(); return
             }
+            adopt(next, what: filePatch.keys.sorted().joined(separator: ", "))
+        }
+        sendState()
+    }
+
+    /// New settings in effect and saved, with the hooks the menu's own items run: a change from the window, or a
+    /// whole file imported (14 Nov 2026; the body was apply's own until then, hence its indent).
+    private static func adopt(_ next: Config, what: String) {
+        do {
             let before = config
             config = next
             config.save()
@@ -235,9 +249,71 @@ public enum SettingsBridge {
             if voiceChanged || languageVoicesChanged { Languages.forget(); languagesState = nil }
             // The key layer where VoiceOver reads follows its own setting too (the style's change starts or stops it above).
             if before.general.keysWhereVoiceOverReads != next.general.keysWhereVoiceOverReads { GlobalCommands.onKeyboardStyleChanged?() }
-            Log.info("settings app: \(filePatch.keys.sorted().joined(separator: ", ")) changed")
+            if before.general.logLevel != next.general.logLevel { applyLogLevel() }
+            Log.info("settings app: \(what) changed")
         }
-        sendState()
+    }
+
+    // NVDA's General settings and VoiceOver's portable preferences (14 Nov 2026).
+    /// The log's level from the settings. (Log.level is read unlocked on every thread, as it always has been: a
+    /// one-word enum written here on main; a line logged at the old level during the switch does no harm.)
+    public static func applyLogLevel() {
+        Log.level = Log.level(named: config.general.logLevel) ?? .io
+    }
+
+    /// Sparkle's daily check, which lives in the app's updater, not the settings file: set by the app.
+    public static var autoUpdateChecks: (get: () -> Bool, set: (Bool) -> Void)?
+
+    /// What the last export or import came to, for the window to show (and said as it happens).
+    private static var portableMessage: String?
+    private static func tell(_ message: String) {
+        portableMessage = message
+        Speech.speakMessage(message)
+    }
+
+    /// A copy of settings.json, as it is on disk now, written where the window's save panel said.
+    static func exportSettings(to path: String) {
+        let url = URL(fileURLWithPath: path)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = (try? Data(contentsOf: Config.url)) ?? (try? encoder.encode(config)) else { return }
+        do {
+            try data.write(to: url, options: .atomic)
+            Log.info("settings: exported to \(url.lastPathComponent)")
+            tell(String(localized: "Settings exported to \(url.lastPathComponent)", comment: "Settings exported: %@ is the file's name"))
+        } catch {
+            Log.warning("settings: export failed: \(error.localizedDescription)")
+            tell(String(localized: "Settings could not be exported: \(error.localizedDescription)", comment: "Export failed: %@ is why"))
+        }
+    }
+
+    /// Settings read from a file someone exported, checked first: they must be TurnOver's settings (a JSON object with
+    /// at least one of its sections) that decode. Anything else leaves the settings as they are and says why.
+    static func importSettings(from path: String) {
+        let url = URL(fileURLWithPath: path)
+        switch Self.portableSettings(from: (try? Data(contentsOf: url)) ?? Data()) {
+        case .success(let next):
+            adopt(next, what: "every setting, imported from \(url.lastPathComponent),")
+            tell(String(localized: "Settings imported from \(url.lastPathComponent)", comment: "Settings imported: %@ is the file's name"))
+        case .failure(let why):
+            Log.warning("settings: import of \(url.lastPathComponent) refused: \(why.message)")
+            tell(String(localized: "Settings not imported: \(why.message)", comment: "Import refused: %@ is why"))
+        }
+    }
+
+    public struct ImportError: Error, Equatable { public let message: String }
+    /// The checks an imported file must pass. Pure.
+    public static func portableSettings(from data: Data) -> Result<Config, ImportError> {
+        guard !data.isEmpty, let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return .failure(ImportError(message: String(localized: "the file is not a TurnOver settings file", comment: "Why settings were not imported")))
+        }
+        let sections: Set<String> = ["general", "speech", "keyboard", "editableText", "presentation", "virtualBuffers", "applications", "documentFormatting", "braille", "recognition", "games", "apps"]
+        guard !sections.isDisjoint(with: object.keys) else {
+            return .failure(ImportError(message: String(localized: "the file has none of TurnOver's settings in it", comment: "Why settings were not imported")))
+        }
+        guard let config = try? JSONDecoder().decode(Config.self, from: data) else {
+            return .failure(ImportError(message: String(localized: "the file could not be read as TurnOver's settings", comment: "Why settings were not imported")))
+        }
+        return .success(config)
     }
 
     /// The section the Settings window is asked to show when it next connects: set by `open(section:)`, sent once

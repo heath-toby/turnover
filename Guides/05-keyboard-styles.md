@@ -13,6 +13,19 @@ Command with the arrows moves by the rotor's kind. Control pauses speech. One Qu
 
 [Every key, VoiceOver keys](keys-voiceover.html).
 
+VoiceOver Utility's Commanders and Navigation choices are in Settings, Keyboard:
+
+- **Commander key**: right Option and a letter runs that letter's command (VO Shift K turns it on and off). It can be
+  left Option, right or left Command, or right Control instead. Give a letter its command in the TurnOver menu, Keys,
+  My own keys, Give a key to a command, then press the Commander key and the letter. Keypad keys are given commands the
+  same way; trackpad gestures with Give a trackpad gesture to a command.
+- **Grouping behaviour**: Standard moves by groups, as VoiceOver does; Ignore groups walks the whole window.
+- **Initial position of the cursor in a new window**: the keyboard focused item, or the window's first item.
+- **Automatically interact when using the Tab key**: on, Tab puts the cursor inside the group it reaches; off, on the
+  group itself, and VO Shift Down goes in.
+- **Fast searching**: in a list or table, Right Command and a letter moves to the next item starting with it. Off at
+  first, as Right Command and a letter then no longer reaches the app in a list.
+
 ## NVDA keys (the Windows style)
 
 NVDA's own keys, doing what they do in NVDA. Caps Lock is the NVDA key (Control and Option works too): Caps Lock N

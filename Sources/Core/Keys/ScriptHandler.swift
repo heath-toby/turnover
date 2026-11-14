@@ -32,6 +32,8 @@ public enum ScriptHandler {
         case .removed?: return nil
         case nil: break
         }
+        // VoiceOver's fast searching, when on and the focus is in a list: Right Command and a letter (14 Nov 2026).
+        if let s = FastSearch.script(for: gesture) { return s }
         // The style's own table (Narrator and JAWS keys over TurnOver's commands), before the built-in keys.
         if styleTable, let s = StyleKeymap.script(for: gesture) { return s }
         for p in GlobalPluginHandler.shared.plugins { if let s = p.script(for: gesture) { return s } }
