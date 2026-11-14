@@ -39,7 +39,7 @@ public enum BrightnessKeys {
     }
 
     /// The main display's brightness, 0 to 1, from DisplayServices (private: the only reader of it on Apple silicon).
-    private static func level() -> Float? {
+    static func level() -> Float? {
         guard let h = dlopen("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices", RTLD_LAZY),
               let sym = dlsym(h, "DisplayServicesGetBrightness") else { return nil }
         typealias Get = @convention(c) (UInt32, UnsafeMutablePointer<Float>) -> Int32

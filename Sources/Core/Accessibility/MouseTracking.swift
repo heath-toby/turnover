@@ -35,10 +35,11 @@ nonisolated public enum MouseMath {
     /// loud in that ear as NVDA's), and the pan is the quieter side's share of it: 1 - |pan| is quieter / louder, so a
     /// balance-style pan gives the quieter ear NVDA's level too (a review, 14 Nov 2026: the sum had made an edge beep
     /// no louder than a centred one).
+    /// One steady volume wherever the pointer is, only its place across moving (the tester, 14 Nov 2026: from NVDA's
+    /// left and right levels the middle sounded louder than the edges once the Mac's mixer panned it).
     public static func volumeAndPan(left: Double, right: Double) -> (volume: Float, pan: Float) {
-        let louder = max(left, right)
-        guard louder > 0 else { return (0, 0) }
-        return (Float(0.21 * louder / 50), Float((right - left) / louder))
+        guard left + right > 0 else { return (0, 0) }
+        return (0.21, Float((right - left) / (left + right)))
     }
     /// The range of a unit around a UTF-16 offset in `text`: "character", "word" or "paragraph" (a line where the app
     /// gives no lines). A word is the system's word there; between words, nothing (an empty range).
@@ -141,12 +142,9 @@ public enum MouseTracking {
         lastBeep = Date()
         let c = MouseMath.audioCoordinates(p, desktop: desktop())
         var v = MouseMath.volumeAndPan(left: c.left, right: c.right)
-        // NVDA's brightness: the beep's volume times how bright the screen is under the pointer (black silent, white
-        // full), read in the background; the reading nearest in time is used.
-        if config.mouse.brightnessVolume {
-            ScreenBrightness.update(at: p)
-            if let b = ScreenBrightness.latest { v.volume *= Float(max(0, min(1, b.value))) }
-        }
+        // The display's brightness setting sets the volume (the tester, 14 Nov 2026: the pixels under the pointer
+        // made it fade in and out; the setting's number is steady): 25 percent brightness, a quarter of the volume.
+        if config.mouse.brightnessVolume, let b = BrightnessKeys.level() { v.volume *= max(0.05, min(1, b)) }
         Tones.nvdaBeep(c.frequency, 40, volume: v.volume, pan: v.pan)
     }
 
