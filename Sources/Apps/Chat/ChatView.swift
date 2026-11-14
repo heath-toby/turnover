@@ -545,19 +545,34 @@ public final class ChatView {
     }
 
     /// The lists change under us (a message arrives, the list scrolls): read them again, keeping the place by its words.
-    private func refreshItems() {
+    /// False when the item under the cursor can't be found again (its place is lost): the caller says what is there
+    /// now rather than acting on it unheard.
+    @discardableResult
+    private func refreshItems() -> Bool {
         let keep = currentItem().map(Self.words)
         let fresh = pane == .transcript ? messages() : pane == .conversations ? conversations() : pane == .sections ? sections() : []
         items = fresh
         // The match nearest the old place: short replies ("ok") repeat, and the first of them pulled the cursor back,
         // so Down looped and actions went to an earlier message (a review, 14 Nov 2026).
         let old = index[pane] ?? 0
-        if let k = keep, let i = fresh.indices.filter({ Self.words(fresh[$0]) == k }).min(by: { abs($0 - old) < abs($1 - old) }) {
+        let freshWords = fresh.map(Self.words)
+        func nearest(_ same: (String) -> Bool) -> Int? {
+            freshWords.indices.filter { same(freshWords[$0]) }.min(by: { abs($0 - old) < abs($1 - old) })
+        }
+        // Not word for word: a message whose status changed (Delivered to Read), or a conversation moved to the top
+        // with a new preview, is found by its words without the status, then by the conversation's name (a review,
+        // 14 Nov 2026: the old place was clamped and Return acted on whatever was now there, unheard).
+        let name: (String) -> String = { $0.components(separatedBy: ", ").first ?? $0 }
+        if let k = keep, let i = nearest({ $0 == k })
+            ?? nearest({ Self.withoutStatus($0) == Self.withoutStatus(k) })
+            ?? (pane == .conversations && !name(k).isEmpty ? nearest({ name($0) == name(k) }) : nil) {
             // The list slid under us (rows dropped or added above): the numbers keep their place.
             if pane == .conversations, let j = index[pane] { listShift = max(0, listShift + j - i) }
             index[pane] = i
+            return true
         }
-        else if let i = index[pane] { index[pane] = min(i, max(0, fresh.count - 1)) }
+        if let i = index[pane] { index[pane] = min(i, max(0, fresh.count - 1)) }
+        return keep == nil
     }
 
     /// Up at the oldest message held: scroll the conversation back and carry on from the message before.
@@ -671,7 +686,8 @@ public final class ChatView {
 
     /// Return: open the conversation (and go to its box), or press the message (a link, a photo).
     public func activate() {
-        refreshItems()
+        // The item heard is gone: say what is there now, and act on the next press (a review, 14 Nov 2026).
+        guard refreshItems() else { announce(); return }
         guard let e = currentItem() else { return }
         // (A search result is a group with its pressable text inside.)
         var target = e
@@ -814,7 +830,7 @@ public final class ChatView {
     }
 
     public func actionsMenu() {
-        refreshItems()
+        guard refreshItems() else { announce(); return }   // as activate (a review, 14 Nov 2026)
         guard let e = currentItem() else { return }
         // The item's own, and its parts' (Messages keeps a message's actions on the bubble inside its row), each once.
         var found: [(owner: AXUIElement, action: String, title: String)] = []

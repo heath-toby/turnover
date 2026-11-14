@@ -87,9 +87,11 @@ final class NumbersAppModule: AppModule {
             usleep(30_000)
         }
         CGWarpMouseCursorPosition(back)
-        // A click on a cell already chosen starts editing it: leave the editing, keep the cell.
+        // A click on a cell already chosen starts editing it: leave the editing, keep the cell. Not after a key since:
+        // the editing may be the user's typing (a review, 14 Nov 2026).
+        let keyAt = InputManager.lastKeyDownAt
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            guard let self, let focus = AXUIElementCreateApplication(self.pid).element(kAXFocusedUIElementAttribute), focus.role == "AXTextArea" else { return }
+            guard let self, InputManager.lastKeyDownAt == keyAt, let focus = AXUIElementCreateApplication(self.pid).element(kAXFocusedUIElementAttribute), focus.role == "AXTextArea" else { return }
             KeyboardGesture(identifier: "kb:escape")?.send()
         }
         return true
