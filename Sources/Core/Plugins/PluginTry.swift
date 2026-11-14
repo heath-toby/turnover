@@ -87,6 +87,11 @@ public enum PluginTry {
         if PluginPolicy.refusedSentKeys.map({ normalizeGestureIdentifier("kb:" + $0) }).contains(id) { return "\(s) reaches outside the app or uses the clipboard" }
         let m = g.modifiers, k = g.keyName.lowercased()
         if k == "tab", m.contains(.command), m.contains(.option) { return "\(s) opens TurnOver's application chooser" }
+        // Control Option is the TurnOver key too: written so, it went round the check TurnOver keys get when tried
+        // (control+option+q quit TurnOver: a review, 14 Nov 2026). Written as turnover+ they are checked.
+        if KeySettings.current.controlOptionIsTurnOver, m.contains(.control), m.contains(.option), !m.contains(.turnover) {
+            return "\(s): Control Option is the TurnOver key; write it as turnover+\(k)"
+        }
         // In the Windows style Control letters are the Mac's Command ones (Control V pastes): checked as those.
         if KeySettings.current.windowsKeys, m.contains(.control), !m.contains(.command), ["c", "x", "v", "a", "z", "s", "o", "n", "p", "f", "w", "t"].contains(k) {
             let asCommand = s.replacingOccurrences(of: "control", with: "command", options: .caseInsensitive)
@@ -165,6 +170,8 @@ public enum PluginTry {
         _ = AXUIElementSetAttributeValue(AXUIElementCreateApplication(app.processIdentifier), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         app.activate()
         let started = Date()
+        // States a key can leave on for the person, put back when the try ends whatever happened (a review, 14 Nov 2026).
+        let lockedBefore = InputManager.turnOverKeyLocked, helpBefore = InputManager.isInputHelpActive
         // The last moment the tried app was seen in front: what was said after it (another app, the person's own
         // reading) isn't the AI's to see (a review, 14 Nov 2026). Checked as each step starts, a wait's end included.
         var lastOnTarget = started
@@ -202,7 +209,10 @@ public enum PluginTry {
             // reader, turn speech off, copy, or open TurnOver's menus, lists and notifications (a review, 14 Nov 2026).
             if let g = KeyboardGesture(identifier: normalizeGestureIdentifier("kb:" + s)), g.modifiers.contains(.turnover),
                let name = ScriptHandler.findScript(for: g)?.name.lowercased(),
-               ["quit", "copy", "clipboard", "menu", "notification", "speechmode", "sleep", "curtain", "chooser", "desktop", "force", "uninstall", "statusmenus", "dock", "plugin"].contains(where: { name.contains($0) }) {
+               // (And anything that changes a setting or a mode that would outlast the try: the key lock, keyboard
+               // help, pass next key, the speech ring's rate and volume.)
+               ["quit", "copy", "clipboard", "menu", "notification", "speechmode", "sleep", "curtain", "chooser", "desktop", "force", "uninstall", "statusmenus", "dock", "plugin",
+                "lock", "help", "passnext", "ring", "rate", "volume", "pitch", "mode", "toggle", "cycle", "verbosity", "punctuation", "symbol", "style"].contains(where: { name.contains($0) }) {
                 Log.info("plugin try: \(s) runs TurnOver's \(name); stopped")
                 done(stopped: "stopped after \(i) of \(steps.count) steps: \(s) runs TurnOver's own \(name), which keys from an AI may not"); return
             }
@@ -226,6 +236,7 @@ public enum PluginTry {
                 _ = AXUIElementSetAttributeValue(AXUIElementCreateApplication(previous.processIdentifier), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
                 previous.activate()
             }
+            InputManager.turnOverKeyLocked = lockedBefore; InputManager.isInputHelpActive = helpBefore; InputManager.passNextKey = false
             busy = false
             Log.info("plugin try: done in \(name), \(said.count) things said")
             finish(id, said: said, error: stopped)
