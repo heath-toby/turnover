@@ -84,6 +84,8 @@ public enum SecureEcho {
     }
 
     private static var watched: AXUIElement?
+    /// The field being watched, if one is.
+    static var watching: AXUIElement? { watched }
     private static var watchTimer: Timer?
     /// Such a field's length looked at every 50 ms while it has the keys, as its caret events would be heard
     /// (SecureInputWatch starts and stops it); nil stops. Its focus was set aside, so nothing said where the keys had
@@ -120,12 +122,25 @@ public enum SecureInputWatch {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in MainActor.assumeIsolated { check() } }
     }
-    public static func stop() { timer?.invalidate(); timer = nil; looks = 0; warned = false; SecureEcho.watch(nil) }
+    public static func stop() { timer?.invalidate(); timer = nil; looks = 0; warned = false; misses = 0; SecureEcho.watch(nil) }
+
+    /// Looks in a row that found no other-process field while one was watched.
+    private static var misses = 0
+    /// Whether a watched field is still watched after a look that found none: only once two looks running miss it,
+    /// and never with secure input off. One failed look (a 0.25 s timeout while the extension was busy) dropped it, and
+    /// the next look announced it again, cancelling speech and resetting its length mid-password (a review,
+    /// 14 Nov 2026). Pure.
+    package nonisolated static func keepsWatching(secureOn: Bool, missesInARow: Int) -> Bool { secureOn && missesInARow < 2 }
 
     private static func check() {
         let on = IsSecureEventInputEnabled()
         if on != wasOn { wasOn = on; onChange?(on) }
-        let other = on ? SecureEcho.otherProcessField(of: AXHandler.shared.activePid) : nil
+        var other = on ? SecureEcho.otherProcessField(of: AXHandler.shared.activePid) : nil
+        if other != nil { misses = 0 }
+        else if let kept = SecureEcho.watching {
+            misses += 1
+            if keepsWatching(secureOn: on, missesInARow: misses) { other = kept } else { misses = 0 }
+        }
         SecureEcho.watch(other)
         let inPassword = API.focusObject?.role == .passwordEdit || other != nil
         guard on, !inPassword else { looks = 0; warned = false; return }

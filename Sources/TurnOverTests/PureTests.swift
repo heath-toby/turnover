@@ -1764,6 +1764,11 @@ func browseTextNavTests() {
         check(!NotificationCentreNavigator.rememberedGroupGone(groupNames: names, itemWords: words, group: "Messages"), "its app still there")
         check(!NotificationCentreNavigator.rememberedGroupGone(groupNames: names, itemWords: words, group: nil), "nothing remembered: the default")
     }
+    test("secure echo: one failed look keeps the other process's password field; two, or secure input off, drop it") {
+        check(SecureInputWatch.keepsWatching(secureOn: true, missesInARow: 1), "one miss: still watched, not announced again")
+        check(!SecureInputWatch.keepsWatching(secureOn: true, missesInARow: 2), "two in a row: dropped")
+        check(!SecureInputWatch.keepsWatching(secureOn: false, missesInARow: 1), "secure input off: dropped at once")
+    }
     test("desktop: another key between the navigator's ends desktop mode") {
         check(DesktopNavigator.keysOnlyOwn(arrived: 5, own: 4), "the next key after the navigator's is asked about")
         check(DesktopNavigator.keysOnlyOwn(arrived: 4, own: 4), "the same key asked again")
