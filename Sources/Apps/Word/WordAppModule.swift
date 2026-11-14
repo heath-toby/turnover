@@ -600,8 +600,24 @@ final class WordAppModule: AppModule {
         }
         if let cached = pageRanges.first(where: { contains(($0.start, $0.end)) })?.area,
            let live = range(of: cached), contains(live) { return cached }
+        // The pages are in document order: a binary search asks about nine of them, not all. Mapping every page of a
+        // 219-page book took 439 questions and 1.7 s at each page crossed, and the arrows pressed meanwhile all ran
+        // at once, skipping lines (Dead Souls, 14 Nov 2026).
         let t0 = Date()
         let areas = element.elements("AXSharedTextUIElements")
+        var lo = 0, hi = areas.count - 1, asked = 0
+        while lo <= hi {
+            let mid = (lo + hi) / 2
+            asked += 1
+            guard let r = range(of: areas[mid]) else { break }   // a page that won't say: the walk below instead
+            if contains(r) {
+                pageRanges.append((areas[mid], r.start, r.end))
+                if pageRanges.count > 12 { pageRanges.removeFirst() }
+                Log.debug("Word: page area found in \(asked) questions, \(Int(Date().timeIntervalSince(t0) * 1000)) ms")
+                return areas[mid]
+            }
+            if offset < r.start { hi = mid - 1 } else { lo = mid + 1 }
+        }
         pageRanges = areas.compactMap { a in
             guard let r = range(of: a) else { return nil }
             return (a, r.start, r.end)

@@ -41,4 +41,19 @@ func brailleMapTests() {
         expect(BrailleOutput.fillInvalid([-1, 0], length: 1), [0, 0])
         expect(BrailleOutput.fillInvalid([], length: 0), [])
     }
+    test("Word lines: a line running two characters late is put back on the row it is drawn on") {
+        // "ab⏎" then a paragraph drawn ten characters to a row; Word's lines start two characters late, and the
+        // paragraph's first two characters are lines of their own (Dead Souls, 14 Nov 2026).
+        let text = "ab\n" + String(repeating: "x", count: 25) + "\nz"
+        let ns = text as NSString, n = ns.length
+        func row(_ o: Int) -> (mid: CGFloat, height: CGFloat)? {
+            guard o >= 3, o < 28 else { return o < 3 ? (0, 12) : (100, 12) }
+            return (CGFloat(10 + (o - 3) / 10 * 13), 12)
+        }
+        func t(_ a: Int, _ b: Int) -> String { ns.substring(with: NSRange(location: a, length: max(0, min(b, n) - a))) }
+        expect(WordLines.drawnRow(probe: 3, guess: (3, 4), length: n, text: t, row: row).map { [$0.0, $0.1] }, [3, 13], "the one-letter line is the whole first row")
+        expect(WordLines.drawnRow(probe: 14, guess: (5, 15), length: n, text: t, row: row).map { [$0.0, $0.1] }, [13, 23], "a late line is the second row")
+        expect(WordLines.drawnRow(probe: 25, guess: (25, 29), length: n, text: t, row: row).map { [$0.0, $0.1] }, [23, 29], "the last row takes the paragraph mark")
+        check(WordLines.drawnRow(probe: 14, guess: (13, 23), length: n, text: t, row: row) == nil, "a right line is kept")
+    }
 }

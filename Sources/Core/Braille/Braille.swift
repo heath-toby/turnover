@@ -766,7 +766,13 @@ public enum Braille {
         if messageUntil != nil {
             if case .key(let name) = key, let action = keyMap[name], action == "scrollBack" || action == "scrollForward" {
                 let next = action == "scrollForward" ? windows.first { $0 > windowStart } : windows.last { $0 < windowStart }
-                if let next { windowStart = next; show(); holdMessage(Double(max(1, config.braille.messageSeconds)) + 2) } else { Tones.edge() }
+                if let next { windowStart = next; show(); holdMessage(Double(max(1, config.braille.messageSeconds)) + 2); return }
+                // Past its edge: it gives way to what is underneath, as NVDA's does, and the pan carries on there. In
+                // Terminal, panning back from the output it flashed only gave the edge sound, so earlier lines couldn't
+                // be reached (14 Nov 2026).
+                messageUntil = nil
+                refresh()
+                if action == "scrollBack" { windowStart = windows.last ?? 0; show() }
                 return
             }
             messageUntil = nil; refresh(); return
@@ -921,16 +927,6 @@ public enum Braille {
         // panning keys (the Mantis) had no way on from Mail's list (a review, 14 Nov 2026). Never from auto scroll, and
         // never on TurnOver's own cursor items (a Terminal review line, the menu bar), where Up and Down went to the
         // app: the shell's history, the menu opened (a review the same night). Anything else stays put.
-        // A message (new terminal output, a notification) panned past by hand: it gives way to what is underneath,
-        // as NVDA's does, and the pan carries on there. In Terminal, panning back from the output it flashed only gave
-        // the edge sound, so earlier lines couldn't be reached (14 Nov 2026). Not the announcement history (its own keys
-        // move through it) nor a modal line (its keys go to the view).
-        if !fromTimer, case .message = source, !modalShowing, historyIndex == nil, messageUntil != nil {
-            messageUntil = nil
-            refresh()
-            if !forward { windowStart = windows.last ?? 0; show() }
-            return
-        }
         guard case .text = source else {
             if !fromTimer, case .object(let o) = source, [.tableRow, .listItem, .treeViewItem, .cell, .tableCell].contains(o.role),
                !inGrid(o) {

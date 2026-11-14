@@ -61,8 +61,19 @@ final class WordTextInfo: AXTextInfo {
             if offset <= base + i { b = base + i + 1; break }
             a = base + i + 1
         }
-        return (a, b)
+        return WordLines.drawnRow(probe: probe, guess: (a, b), length: n,
+                             text: { [self] a, b in textRange(a, b) },
+                             row: { o in Self.row(of: o, in: area) }) ?? (a, b)
     }
+
+    /// Where Word draws the character at `o`: the middle of its row and the row's height, or nil if it won't say.
+    private static func row(of o: Int, in area: AXUIElement) -> (mid: CGFloat, height: CGFloat)? {
+        guard let v = area.param(kAXBoundsForRangeParameterizedAttribute, axRangeValue(o, 1)), CFGetTypeID(v) == AXValueGetTypeID() else { return nil }
+        var r = CGRect.zero
+        guard AXValueGetValue(v as! AXValue, .cgRect, &r), r.height > 0 else { return nil }
+        return (r.midY, r.height)
+    }
+
     /// The text Word puts in a page for a table: "Table, 6 Rows, 2 Columns, , ".
     static func isTableStandIn(_ text: String) -> Bool {
         text.range(of: #"^\s*Table, \d+ Rows, \d+ Columns"#, options: .regularExpression) != nil
@@ -116,5 +127,47 @@ final class WordTextInfo: AXTextInfo {
             let parts = [page.map(Phrases.page), line.map { String(localized: "line \(String($0))", comment: "Where the caret is: the line number") }].compactMap { $0 }
             DispatchQueue.main.async { done(parts.isEmpty ? nil : parts.joined(separator: ", ")) }
         }
+    }
+}
+
+/// Word's lines as drawn (pure, tested).
+package enum WordLines {
+    /// Word's line checked against where it draws the text, and the row it is really on if they differ. In some
+    /// documents (Dead Souls, a Word 97 file in compatibility mode, 14 Nov 2026) Word's lines run two characters late:
+    /// each paragraph began with two one-letter lines ("W", "i", then "thout limiting the rights…"), all three drawn on
+    /// one row, and every line after ended two letters into the next. The check costs four questions; the row is found
+    /// by halving (the characters of a paragraph come row by row). Nil keeps Word's line: a character with no place
+    /// on the page, or a paragraph mark asked about. Pure, given its questions (tested).
+    package nonisolated static func drawnRow(probe: Int, guess: (Int, Int), length n: Int, text: (Int, Int) -> String,
+                                     row: (Int) -> (mid: CGFloat, height: CGFloat)?) -> (Int, Int)? {
+        // The text around the probe in one question (2,000 characters each way); a character beyond it, asked alone.
+        let base = max(0, probe - 2000), local = Array(text(base, min(n, probe + 2001)).utf16)
+        func char(_ o: Int) -> UInt16? {
+            if o >= base, o - base < local.count { return local[o - base] }
+            return text(o, o + 1).utf16.first
+        }
+        func isMark(_ c: UInt16?) -> Bool { guard let c else { return false }; return [13, 10, 12, 11, 7, 0x2029].contains(c) }
+        guard probe >= 0, probe < n, !isMark(char(probe)), let here = row(probe) else { return nil }
+        func same(_ o: Int) -> Bool? { row(o).map { abs($0.mid - here.mid) < here.height / 2 } }
+        let (a, b) = guess
+        // Word's line as it stands: starts on this row after another row or a paragraph's start, ends on it before
+        // another row or the paragraph's end.
+        let startOK = a <= probe && (same(a) ?? true) && (a == 0 || isMark(char(a - 1)) || same(a - 1) == false)
+        let lastChar = b - 1 >= a && isMark(char(b - 1)) ? b - 2 : b - 1
+        let endOK = b > probe && (lastChar < a || (same(lastChar) ?? true)) && (b >= n || isMark(char(b - 1)) || same(b) == false)
+        if startOK && endOK { return nil }
+        // The paragraph around the probe, at most 2,000 characters each way.
+        var ps = probe
+        while ps > base, !isMark(char(ps - 1)) { ps -= 1 }
+        var pe = probe + 1   // one past the last character before the paragraph's mark
+        while pe < min(n, base + local.count), !isMark(char(pe)) { pe += 1 }
+        var lo = ps, hi = probe
+        while lo < hi { let mid = (lo + hi) / 2; if same(mid) == true { hi = mid } else { lo = mid + 1 } }
+        let start = lo
+        lo = probe; hi = pe - 1
+        while lo < hi { let mid = (lo + hi + 1) / 2; if same(mid) == true { lo = mid } else { hi = mid - 1 } }
+        var end = lo + 1
+        if end == pe, pe < n { end = pe + 1 }   // the paragraph's last row takes its mark, as Word's lines do
+        return (start, end)
     }
 }
