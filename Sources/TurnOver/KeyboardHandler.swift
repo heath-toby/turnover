@@ -210,7 +210,7 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         layer = mine
         // Nothing carried over from the tap before (a restart after the watchdog): a code still in `quarantined`
         // would swallow the next real key-up, and the app would see a key held down (a code review, 14 Oct 2026).
-        quarantined.removeAll(); passedDown.removeAll(); remapped.removeAll(); capsDown = false; chordFired = false; keypadZeroDown = false
+        quarantined.removeAll(); passedDown.removeAll(); remapped.removeAll(); keypadTaken.removeAll(); capsDown = false; chordFired = false; keypadZeroDown = false
         arrowDownWhileOff = nil
         Self.capsHeld.value = false
         loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
@@ -378,7 +378,7 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
 
     /// Key-downs whose release the tap was waiting for: forgotten when releases may have gone by unseen.
     private func forgetHeldKeys() {
-        quarantined.removeAll(); passedDown.removeAll(); remapped.removeAll(); arrowHeld = nil
+        quarantined.removeAll(); passedDown.removeAll(); remapped.removeAll(); keypadTaken.removeAll(); arrowHeld = nil
         // A Left whose release went by unseen made a much later bare Right the Quick Nav chord (a review, 13 Nov 2026).
         arrowDownWhileOff = nil
     }
@@ -693,23 +693,39 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
 
     /// The keypad (Keypad.swift): nil when it is not the keypad's to handle; otherwise the answer (nil inside: swallowed).
     private var keypadZeroDown = false
+    /// Keypad keys whose press keypad() swallowed: only their releases are swallowed here. A release judged by its own
+    /// state was swallowed after the press had passed (pass next key; keypad 0 always; Command let go before the key),
+    /// and the app saw the key held (a review, 14 Nov 2026). Other releases go the usual way (passedDown, quarantined).
+    private var keypadTaken = Set<Int64>()
     private func keypad(_ type: CGEventType, _ event: CGEvent, _ code: Int64, _ s: KeySettings) -> Unmanaged<CGEvent>?? {
         guard Keypad.codes.contains(code), type == .keyDown || type == .keyUp else { return nil }
+        if type == .keyUp {
+            if code == Keypad.zero { keypadZeroDown = false }
+            return keypadTaken.remove(code) != nil ? .some(nil) : nil
+        }
+        // A new press: one kept from an earlier press whose release went by unseen must not swallow this one's.
+        if event.getIntegerValueField(.keyboardEventAutorepeat) == 0 { keypadTaken.remove(code) }
         let f = event.flags
         let vo = f.contains(.maskControl) && f.contains(.maskAlternate)
         let windows = s.windowsKeys
         let repeatKey = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+        // This press is swallowed: so is its release. A repeat of a press that went on to the app leaves the release to
+        // go on too, as tapEvent does for its own repeats.
+        func taken() -> Unmanaged<CGEvent>?? {
+            if !(repeatKey && passedDown.contains(code)) { keypadTaken.insert(code); quarantined.remove(code) }
+            return .some(nil)
+        }
         // Windows style: Clear, where Num Lock is on a PC, switches the keypad between NVDA's commands and numbers.
         if windows, code == Keypad.clear, f.intersection([.maskControl, .maskAlternate, .maskCommand, .maskShift]).isEmpty, !capsDown {
-            if type == .keyDown, !repeatKey { onMain { Keypad.toggleWindows() } }
-            return .some(nil)
+            if !repeatKey { onMain { Keypad.toggleWindows() } }
+            return taken()
         }
         guard windows ? s.keypadCommands : s.numpadCommander else { keypadZeroDown = false; return nil }
         // Pass next key, sleep mode and TurnOver's own screens take the keypad as any other key (the code review).
         if InputManager.passNextKey || InputManager.isAsleep(bundle: WindowsRemap.front) { keypadZeroDown = false; return nil }
         if !windows, vo { return nil }   // VO-Clear and other VO keys: the usual way
         // Keypad 0 held is the keypad's modifier (VoiceOver's 0 layer; NVDA's numpad Insert).
-        if code == Keypad.zero { keypadZeroDown = type == .keyDown; return .some(nil) }
+        if code == Keypad.zero { keypadZeroDown = true; return taken() }
         var mods = Modifiers()
         if f.contains(.maskShift) { mods.insert(.shift) }
         if f.contains(.maskCommand) { mods.insert(.command) }
@@ -721,8 +737,8 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         let g = KeyboardGesture(keyCode: code, modifiers: mods, characters: "", timestamp: UInt64(Double(event.timestamp) / Self.machToNs), isRepeat: repeatKey, flags: f)
         // A key with nothing assigned goes to the application (numpad Enter, Equals: typing still works).
         guard Keypad.action(for: g, windows: windows) != nil else { return nil }
-        if type == .keyDown { onMain { Keypad.run(g, windows: windows) } }
-        return .some(nil)
+        onMain { Keypad.run(g, windows: windows) }
+        return taken()
     }
 
     private static func characters(of event: CGEvent) -> String {
