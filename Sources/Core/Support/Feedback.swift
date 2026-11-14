@@ -84,7 +84,11 @@ public enum Feedback {
         // Mac; the report is about how TurnOver was set up, not what for).
         let settings = AppPaths.file("settings.json")
         if let data = try? Data(contentsOf: settings), var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            object["applications"] = nil; object["userGestures"] = nil; object["keys"] = nil
+            // The keys and per-app lists sit inside sections, and per-app settings under "apps": the top-level
+            // "userGestures" and "keys" this removed don't exist (a review, 14 Nov 2026).
+            object["applications"] = nil; object["apps"] = nil
+            if var keyboard = object["keyboard"] as? [String: Any] { keyboard["userGestures"] = nil; object["keyboard"] = keyboard }
+            if var presentation = object["presentation"] as? [String: Any] { presentation["verbosityByApp"] = nil; object["presentation"] = presentation }
             if let out = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) { try? out.write(to: work.appendingPathComponent("settings.json")) }
         }
         let info = """
