@@ -209,9 +209,12 @@ final class CalendarAppModule: AppModule {
             boxRebuiltAt = Date()
             _ = title.set(kAXFocusedAttribute, kCFBooleanTrue)
         }
-        // From the quick entry the box is built again: the title in the new box takes the focus.
+        // From the quick entry the box is built again: the title in the new box takes the focus. Not after a key since:
+        // Return would save what was typed meanwhile, unheard (a review, 14 Nov 2026).
+        let keyAt = InputManager.lastKeyDownAt
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
             guard let self else { return }
+            guard InputManager.lastKeyDownAt == keyAt else { Log.io("calendar: Done's save left; a key came since"); return }
             var f = AXUIElementCreateApplication(self.pid).element(kAXFocusedUIElementAttribute)
             if let w = f, w.role == "AXWindow", let again = Self.find(id: "title-field", in: w) {
                 _ = again.set(kAXFocusedAttribute, kCFBooleanTrue); f = again

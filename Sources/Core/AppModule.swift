@@ -132,9 +132,12 @@ public final class AppModuleHandler {
     public func register(_ type: AppModule.Type, for bundleIdentifier: String) {
         lock.lock(); registry[bundleIdentifier] = type; lock.unlock()
         // A running instance of the base class is replaced on next use.
+        // It is terminated as unregister's are, outside the lock (a review, 14 Nov 2026: it was dropped without).
         lock.lock()
-        for (pid, m) in modules where m.bundleIdentifier == bundleIdentifier && Swift.type(of: m) != type { modules.removeValue(forKey: pid) }
+        let replaced = modules.filter { $0.value.bundleIdentifier == bundleIdentifier && Swift.type(of: $0.value) != type }
+        for pid in replaced.keys { modules.removeValue(forKey: pid) }
         lock.unlock()
+        replaced.values.forEach { $0.terminate() }
     }
 
     public func unregister(bundleIdentifier: String) {

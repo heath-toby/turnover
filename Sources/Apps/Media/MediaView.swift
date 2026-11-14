@@ -182,7 +182,7 @@ public final class MediaView {
         beginPageIntent()
         modelWindow = nil
         sidebar = []; shelves = []; player = []; toolbar = []; pageTitle = ""; pageID = ""
-        playerRoot = nil; pageScroll = nil; rowLabels = [:]; index = [:]; builtAt = .distantPast
+        playerRoot = nil; pageScroll = nil; rowLabels = [:]; lastSpokenRow = nil; index = [:]; builtAt = .distantPast
         places = [:]; inVideo = false; openingTitle = ""; nowPlayingBefore = ""; playbackRequest = UUID()
         catalogRequest = UUID(); catalog?.cancel(); catalog = nil; catalogDrives = false
     }
@@ -952,12 +952,16 @@ public final class MediaView {
             if !l.isEmpty { rowLabels[i] = l }
             return l.isEmpty ? String(localized: "item not loaded yet", comment: "A row of a long list not loaded yet") : l
         }
-        guard item.tableRow, item.label.isEmpty else { return item.label }
-        if let l = rowLabels[i] { return l }
-        let l = Self.rowText(item.element).joined(separator: ", ")
+        guard item.tableRow else { return item.label }
+        guard item.label.isEmpty else { lastSpokenRow = (i, item.label); return item.label }
+        let l = rowLabels[i] ?? Self.rowText(item.element).joined(separator: ", ")
         rowLabels[i] = l
+        lastSpokenRow = (i, l)
         return l.isEmpty ? Phrases.blank : l
     }
+    /// The table row last spoken and its words, kept through rebuilds (which clear rowLabels): Delete is sent only
+    /// for the song heard (a review, 14 Nov 2026).
+    private var lastSpokenRow: (index: Int, text: String)?
 
     /// A row's columns, in order: Music's song rows hold them as text fields ("Song Title",
     /// "3:36", "Artist", "Album", "Rock", "3 plays"); other tables as static text in cells.
@@ -1404,11 +1408,18 @@ public final class MediaView {
         // The row's words now are the ones spoken: Music can reuse a row's element for another song after a delete,
         // and the cached words would name the old one (a review, 14 Nov 2026).
         // By the title, the first column: others (the play count) change with the song still the same one.
-        if let i = index[pane], let spoken = rowLabels[i], let title = Self.rowText(item.element).first, !title.isEmpty, spoken != title, !spoken.hasPrefix(title + ", ") {
-            Log.io("media: \(g.identifier) not sent; the row now holds another song")
-            rowLabels = [:]; builtAt = .distantPast
+        // Words heard for this place are needed: rowLabels is cleared by rebuilds and sends, and a second Delete
+        // without moving skipped the check (a review, 14 Nov 2026). With none, or another song there now, its words
+        // are spoken and the key waits for the next press.
+        guard let i = index[pane] else { g.send(); return }
+        let title = Self.rowText(item.element).first ?? ""
+        let heard = lastSpokenRow.flatMap { $0.index == i ? $0.text : nil }
+        if heard == nil || (!title.isEmpty && heard != title && !heard!.hasPrefix(title + ", ")) {
+            Log.io("media: \(g.identifier) not sent; the row's words weren't the ones heard")
+            rowLabels[i] = nil
             Tones.edge()
-            Speech.speakMessage(String(localized: "could not select that song", comment: "Spoken message: a key that acts on the selected song was not sent"))
+            announce(crossedFrom: i)
+            builtAt = .distantPast
             return
         }
         selectTableRow(item)
@@ -1420,8 +1431,8 @@ public final class MediaView {
             return
         }
         g.send()
-        // The list changes under the cached words: read afresh at the next move.
-        rowLabels = [:]; builtAt = .distantPast
+        // The list changes under the cached words: read afresh at the next move, and heard again before another key.
+        rowLabels = [:]; builtAt = .distantPast; lastSpokenRow = nil
     }
 
     private func hint(for item: Item) -> String {
