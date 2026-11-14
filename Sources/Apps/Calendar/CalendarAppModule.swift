@@ -234,9 +234,14 @@ final class CalendarAppModule: AppModule {
     private func saveBox(_ box: AXUIElement, send: () -> Void) {
         let summary = boxSummary(box)
         lastOwnMove = Date()
+        // (TurnOver's own Return, posted by send(), isn't counted as a key: only the person's are.)
+        let keyAt = InputManager.lastKeyDownAt
         send()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
             guard let self, self.eventBox() == nil else { return }
+            // A key since, or Calendar no longer in front: the person has moved on; nothing said, the view left alone
+            // (a review, 14 Nov 2026).
+            guard InputManager.lastKeyDownAt == keyAt, self.inFront else { Log.io("calendar: moved on since the save; not said"); return }
             self.lastOwnMove = Date()
             var words = String(localized: "Saved: \(summary.title)", comment: "A Calendar event saved: its title")
             if let d = summary.start {
@@ -245,12 +250,14 @@ final class CalendarAppModule: AppModule {
             }
             Speech.cancel()
             Speech.speakMessage(words)
-            if let d = summary.start { self.goTo(d, title: summary.title, allDay: summary.allDay) }
+            if let d = summary.start { self.goTo(d, title: summary.title, allDay: summary.allDay, keyAt: keyAt) }
         }
     }
 
+    private var inFront: Bool { AXHandler.shared.activePid == pid }
+
     /// The view turned to the day (a page at a time, up to three years), the reading on it and on the event titled so.
-    private func goTo(_ date: Date, title: String, allDay: Bool) {
+    private func goTo(_ date: Date, title: String, allDay: Bool, keyAt: Date) {
         let day = Calendar.current.startOfDay(for: date)
         var tries = 0
         let started = Date()
@@ -259,6 +266,8 @@ final class CalendarAppModule: AppModule {
             guard let first = days().first?.date, turnPage(forward: day > first) else { break }
             _ = Poll.pumping(every: 0.02, limit: 1.0) { self.days().first?.date != first }
             tries += 1
+            // A key while paging (the pump lets it in): the person's, and the paging stops (a review, 14 Nov 2026).
+            guard InputManager.lastKeyDownAt == keyAt, inFront else { Log.io("calendar: a key while turning to the saved day; stopped"); return }
         }
         guard let shown = dayShowing(day) else { Log.io("calendar: the saved event's day not reached"); return }
         current = shown.date

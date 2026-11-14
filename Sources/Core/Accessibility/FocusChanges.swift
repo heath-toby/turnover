@@ -228,7 +228,10 @@ extension AXHandler {
     /// While a preference tab is being switched, the app may pull focus into the new pane (Safari's General puts
     /// it in the homepage field); the tab bar keeps it, as on Windows. PreferenceTab puts the app's focus back.
     func rulePreferenceTabSwitch(_ target: AXUIElement, _ pid: pid_t, _ element: AXUIElement) -> FocusVerdict {
-        if Date() < PreferenceTab.quietUntil, !PreferenceTab.isPreferenceTab(target), target.role != "AXWindow" {
+        // Only the switching app's focus, or a helper's drawing for it (a review, 14 Nov 2026).
+        if Date() < PreferenceTab.quietUntil, !PreferenceTab.isPreferenceTab(target), target.role != "AXWindow",
+           pid == PreferenceTab.quietPid || activePid == PreferenceTab.quietPid
+            && (NSRunningApplication(processIdentifier: pid).map { isHelperOfActiveApp($0) } ?? false) {
             Log.io("focus to \(target.role) while switching preference tabs; held on the tab")
             return .ignore
         }

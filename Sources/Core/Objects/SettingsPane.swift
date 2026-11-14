@@ -659,9 +659,15 @@ public final class SettingsPanePlugin: GlobalPlugin {
         }
         expected = target
         ignoreOthersUntil = Date().addingTimeInterval(0.3)
+        let keyAt = InputManager.lastKeyDownAt
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             guard expected.map({ $0.isSame(target) }) ?? false else { return }
             expected = nil
+            // A key since (Command Tab), or the target's app no longer in front: stand down, or the old app's control
+            // was read over the new app's (a review, 14 Nov 2026).
+            guard InputManager.lastKeyDownAt == keyAt, inFront(target.pid) else {
+                Log.io("settings: a key or another app since the move; standing down"); return
+            }
             let app = AXUIElementCreateApplication(target.pid)
             if let now = app.element(kAXFocusedUIElementAttribute), !now.isSame(target), within(now, target) || holdsPage(now, target) {
                 // Taken, inside: the app's own news of it is the focus (a page's first element). Unless no news came
@@ -809,13 +815,24 @@ public final class SettingsPanePlugin: GlobalPlugin {
     }
 
     /// The control just moved to, and until when news of focus elsewhere is set aside (main thread).
-    static var expected: AXUIElement?
+    /// (Each setter, here, Mail's and System Settings', also notes the last key then: news after a later key, or
+    /// from another app, is the person's, not the move's. Command Tab within 0.3 s left the new app unread, a review,
+    /// 14 Nov 2026.)
+    static var expected: AXUIElement? { didSet { expectedKeyAt = InputManager.lastKeyDownAt } }
+    private static var expectedKeyAt = Date.distantPast
     public static var ignoreOthersUntil = Date.distantPast
     public static func setsAside(_ e: AXUIElement) -> Bool {
-        guard Date() < ignoreOthersUntil, let x = expected else { return false }
+        guard Date() < ignoreOthersUntil, let x = expected, InputManager.lastKeyDownAt == expectedKeyAt,
+              x.pid == e.pid || inFront(x.pid) else { return false }
         // Inside it, or a nameless group holding a page TurnOver moved to (Safari's focus went to the group round the
         // page). Never the window or a split view: those hold everything (a review, 13 Nov 2026).
         return !x.isSame(e) && !within(e, x) && !holdsPage(e, x)
+    }
+
+    /// Whether `pid` is the app in front, or a helper drawing for it (System Settings' pane extensions).
+    static func inFront(_ pid: pid_t) -> Bool {
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == pid || AXHandler.shared.activePid == pid { return true }
+        return NSRunningApplication(processIdentifier: pid).map { AXHandler.shared.isHelperOfActiveApp($0) } ?? false
     }
 
     /// Whether `e` is inside `container` (a few levels): a page TurnOver moved to puts its focus on a group inside
@@ -930,6 +947,8 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // The pane, trap and ribbon flags are the app's that left: reset whether or not a place was held, so Tab in
         // the new app isn't taken by the old one's mode (a review, 13 Nov 2026).
         lock.lock(); _inPane = false; _inTrapZone = false; _onRibbonTab = false; lock.unlock()
+        // A preference tab switch's quiet is the app's that left (a review, 14 Nov 2026).
+        if pid != PreferenceTab.quietPid { PreferenceTab.quietUntil = .distantPast }
         pruneTrapZones()   // (places gone with their windows)
         // (A place in a helper drawing for the app now in front stays: System Settings' pane extensions.)
         guard let v = virtual, v.pid != pid,
@@ -1224,7 +1243,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // A scroll already waiting to land: a second Down inside it would scroll another page and land twice, a page
         // never read (a review, 14 Nov 2026).
         guard !Self.rowScrollPending else { return }
-        let name = ObjectFactory.make(v).name
+        let name = ObjectFactory.make(v).name, oldY = TurnOverObject.frame(v)?.minY
         let r = AXUIElementPerformAction(container, (delta > 0 ? "AXScrollDownByPage" : "AXScrollUpByPage") as CFString)
         Log.io("row list: scrolled \(delta > 0 ? "down" : "up") a page → \(describeError(r))")
         guard r == .success else { Tones.edge(); return }
@@ -1237,7 +1256,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
             guard let held = Self.virtual, held.isSame(v) else { return }
             let fresh = Self.rowsIn(container, like: v)
             guard !fresh.isEmpty else { Tones.edge(); return }
-            let k = fresh.firstIndex(where: { $0.isSame(v) }) ?? fresh.firstIndex(where: { ObjectFactory.make($0).name == name })
+            let k = fresh.firstIndex(where: { $0.isSame(v) }) ?? Self.sameNamedRow(in: fresh, name: name, oldY: oldY, down: delta > 0)
             let next = k.map { $0 + delta } ?? (delta > 0 ? 0 : fresh.count - 1)
             guard fresh.indices.contains(next) else { Log.io("row list: the end of the list"); Tones.edge(); return }
             // Rows above the ones in sight: counted by how far the row held moved up or down the list in sight.
@@ -1247,6 +1266,18 @@ public final class SettingsPanePlugin: GlobalPlugin {
             Self.rowLists.insert((fresh, fresh[0], container), at: 0)
             Self.landInRowList(fresh, at: next, entering: false)
         }
+    }
+
+    /// The row held, found again by its words after a page scroll. Rows of the same words (two "Missed call" rows):
+    /// the one nearest where it was, on the side the scroll moved it to (up for a page down); none sure, nil, and the
+    /// move starts from the page's edge. The first of the name landed on the wrong one (a review, 14 Nov 2026).
+    static func sameNamedRow(in fresh: [AXUIElement], name: String, oldY: CGFloat?, down: Bool) -> Int? {
+        let named = fresh.indices.filter { ObjectFactory.make(fresh[$0]).name == name }
+        if named.count <= 1 { return named.first }
+        guard let oldY else { return nil }
+        let placed = named.compactMap { i in TurnOverObject.frame(fresh[i]).map { (i, $0.minY) } }
+            .filter { down ? $0.1 <= oldY + 1 : $0.1 >= oldY - 1 }
+        return (down ? placed.max { $0.1 < $1.1 } : placed.min { $0.1 < $1.1 })?.0
     }
 
     /// On a row of a row list: held, said with its place in the list.
