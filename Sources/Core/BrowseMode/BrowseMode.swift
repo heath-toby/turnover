@@ -367,7 +367,15 @@ public final class BrowseModeDocument: ScriptableObject {
         guard Date().timeIntervalSince(pageGoneAt) < 30 else {
             // Only changed: not read again under a say all of this page (its offsets would mean other text), nor more
             // often than a key may (a slow page held the main thread, a review, 13 Nov 2026). The next key reads it.
-            if SayAll.isReading(self) || !mayRebuildNow() { buffer.isDirty = true; Log.io("browse mode: page finished loading; read again at the next key"); return }
+            if SayAll.isReading(self) || !mayRebuildNow() {
+                buffer.isDirty = true
+                // Its say all reads it again at its end (SayAll.finish), once: by this mark, not by isDirty, which every
+                // layout, live region and frame sets, and which had nearly every say all read the page again for up to
+                // 2 s before "end of document" (a review, 13 Nov 2026).
+                if SayAll.isReading(self) { loadedUnderSayAll = SayAll.runID }
+                Log.io("browse mode: page finished loading; read again at the next key")
+                return
+            }
             rebuildKeepingPlace()
             Log.io("browse mode: page finished loading; read again")
             return
@@ -377,6 +385,10 @@ public final class BrowseModeDocument: ScriptableObject {
         rebuildKeepingPlace()
         sayReloaded()
     }
+
+    /// The say all (SayAll.runID) under which the page finished loading, only marked (pageLoadCompleted): that say all
+    /// reads the page again at its end, once, and clears this.
+    var loadedUnderSayAll: Int?
 
     /// A reload noticed (pageGoneAt): said by its title, as a page arriving says it.
     func sayReloaded() {

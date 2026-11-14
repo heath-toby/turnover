@@ -111,7 +111,7 @@ func browseModeReviewTests() {
         let grown = "Banner\nTop\nFirst part read\nThe rest\n" as NSString
         expect(BrowseModeDocument.carryOnAfterRebuild(oldText: old, reached: old.length, newText: grown),
                grown.range(of: "The rest").location, "more above too: past the text read last")
-        expect(BrowseModeDocument.carryOnAfterRebuild(oldText: old, reached: old.length, newText: "Other\n" as NSString), 6, "all gone: within the copy")
+        expect(BrowseModeDocument.carryOnAfterRebuild(oldText: old, reached: old.length, newText: "Other\n" as NSString), nil, "all gone: stops, not on mid-word in other text")
     }
 
     test("browse mode review: the anchor's climb goes past an element an earlier line's climb ended at") {
