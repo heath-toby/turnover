@@ -169,6 +169,7 @@ public final class BrowseModeDocument: ScriptableObject {
         // in the app, so focus mode stays and the view is not announced or read from its top; only browse mode treats
         // it as a new page. Ended, focus mode was lost silently (a review, 13 Nov 2026).
         let keepFocusMode = !first && passThrough && Self.isRouteChange(now, lastURL)
+        let wasPassThrough = passThrough
         let wasEmpty = buffer.lines.isEmpty
         lastURL = now
         // Back or Forward counts for this arrival only: true for 10 s, it made a link followed after Back resume
@@ -218,7 +219,11 @@ public final class BrowseModeDocument: ScriptableObject {
         let at = resumeOffset(saved)
         position = at
         Log.io("browse mode: page \(Log.words(BrowseModeHandler.shortURL(now))) — resuming at \(position)\(saved == nil ? "" : " (saved \(saved!.offset))")")
-        if announce, !buffer.lines.isEmpty { announcePage() }
+        // Focus mode just ended for this page (Enter in Google's search box): the page's news found it with `announce`
+        // false, as it was asked while focus mode was still on, and neither announced it nor read its line; with no
+        // later focus from Safari, the new page was silent (a review, 14 Nov 2026).
+        let focusModeEnded = !first && !byKey && wasPassThrough && !keepFocusMode
+        if announce || focusModeEnded, !buffer.lines.isEmpty { announcePage() }
         else if !first, byKey, !buffer.lines.isEmpty { arrivedByKey() }
         GoogleDocs.checkSoon(self)
         if !first, buffer.lines.isEmpty, webArea.role != "AXWebArea" { followReplacedRoot(tries: 10) }
