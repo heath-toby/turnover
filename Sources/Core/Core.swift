@@ -146,6 +146,7 @@ public enum Core {
         SettingsBridge.start()   // TurnOver Settings, the window (18 Oct 2026)
         SpeechPort.shared.start(port: config.games.bridgePort)   // apps that speak through TurnOver, with the user's say-so
         InputSourceAnnouncer.start()   // the keyboard input source said as it changes ()
+        MouseTracking.refresh()   // the mouse settings: watching the pointer only while one is on (14 Nov 2026)
         SettingsProfiles.start()   // VO-X Activities / NVDA's configuration profiles, by app
         PluginLibrary.startDailyChecks()   // the withdrawn line acted on (once per run, however often TurnOver activates)
     }

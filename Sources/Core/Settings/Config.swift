@@ -761,6 +761,43 @@ public struct Config: Codable {
             try c.encode(off, forKey: .off); try c.encode(custom, forKey: .custom); try c.encode(positional, forKey: .positional)
         }
     }
+    /// The mouse (14 Nov 2026): NVDA's Mouse settings and VoiceOver's pointer options (MouseTracking.swift). Everything
+    /// off by default, so nothing changes until it is turned on.
+    public struct Mouse: Codable {
+        /// NVDA's "Enable mouse tracking" (VoiceOver's "Speak text under mouse"): what is under the pointer said as it moves.
+        public var tracking = false
+        /// NVDA's "Text unit resolution": over text, how much of it is said: character, word, line or paragraph
+        /// (NVDA's default, paragraph).
+        public var textUnit = "paragraph"
+        /// NVDA's "Report role when mouse enters object".
+        public var reportRole = false
+        /// NVDA's "Play audio coordinates when mouse moves": a short beep, higher towards the top, panned left to right.
+        public var audioCoordinates = false
+        /// VoiceOver's "after delay": the pointer rests this long before what is under it is said; 0 says it at once.
+        public var delayMs = 0
+        /// VoiceOver's "Mouse pointer": "ignores" the cursor (as before), "follows" it, or "moves" it.
+        public var pointer = "ignores"
+        /// VoiceOver's "Announce when mouse cursor enters a window".
+        public var announceWindow = false
+        public init() {}
+        enum Keys: String, CodingKey { case tracking, textUnit, reportRole, audioCoordinates, delayMs, pointer, announceWindow }
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: Keys.self)
+            tracking = (try? c.decodeIfPresent(Bool.self, forKey: .tracking)) ?? false
+            textUnit = (try? c.decodeIfPresent(String.self, forKey: .textUnit)) ?? "paragraph"
+            reportRole = (try? c.decodeIfPresent(Bool.self, forKey: .reportRole)) ?? false
+            audioCoordinates = (try? c.decodeIfPresent(Bool.self, forKey: .audioCoordinates)) ?? false
+            delayMs = (try? c.decodeIfPresent(Int.self, forKey: .delayMs)) ?? 0
+            pointer = (try? c.decodeIfPresent(String.self, forKey: .pointer)) ?? "ignores"
+            announceWindow = (try? c.decodeIfPresent(Bool.self, forKey: .announceWindow)) ?? false
+        }
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encode(tracking, forKey: .tracking); try c.encode(textUnit, forKey: .textUnit); try c.encode(reportRole, forKey: .reportRole)
+            try c.encode(audioCoordinates, forKey: .audioCoordinates); try c.encode(delayMs, forKey: .delayMs)
+            try c.encode(pointer, forKey: .pointer); try c.encode(announceWindow, forKey: .announceWindow)
+        }
+    }
     public var general = General()
     public var speech = Speech()
     public var keyboard = Keyboard()
@@ -774,6 +811,7 @@ public struct Config: Codable {
     /// Steam and CrossOver games speaking through TurnOver (Games.swift; this Mac only).
     public var games = Games()
     public var sounds = Sounds()
+    public var mouse = Mouse()
     /// Per-application settings, by bundle identifier, as the app module defines them.
     public var apps: [String: [String: String]] = [:]
 
@@ -785,7 +823,7 @@ public struct Config: Codable {
     /// A settings file written by an older TurnOver lacks the sections added since; each one falls back
     /// to its defaults instead of the whole file being thrown away (which lost the owner's rate once). Keys it has
     /// that are gone ("addons", the add-on loader's list) are ignored.
-    enum Keys: String, CodingKey { case general, speech, keyboard, editableText, presentation, virtualBuffers, applications, documentFormatting, braille, recognition, games, sounds, apps }
+    enum Keys: String, CodingKey { case general, speech, keyboard, editableText, presentation, virtualBuffers, applications, documentFormatting, braille, recognition, games, sounds, mouse, apps }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
         general = (try? c.decodeIfPresent(General.self, forKey: .general)) ?? General()
@@ -800,6 +838,7 @@ public struct Config: Codable {
         recognition = (try? c.decodeIfPresent(Recognition.self, forKey: .recognition)) ?? Recognition()
         games = (try? c.decodeIfPresent(Games.self, forKey: .games)) ?? Games()
         sounds = (try? c.decodeIfPresent(Sounds.self, forKey: .sounds)) ?? Sounds()
+        mouse = (try? c.decodeIfPresent(Mouse.self, forKey: .mouse)) ?? Mouse()
         apps = (try? c.decodeIfPresent([String: [String: String]].self, forKey: .apps)) ?? [:]
     }
 

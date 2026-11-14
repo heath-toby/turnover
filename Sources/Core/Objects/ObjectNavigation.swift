@@ -19,6 +19,7 @@ public final class ObjectNavigator {
             cancelWindowSearch(); movedAt = Date()
             // Positional sound: the review cursor's sounds come from where it is (nil: back on the focus).
             SoundChoices.place(at: current ?? API.focusObject?.element)
+            MouseTracking.cursorMoved(current)   // VoiceOver's "Mouse pointer: Follows VoiceOver cursor"
         }
     }
     /// When the review cursor last moved: VO-J starts from an app's own reader only when that reader moved since.

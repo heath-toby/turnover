@@ -96,7 +96,7 @@ final class Model: ObservableObject {
 
 enum Pane: String, CaseIterable, Identifiable {
     // NVDA's order, with TurnOver's own at the end: every setting the menu offered lives here since 21 Oct 2026.
-    case general = "General", speech = "Speech", sounds = "Sounds", braille = "Braille", keyboard = "Keyboard", items = "Item details", webPages = "Web pages", documents = "Documents",
+    case general = "General", speech = "Speech", sounds = "Sounds", braille = "Braille", keyboard = "Keyboard", mouse = "Mouse", items = "Item details", webPages = "Web pages", documents = "Documents",
          recognition = "Screen recognition", otherApps = "Other apps' speech", readers = "Screen reader behaviour"
     var id: String { rawValue }
     /// As the sidebar shows it. (The raw value stays English: TurnOver asks for a section by it.)
@@ -107,6 +107,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .sounds: return String(localized: "Sounds", comment: "A section of the Settings window")
         case .braille: return String(localized: "Braille", comment: "A section of the Settings window")
         case .keyboard: return String(localized: "Keyboard", comment: "A section of the Settings window")
+        case .mouse: return String(localized: "Mouse", comment: "A section of the Settings window")
         case .items: return String(localized: "Item details", comment: "A section of the Settings window")
         case .webPages: return String(localized: "Web pages", comment: "A section of the Settings window")
         case .documents: return String(localized: "Documents", comment: "A section of the Settings window")
@@ -137,6 +138,7 @@ struct ContentView: View {
                 case .sounds: SoundsView()
                 case .braille: BrailleView()
                 case .keyboard: KeyboardView()
+                case .mouse: MouseView()
                 case .items: ItemsView()
                 case .webPages: WebPagesView()
                 case .documents: DocumentsView()
@@ -806,6 +808,30 @@ struct KeyboardView: View {
                 Stepper(value: caret, in: 50...500, step: 25) { Text("Wait up to \(Int(caret.wrappedValue)) milliseconds for the caret to move after a key") }
             }
         }.formStyle(.grouped).navigationTitle("Keyboard")
+    }
+}
+
+/// The mouse (14 Nov 2026): NVDA's Mouse settings and VoiceOver's mouse pointer options.
+struct MouseView: View {
+    @EnvironmentObject var model: Model
+    var body: some View {
+        Form {
+            Toggle("Speak what is under the mouse pointer as it moves", isOn: model.bool("mouse", "tracking"))
+            Picker("Over text, read", selection: model.string("mouse", "textUnit", "paragraph")) {
+                Text("A character").tag("character"); Text("A word").tag("word"); Text("A line").tag("line"); Text("A paragraph").tag("paragraph")
+            }
+            Picker("Speak after the pointer rests for", selection: model.int("mouse", "delayMs")) {
+                Text("No delay").tag(0); Text("A quarter of a second").tag(250); Text("Half a second").tag(500); Text("One second").tag(1000)
+            }
+            Toggle("Say the kind of item, such as button, when the pointer reaches it", isOn: model.bool("mouse", "reportRole"))
+            Toggle("Say the window's name when the pointer moves into another window", isOn: model.bool("mouse", "announceWindow"))
+            Toggle("Play audio coordinates as the mouse moves", isOn: model.bool("mouse", "audioCoordinates"))
+            Text("A short beep at each move: higher towards the top of the screen, lower towards the bottom, and from the left or right speaker by where the pointer is across, as in NVDA.").font(.caption)
+            Picker("Mouse pointer and the cursor", selection: model.string("mouse", "pointer", "ignores")) {
+                Text("The pointer ignores the cursor").tag("ignores"); Text("The pointer follows the cursor").tag("follows"); Text("Moving the pointer moves the cursor").tag("moves")
+            }
+            Text("Follows: the pointer goes to each item the cursor reaches. Moves: the cursor goes to the item under the pointer, and it is read.").font(.caption)
+        }.formStyle(.grouped).navigationTitle("Mouse")
     }
 }
 
