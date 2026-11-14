@@ -76,6 +76,8 @@ public final class TurnOverMenu {
 
     public func open() {
         let title = String(localized: "TurnOver menu", comment: "The TurnOver menu, as it opens")
+        // A rotor or chooser open before isn't carried into this list: its keys and typing went to the old one (a review, 14 Nov 2026).
+        filterSource = nil; filter = ""; rotor = nil
         stack = [(title, rootItems(), 0)]
         isOpen = true
         Speech.cancel()
@@ -110,6 +112,8 @@ public final class TurnOverMenu {
     public func openList(_ title: LocalizedStringResource, items: [MenuItem]) { openList(verbatim: String(localized: title), items: items) }
     public func openList(verbatim title: String, items: [MenuItem]) {
         guard !items.isEmpty else { Speech.speakMessage(Self.none(title)); return }
+        // A rotor or chooser open before isn't carried into this list: its keys and typing went to the old one (a review, 14 Nov 2026).
+        filterSource = nil; filter = ""; rotor = nil
         stack = [(title, items, 0)]
         isOpen = true
         Speech.cancel()
@@ -158,7 +162,7 @@ public final class TurnOverMenu {
     public func openChooser(_ title: LocalizedStringResource, items: [MenuItem]) { openChooser(verbatim: String(localized: title), items: items) }
     public func openChooser(verbatim title: String, items: [MenuItem]) {
         guard !items.isEmpty else { Speech.speakMessage(Self.none(title)); return }
-        filterSource = items; filter = ""
+        filterSource = items; filter = ""; rotor = nil   // not a rotor's kinds any more (a review, 14 Nov 2026)
         stack = [(title, items, 0)]
         isOpen = true
         Speech.cancel()
