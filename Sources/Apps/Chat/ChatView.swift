@@ -771,7 +771,11 @@ public final class ChatView {
         var target = e
         var names: CFArray?
         AXUIElementCopyActionNames(e, &names)
-        if !((names as? [String]) ?? []).contains(kAXPressAction as String),
+        // A message holding media: its play, download or open button, wherever it is inside (Signal's play button is
+        // four deep, and the row around it took the press half the time: the tester, 14 Nov 2026).
+        if pane == .transcript, let media = Self.buttons(in: e).compactMap({ b in Self.mediaButtonRank(b.name).map { (b.element, $0) } }).min(by: { $0.1 < $1.1 }) {
+            target = media.0
+        } else if !((names as? [String]) ?? []).contains(kAXPressAction as String),
            let inner = MediaView.first(in: e, depth: 3, where: { x in var a: CFArray?; AXUIElementCopyActionNames(x, &a); return ((a as? [String]) ?? []).contains(kAXPressAction as String) }) {
             target = inner
         }
@@ -913,6 +917,30 @@ public final class ChatView {
         return []
     }
 
+    /// The buttons inside a message, with their names, nearest first (at most 200 elements, seven deep): Signal keeps
+    /// "Play audio attachment" four deep and "More actions" in every message (probed 14 Nov 2026).
+    static func buttons(in e: AXUIElement) -> [(element: AXUIElement, name: String)] {
+        var out: [(AXUIElement, String)] = [], queue: [(AXUIElement, Int)] = [(e, 0)], seen = 0
+        while !queue.isEmpty, seen < 200 {
+            let (x, d) = queue.removeFirst(); seen += 1
+            if d > 0, ["AXButton", "AXPopUpButton", "AXMenuButton"].contains(x.role) {
+                let name = (x.string(kAXDescriptionAttribute) ?? x.string(kAXTitleAttribute) ?? "").trimmingCharacters(in: .whitespaces)
+                if !name.isEmpty { out.append((x, name)) }
+                continue
+            }
+            if d < 7 { queue.append(contentsOf: x.elements(kAXChildrenAttribute).map { ($0, d + 1) }) }
+        }
+        return out
+    }
+    /// What Return does to a message holding media: play (or pause) its audio, else fetch it, else open it.
+    nonisolated public static func mediaButtonRank(_ name: String) -> Int? {
+        let n = name.lowercased()
+        if n.contains("play") || n.contains("pause") { return 0 }
+        if n.contains("download") { return 1 }
+        if n.contains("open this attachment") || n.contains("larger view") { return 2 }
+        return nil
+    }
+
     public func actionsMenu() {
         // As activate: only on the item heard (a review, 14 Nov 2026).
         guard refreshItems(), heardHere() != nil, let e = currentItem() else { announce(); return }
@@ -928,6 +956,11 @@ public final class ChatView {
             if depth < 3 { for c in x.elements(kAXChildrenAttribute) { collect(c, depth + 1) } }
         }
         collect(e, 0)
+        // A message's own buttons as well (Signal: More actions, which opens its menu of reply, react, forward…; Play
+        // audio attachment; Start download): the item's context menu did nothing there (the tester, 14 Nov 2026).
+        if pane == .transcript {
+            for b in Self.buttons(in: e) where !found.contains(where: { $0.title == b.name }) { found.append((b.element, kAXPressAction as String, b.name)) }
+        }
         guard !found.isEmpty else {
             // No named actions (WhatsApp's messages): the item's own context menu, as a right click would open it.
             var names: CFArray?
