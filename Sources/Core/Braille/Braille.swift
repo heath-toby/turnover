@@ -988,10 +988,11 @@ public enum Braille {
         case .hold: if let c = API.caretObject.flatMap({ try? $0.makeTextInfo(.caret) })?.start { heldLine = (r.copy(), c) }
         }
         // The line is spoken as well as shown, as VoiceOver does (the display moved on silently, 6 Oct 2026).
+        // Unless turned off (Braille settings, "Speak the line when panning to it"): NVDA's braille pans silently.
         SayAll.stop()
         Speech.cancel()
         let spoken = r.copy(); spoken.expand(unit)
-        Speech.speakTextInfo(spoken, unit: unit, reason: .caret)
+        if config.braille.speakWhenPanning { Speech.speakTextInfo(spoken, unit: unit, reason: .caret) }
         refresh()
         if toEnd {
             endOfLineWanted = (spoken.start, Date())

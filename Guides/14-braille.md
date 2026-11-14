@@ -41,7 +41,9 @@ in Settings, Braille; the TurnOver menu's Braille submenu has the table and the 
 ## Keys on the display
 
 - **Panning keys** move along the line, and on to the next or previous line at either end. With "Panning moves the
-  cursor", the caret follows what you read.
+  cursor" (Line by line, To the text shown, or Off), the caret follows what you read. The line reached is spoken
+  too, as VoiceOver does; turn off "Speak the line when panning to it" to pan silently, as NVDA does. In Terminal
+  the shell keeps its cursor, so the line you pan to stays on the display until new output moves it.
 - **Routing keys** move the caret to that character (the character is spoken), or press a link or button in browse
   mode. Tethered to review, they move the review cursor, and the caret only if you choose.
 - The display's other keys do what VoiceOver does with them: up and down, the action key, Escape, the Dock, the menu

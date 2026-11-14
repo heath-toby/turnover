@@ -1555,7 +1555,9 @@ func browseTextNavTests() {
         expect(vo.script(for: KeyboardGesture(identifier: "kb:turnover+shift+l")!)?.name, "vo_describeImage")
         expect(vo.script(for: KeyboardGesture(identifier: "kb:turnover+shift+y")!)?.name, "vo_recognizeScreen")
         config.general.keyboardStyle = "windows"
-        expect(ScriptHandler.findScript(for: KeyboardGesture(identifier: "kb:turnover+r")!)?.name, "recognizeScreen", "NVDA keys keep TurnOver R")
+        // The global command, not findScript: that asks the app in front first, and Word's TurnOver R is its next
+        // revision (the test failed with Word in front, 14 Nov 2026).
+        expect(GlobalCommands.shared.script(for: KeyboardGesture(identifier: "kb:turnover+r")!)?.name, "recognizeScreen", "NVDA keys keep TurnOver R")
     }
     test("keyboard styles: the pieces of an announcement, commas in the Mac family, spaces in the Windows family") {
         let saved = config

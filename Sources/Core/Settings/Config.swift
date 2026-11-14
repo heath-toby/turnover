@@ -623,13 +623,15 @@ public struct Config: Codable {
         public var paragraphMarker = "none"
         /// NVDA's speak character when routing the cursor in text.
         public var speakOnRouting = true
+        /// The line or paragraph panned on to is spoken, as VoiceOver does (NVDA's braille is silent there).
+        public var speakWhenPanning = true
         /// NVDA's move system caret when routing review cursor: "never", "auto" (only tethered automatically) or "always".
         public var routingMovesCaret = "never"
         /// NVDA's focus context presentation: "changes" (what the focus is in, when that changes), "scrolling" (only on
         /// panning back), or "always".
         public var focusContext = "changes"
         public init() {}
-        enum Keys: String, CodingKey { case table, expandAtCursor, contractedInput, inputEcho, showMessages, messageSeconds, showCursor, blinkCursor, blinkRateMs, cursorShape, wordWrap, showSelection, interruptSpeechWhileScrolling, bluetooth, tether, mode, autoScrollSeconds, panMovesCaret, display, inputTable, formattingMarks, cursorShapeReview, readByParagraph, paragraphMarker, speakOnRouting, routingMovesCaret, focusContext }
+        enum Keys: String, CodingKey { case table, expandAtCursor, contractedInput, inputEcho, showMessages, messageSeconds, showCursor, blinkCursor, blinkRateMs, cursorShape, wordWrap, showSelection, interruptSpeechWhileScrolling, bluetooth, tether, mode, autoScrollSeconds, panMovesCaret, display, inputTable, formattingMarks, cursorShapeReview, readByParagraph, paragraphMarker, speakOnRouting, routingMovesCaret, focusContext, speakWhenPanning }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
             table = (try? c.decodeIfPresent(String.self, forKey: .table)) ?? ""
@@ -657,6 +659,7 @@ public struct Config: Codable {
             readByParagraph = (try? c.decodeIfPresent(Bool.self, forKey: .readByParagraph)) ?? false
             paragraphMarker = (try? c.decodeIfPresent(String.self, forKey: .paragraphMarker)) ?? "none"
             speakOnRouting = (try? c.decodeIfPresent(Bool.self, forKey: .speakOnRouting)) ?? true
+            speakWhenPanning = (try? c.decodeIfPresent(Bool.self, forKey: .speakWhenPanning)) ?? true
             routingMovesCaret = (try? c.decodeIfPresent(String.self, forKey: .routingMovesCaret)) ?? "never"
             focusContext = (try? c.decodeIfPresent(String.self, forKey: .focusContext)) ?? "changes"
         }
@@ -672,7 +675,7 @@ public struct Config: Codable {
             try c.encode(panMovesCaret, forKey: .panMovesCaret)
             try c.encode(display, forKey: .display); try c.encode(inputTable, forKey: .inputTable); try c.encode(formattingMarks, forKey: .formattingMarks)
             try c.encode(cursorShapeReview, forKey: .cursorShapeReview); try c.encode(readByParagraph, forKey: .readByParagraph)
-            try c.encode(paragraphMarker, forKey: .paragraphMarker); try c.encode(speakOnRouting, forKey: .speakOnRouting)
+            try c.encode(paragraphMarker, forKey: .paragraphMarker); try c.encode(speakOnRouting, forKey: .speakOnRouting); try c.encode(speakWhenPanning, forKey: .speakWhenPanning)
             try c.encode(routingMovesCaret, forKey: .routingMovesCaret); try c.encode(focusContext, forKey: .focusContext)
         }
     }

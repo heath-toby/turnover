@@ -554,6 +554,7 @@ struct BrailleView: View {
                     Text("Line by line").tag("line"); Text("To the text shown").tag("window"); Text("Off").tag("off")
                 }
                 Text("Panning on to another line moves the caret there, so the arrows carry on from what was read. Tethered to review, panning moves only the review cursor.").font(.caption)
+                Toggle("Speak the line when panning to it", isOn: model.bool("braille", "speakWhenPanning"))
                 Toggle("Stop speech while panning", isOn: model.bool("braille", "interruptSpeechWhileScrolling"))
                 Toggle("Speak the character when routing the cursor in text", isOn: model.bool("braille", "speakOnRouting"))
                 Picker("Move the caret when routing the review cursor", selection: Binding(get: { model.get("braille", "routingMovesCaret") as? String == "always" ? "always" : "never" }, set: { model.set("braille", "routingMovesCaret", $0) })) {
