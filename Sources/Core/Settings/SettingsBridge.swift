@@ -21,6 +21,7 @@ public enum SettingsBridge {
         case "Speech": return String(localized: "Speech", comment: "A section of the Settings window")
         case "Sounds": return String(localized: "Sounds", comment: "A section of the Settings window")
         case "Keyboard": return String(localized: "Keyboard", comment: "A section of the Settings window")
+        case "Mouse": return String(localized: "Mouse", comment: "A section of the Settings window")
         case "Item details": return String(localized: "Item details", comment: "A section of the Settings window")
         case "Web pages": return String(localized: "Web pages", comment: "A section of the Settings window")
         case "Documents": return String(localized: "Documents", comment: "A section of the Settings window")
@@ -208,6 +209,7 @@ public enum SettingsBridge {
             if before.applications.swapWithVoiceOver != next.applications.swapWithVoiceOver { onSwapChanged?(next.applications.swapWithVoiceOver) }
             // Steam's switches from the window do what the menu's do.
             if before.games.readBigPicture != next.games.readBigPicture { Games.restartBigPicture() }
+            MouseTracking.refresh()   // the pointer watched while a mouse setting is on, and only then
             // The EQ heard as it is set: a short sample once the slider stops.
             for (name, was, now) in [("Bass", before.speech.bass, next.speech.bass), ("Middle", before.speech.middle, next.speech.middle), ("Treble", before.speech.treble, next.speech.treble)] where was != now {
                 previewSoon(String(localized: "\(Self.eqName(name)) \(String(Int(now))). The harbour opens at nine.", comment: "The EQ changed: %1$@ is bass, middle or treble, %2$@ the decibels"))
