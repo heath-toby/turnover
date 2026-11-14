@@ -52,9 +52,11 @@ open class Dialog: TurnOverObject {
         let choiceNames = Set(choices.map(\.1))
         var queue = element.elements(kAXChildrenAttribute)
         var visited = 0
-        while !queue.isEmpty, visited < 600, texts.count < 16 {
+        let deadline = Date().addingTimeInterval(Self.walkBudget)
+        while !queue.isEmpty, visited < 600, texts.count < 16, Date() < deadline {
             let e = queue.removeFirst(); visited += 1
             let r = e.role
+            if Self.notWalked.contains(r) { continue }
             if r == "AXStaticText" {
                 // Its value, or (iPad-style apps: Podcasts' "Get Notified About New Episodes" sheet, 7 Oct 2026) its
                 // description: the sheet said only "dialog".
@@ -96,12 +98,20 @@ open class Dialog: TurnOverObject {
 
     /// What can be chosen in the dialog, in order: buttons and the other controls, and text the dialog makes into a
     /// choice (TV's "Not Now" is a static text in its own group beside the "Enable Notifications" button).
+    /// Lists, tables and file browsers hold no dialog's message or buttons: not gone through (an Open panel's file list,
+    /// in a slow separate process, held TurnOver up for four seconds as the panel opened: the tester, 14 Nov 2026).
+    static let notWalked: Set<String> = ["AXOutline", "AXTable", "AXBrowser", "AXList", "AXGrid", "AXCollection"]
+    /// How long a walk of a dialog may take.
+    static let walkBudget: TimeInterval = 0.15
+
     open var choices: [(AXUIElement, String)] {
         var out: [(AXUIElement, String)] = []
+        let deadline = Date().addingTimeInterval(Self.walkBudget)
         func walk(_ e: AXUIElement, _ depth: Int) {
-            guard depth < 12, out.count < 40 else { return }
+            guard depth < 12, out.count < 40, Date() < deadline else { return }
             for c in e.elements(kAXChildrenAttribute) {
                 let r = c.role, sub = c.string(kAXSubroleAttribute) ?? ""
+                if Self.notWalked.contains(r) { continue }
                 if ["AXCloseButton", "AXZoomButton", "AXMinimizeButton", "AXFullScreenButton"].contains(sub) { continue }
                 if (c.attr(kAXEnabledAttribute) as? Bool) == false, r != "AXStaticText" { continue }
                 switch r {
@@ -130,9 +140,11 @@ open class Dialog: TurnOverObject {
         let choiceList = choices
         var out: [(AXUIElement, String, Bool)] = []
         func isChoice(_ e: AXUIElement) -> String? { choiceList.first { $0.0.isSame(e) }?.1 }
+        let deadline = Date().addingTimeInterval(Self.walkBudget)
         func walk(_ e: AXUIElement, _ depth: Int) {
-            guard depth < 12, out.count < 80 else { return }
+            guard depth < 12, out.count < 80, Date() < deadline else { return }
             for c in e.elements(kAXChildrenAttribute) {
+                if Self.notWalked.contains(c.role) { continue }
                 if let n = isChoice(c) { out.append((c, n, true)); continue }
                 if c.role == "AXStaticText" {
                     if let v = c.string(kAXValueAttribute)?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty, !out.contains(where: { $0.1 == v }) { out.append((c, v, false)) }
