@@ -15,6 +15,10 @@ nonisolated public enum Log {
     nonisolated(unsafe) public private(set) static var path = ""
     /// Lines below this level are dropped. `io` logs every gesture and event.
     nonisolated(unsafe) public static var level: Level = .io
+    /// A level by the name the settings keep it under (NVDA's Logging level, 14 Nov 2026); nil for any other name.
+    public static func level(named name: String) -> Level? {
+        ["debug": .debug, "io": .io, "info": .info, "warning": .warning, "error": .error][name]
+    }
 
     public static func open(name: String = "turnover") {
         let dir = AppPaths.file("logs")

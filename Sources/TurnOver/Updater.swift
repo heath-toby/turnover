@@ -23,6 +23,9 @@ final class Updater: NSObject, SPUUpdaterDelegate, SPUStandardUserDriverDelegate
         do {
             try c.updater.start()
             controller = c
+            // The Settings window's General section shows the daily check too (NVDA's "Automatically check for
+            // updates", 14 Nov 2026): Sparkle keeps the setting, as the menu's switch does.
+            SettingsBridge.autoUpdateChecks = (get: { c.updater.automaticallyChecksForUpdates }, set: { c.updater.automaticallyChecksForUpdates = $0 })
             Log.info("updates: \(feed), checking \(c.updater.automaticallyChecksForUpdates ? "daily" : "only when asked"), installing \(c.updater.automaticallyDownloadsUpdates ? "by itself" : "when the user says")")
         } catch {
             startError = error.localizedDescription

@@ -31,7 +31,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = main
     }
 
+    /// Whether macOS opened TurnOver as a login item (its open event says so): for the login greeting.
+    private var launchedAsLoginItem = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let launchEvent = NSAppleEventManager.shared().currentAppleEvent
+        launchedAsLoginItem = launchEvent?.eventID == AEEventID(kAEOpenApplication)
+            && launchEvent?.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue == OSType(keyAELaunchedAsLogInItem)
         NewToTry.noteLaunch()   // before the welcome marks this Mac as welcomed
         Log.open()
         endStuckCopy()
@@ -186,6 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let a = try TurnOverApp()
             app = a
             a.start()
+            LoginGreeting.sayIfDue(launchedAsLoginItem: launchedAsLoginItem)
         } catch {
             Log.error("could not start: \(error)")
             // Said, not only logged: VoiceOver reads the alert (code review, 16 Oct 2026; before, TurnOver "did nothing").

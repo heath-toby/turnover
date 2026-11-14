@@ -805,7 +805,10 @@ struct KeyboardView: View {
                 Toggle("Line and paragraph keys skim through say all, which carries on", isOn: model.bool("keyboard", "allowSkimReading"))
             }
             Section("Moving around") {
-                Toggle("VoiceOver keys move by groups", isOn: model.bool("general", "navigateByGroups"))
+                // VoiceOver Utility's name and choices for moving by groups (14 Nov 2026).
+                Picker("Grouping behaviour", selection: model.bool("general", "navigateByGroups")) {
+                    Text("Standard: VoiceOver keys move by groups").tag(true); Text("Ignore groups").tag(false)
+                }
                 Toggle("NVDA and JAWS keys move by groups too", isOn: model.bool("general", "groupsInWindowsStyle"))
                 Toggle("At the end of a group, wrap round to its start", isOn: model.bool("general", "cursorWraps"))
                 Picker("Moving the cursor moves the keyboard focus", selection: model.string("general", "focusFollowsCursor", "auto")) {
@@ -816,12 +819,26 @@ struct KeyboardView: View {
                 Toggle("Review cursor follows the caret", isOn: model.bool("keyboard", "reviewFollowsCaret"))
                 Toggle("Review cursor follows the mouse", isOn: model.bool("keyboard", "reviewFollowsMouse"))
                 Toggle("Simple review mode: NVDA keys skip layout", isOn: model.bool("keyboard", "simpleReviewMode"))
+                Picker("Initial position of the cursor in a new window", selection: model.string("general", "cursorStart", "focus")) {
+                    Text("Keyboard focused item").tag("focus"); Text("First item in window").tag("firstItem")
+                }
+                Toggle("Automatically interact when using the Tab key", isOn: model.bool("general", "interactOnTab"))
+                Toggle("Fast searching: Right Command and a letter in a list", isOn: model.bool("general", "fastSearching"))
+                Text("Fast searching moves to the next item starting with the letter. While it is on, Right Command and a letter does not reach the app in a list; Left Command does.").font(.caption)
+            }
+            Section("Keyboard Commander") {
+                // The Commander's own on and off is under The keypad, below.
+                Picker("Commander key", selection: model.string("keyboard", "commanderKey", "rightOption")) {
+                    Text("Right Option").tag("rightOption"); Text("Left Option").tag("leftOption")
+                    Text("Right Command").tag("rightCommand"); Text("Left Command").tag("leftCommand"); Text("Right Control").tag("rightControl")
+                }
+                Text("The Commander key and a letter runs the command given to that letter. Give letters, keypad keys and trackpad gestures their commands in the TurnOver menu, Keys, My own keys.").font(.caption)
             }
             Section("The keypad") {
                 Toggle("Keypad commands with VoiceOver keys (VO Clear switches)", isOn: model.bool("keyboard", "numpadCommander"))
                 Toggle("Keypad commands with NVDA keys (Clear switches)", isOn: model.bool("keyboard", "keypadCommands"))
                 // VoiceOver's Keyboard Commander, which only VO-Shift-K could turn on or off (the settings audit, 14 Nov 2026).
-                Toggle("Right Option with a letter runs a command (VoiceOver's Keyboard Commander)", isOn: model.bool("keyboard", "optionCommander"))
+                Toggle("The Commander key with a letter runs a command (VoiceOver's Keyboard Commander)", isOn: model.bool("keyboard", "optionCommander"))
             }
             // NVDA's timing settings (its multiple key press timeout, and Advanced's caret move timeout).
             Section("Timing") {
@@ -1101,6 +1118,25 @@ struct GeneralView: View {
             }
             Picker("Screen Curtain while TurnOver reads", selection: model.string("general", "screenCurtain", "follow")) {
                 Text("The same as VoiceOver's").tag("follow"); Text("Always on").tag("on"); Text("Off").tag("off")
+            }
+            // VoiceOver's and NVDA's other General settings (14 Nov 2026).
+            TextField("Speak the following greeting after login", text: model.string("general", "loginGreeting", ""))
+            if model.special("_autoUpdateChecks") != nil {
+                Toggle("Automatically check for updates", isOn: Binding(get: { model.special("_autoUpdateChecks") as? Bool ?? false }, set: { model.setSpecial("_autoUpdateChecks", $0) }))
+            }
+            Picker("Logging level", selection: model.string("general", "logLevel", "io")) {
+                Text("Debug").tag("debug"); Text("Input and output").tag("io"); Text("Info").tag("info"); Text("Warnings").tag("warning"); Text("Errors only").tag("error")
+            }
+            Section("Portable preferences") {
+                Button("Export settings…") {
+                    let panel = NSSavePanel(); panel.nameFieldStringValue = "TurnOver settings.json"; panel.allowedContentTypes = [.json]
+                    if panel.runModal() == .OK, let url = panel.url { model.setSpecial("_exportSettings", url.path) }
+                }
+                Button("Import settings…") {
+                    let panel = NSOpenPanel(); panel.allowedContentTypes = [.json]; panel.allowsMultipleSelection = false
+                    if panel.runModal() == .OK, let url = panel.url { model.setSpecial("_importSettings", url.path) }
+                }
+                if let message = model.special("_portableMessage") as? String { Text(message) }
             }
         }.formStyle(.grouped).navigationTitle("General")
     }

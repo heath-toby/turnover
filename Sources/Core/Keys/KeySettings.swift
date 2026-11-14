@@ -16,6 +16,9 @@ nonisolated public struct KeySettings: Sendable {
     public var keypadCommands = true
     /// VoiceOver's "Announce when a modifier key is pressed" (Config.Keyboard.announceModifierKeys).
     public var announceModifiers = false
+    /// The Keyboard Commander's modifier, and VoiceOver's fast searching (14 Nov 2026).
+    public var commanderKey: Commander.Key = .rightOption
+    public var fastSearching = false
 
     private static let lock = NSLock()
     nonisolated(unsafe) private static var _current = KeySettings()   // under `lock`
@@ -28,7 +31,8 @@ nonisolated public struct KeySettings: Sendable {
         let s = KeySettings(capsIsTurnOver: config.general.capsIsTurnOver, controlOptionIsTurnOver: config.general.controlOptionIsTurnOver,
                             windowsKeys: config.general.windowsKeys, speakCommandKeys: config.keyboard.speakCommandKeys,
                             optionCommander: config.keyboard.optionCommander, numpadCommander: config.keyboard.numpadCommander,
-                            keypadCommands: config.keyboard.keypadCommands, announceModifiers: config.keyboard.announceModifierKeys)
+                            keypadCommands: config.keyboard.keypadCommands, announceModifiers: config.keyboard.announceModifierKeys,
+                            commanderKey: Commander.key(config.keyboard.commanderKey), fastSearching: config.general.fastSearching)
         lock.lock(); _current = s; lock.unlock()
     }
 }

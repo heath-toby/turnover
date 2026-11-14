@@ -154,6 +154,36 @@ public enum Trackpad {
 
     private static var explored: AXUIElement?
 
+    /// The user's own gestures are kept with their keys (Config.Keyboard.userGestures), as "tp:" and the helper's line.
+    nonisolated public static let userPrefix = "tp:"
+    /// The gestures a command can be given, as the helper reports them. The rotor turn, exploring and the two-finger
+    /// double-tap (by where it lands) stay TurnOver's own.
+    nonisolated public static let assignable = [
+        "G flick-right 1", "G flick-left 1", "G flick-up 1", "G flick-down 1",
+        "G flick-right 2", "G flick-left 2", "G flick-up 2", "G flick-down 2",
+        "G flick-right 3", "G flick-left 3", "G flick-up 3", "G flick-down 3",
+        "G tap 2", "G tap 3", "G double-tap 1", "G double-tap 3", "G triple-tap 1", "G triple-tap 3", "G scrub",
+    ]
+    /// A gesture as said ("two-finger flick down"). Pure.
+    nonisolated public static func gestureName(_ line: String) -> String {
+        if line == "G scrub" { return String(localized: "two-finger scrub", comment: "A trackpad gesture") }
+        let parts = line.split(separator: " ")
+        guard parts.count == 3, parts[0] == "G", let n = Int(parts[2]) else { return line }
+        let fingers = n == 1 ? "" : n == 2 ? String(localized: "two-finger ", comment: "Before a trackpad gesture's name") : String(localized: "three-finger ", comment: "Before a trackpad gesture's name")
+        let what: String
+        switch parts[1] {
+        case "flick-right": what = String(localized: "flick right", comment: "A trackpad gesture")
+        case "flick-left": what = String(localized: "flick left", comment: "A trackpad gesture")
+        case "flick-up": what = String(localized: "flick up", comment: "A trackpad gesture")
+        case "flick-down": what = String(localized: "flick down", comment: "A trackpad gesture")
+        case "tap": what = String(localized: "tap", comment: "A trackpad gesture")
+        case "double-tap": what = String(localized: "double-tap", comment: "A trackpad gesture")
+        case "triple-tap": what = String(localized: "triple-tap", comment: "A trackpad gesture")
+        default: what = String(parts[1])
+        }
+        return fingers + what
+    }
+
     private static var toggledAt = Date.distantPast
     static func received(_ raw: String) {
         // The helper puts where a double-tap was after it; only the two-finger one is read by place.
@@ -173,6 +203,18 @@ public enum Trackpad {
         // Each gesture in the log (not the exploring finger's moves): the Mail session of 19 Oct 2026 could only be
         // read back from the keys the gestures pressed.
         if !line.hasPrefix("E ") { Log.io("trackpad: \(line)") }
+        // A gesture the user gave a command of their own (VoiceOver's Trackpad Commander assignments, 14 Nov 2026), in
+        // either style; taken away, it does nothing.
+        if let stored = config.keyboard.userGestures[userPrefix + line], let t = UserGestures.Target(stored) {
+            switch UserGestures.found(t) {
+            case .script(let s)?:
+                Speech.cancel()
+                ScriptHandler.queueScript(s, gesture: KeyboardGesture(keyCode: 0, modifiers: [], characters: "", timestamp: 0, isRepeat: false, flags: []))
+            case .removed?: Log.io("trackpad: \(line) taken away by the user")
+            case nil: Log.io("trackpad: \(line)'s own command isn't available here")
+            }
+            return
+        }
         let windows = config.general.windowsKeys
         if windows {
             switch line {

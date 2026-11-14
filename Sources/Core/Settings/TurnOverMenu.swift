@@ -801,6 +801,7 @@ public final class TurnOverMenu {
         var items = [
             MenuItem("Give a key to a command", .action { [weak self] in self?.chooseCommandForKey() }),
             MenuItem("Give a key to open an app", .action { [weak self] in self?.chooseAppForKey() }, hint: "Right Option keys work, as in VoiceOver's Keyboard Commander"),
+            MenuItem("Give a trackpad gesture to a command", .action { [weak self] in self?.chooseGestureForCommand() }, hint: "As VoiceOver's Trackpad Commander, with gesture control on"),
             MenuItem("Take a key away from TurnOver, so it goes to the app", .action { Self.captureKey(prompt: String(localized: "Press the key to take away", comment: "Taking a key away from TurnOver")) { g in
                 let had = ScriptHandler.findScript(for: g)?.description
                 UserGestures.set(g, to: .removed)
@@ -831,6 +832,22 @@ public final class TurnOverMenu {
             }
         }) }
         openChooser("Commands here", items: items)
+    }
+
+    /// A trackpad gesture, then the command it runs (14 Nov 2026): the gestures can't be captured as keys are, so they
+    /// are chosen from a list.
+    private func chooseGestureForCommand() {
+        let items = Trackpad.assignable.map { line in MenuItem(verbatim: Trackpad.gestureName(line), .action { [weak self] in
+            let commands = UserGestures.availableCommands()
+            let list = commands.map { s in MenuItem(verbatim: "\(s.description) (\(s.categoryName))", .action {
+                config.keyboard.userGestures[Trackpad.userPrefix + line] = UserGestures.Target.script(s.name).stored
+                config.save()
+                Log.info("user keys: \(Trackpad.userPrefix + line) → script:\(s.name)")
+                Speech.speakMessage(String(localized: "\(Trackpad.gestureName(line)) now: \(s.description)", comment: "A trackpad gesture given to a command: %1$@ is the gesture, %2$@ the command"))
+            }) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self?.openChooser("Commands here", items: list) }
+        }) }
+        openChooser("Trackpad gestures", items: items)
     }
 
     private func chooseAppForKey() {

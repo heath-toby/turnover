@@ -16,7 +16,10 @@ the apps you use every day more simply than VoiceOver does. It runs on macOS 14 
   While TurnOver is on it reads everything, password fields and macOS's own prompts included, and VoiceOver is off.
   When TurnOver stops, VoiceOver comes back.
 - **Command Control Shift T** keeps the app in front with VoiceOver, or gives it back to TurnOver, and remembers it.
-- To start TurnOver when you log in: the TurnOver menu, Settings, Starting, Open TurnOver at login.
+- To start TurnOver when you log in: the TurnOver menu, Settings, Starting, Open TurnOver at login. Settings, General,
+  Speak the following greeting after login, gives it words to say as it starts then.
+- Settings, General, Portable preferences: Export settings saves a copy of all your settings to a file, and Import
+  settings reads one back, on this Mac or another. A file that isn't TurnOver's settings is refused, and nothing changes.
 
 ## The first five minutes
 
@@ -28,4 +31,5 @@ the apps you use every day more simply than VoiceOver does. It runs on macOS 14 
 ## Updates
 
 TurnOver checks once a day. When there is a new build it says so and asks whether to install it. The TurnOver menu,
-About and updates, Updates checks now; What's new lists every build's changes.
+About and updates, Updates checks now; What's new lists every build's changes. Settings, General, Automatically check
+for updates turns the daily check off and on.

@@ -99,8 +99,21 @@ public struct Config: Codable {
         /// Whose sounds play ("voiceover" or "turnover"): the choice, or until one is made what always played, VoiceOver's
         /// unless the settings file says "experimental" (Tones).
         public var effectiveSounds: String { sounds.isEmpty ? (edition != "experimental" ? "voiceover" : "turnover") : sounds }
+        // VoiceOver Utility's Navigation and General options, and NVDA's logging level (14 Nov 2026). The defaults keep
+        // what TurnOver did before.
+        /// Where the cursor starts in a window that opens: "focus" (the keyboard focus) or "firstItem" (its first item).
+        public var cursorStart = "focus"
+        /// Tab into a group puts the cursor inside it (interacting), as before; off, on the outermost group holding it.
+        public var interactOnTab = true
+        /// VoiceOver's fast searching: Right Command and a letter jumps to the next item starting with it in a list.
+        public var fastSearching = false
+        /// The log's level: "debug", "io" (every key and event, as before), "info", "warning" or "error".
+        public var logLevel = "io"
+        /// Said when TurnOver starts at login (VoiceOver's login greeting); empty says nothing.
+        public var loginGreeting = ""
         public init() {}
-        enum Keys: String, CodingKey { case openAtLogin, showInMenuBar, windowsKeys, keyboardStyle, keysWhereVoiceOverReads, navigateByGroups, groupsInWindowsStyle, cursorWraps, focusFollowsCursor, turnOverKey = "bosunKey", handOverChimes, navigationSounds, screenCurtain, edition, handOverNothing, sounds }
+        enum Keys: String, CodingKey { case openAtLogin, showInMenuBar, windowsKeys, keyboardStyle, keysWhereVoiceOverReads, navigateByGroups, groupsInWindowsStyle, cursorWraps, focusFollowsCursor, turnOverKey = "bosunKey", handOverChimes, navigationSounds, screenCurtain, edition, handOverNothing, sounds
+            case cursorStart, interactOnTab, fastSearching, logLevel, loginGreeting }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
             openAtLogin = (try? c.decodeIfPresent(Bool.self, forKey: .openAtLogin)) ?? false
@@ -120,6 +133,11 @@ public struct Config: Codable {
             navigationSounds = (try? c.decodeIfPresent(Bool.self, forKey: .navigationSounds)) ?? true
             screenCurtain = (try? c.decodeIfPresent(String.self, forKey: .screenCurtain)) ?? "follow"
             sounds = (try? c.decodeIfPresent(String.self, forKey: .sounds)).flatMap { ["voiceover", "turnover"].contains($0) ? $0 : nil } ?? ""
+            cursorStart = (try? c.decodeIfPresent(String.self, forKey: .cursorStart)).flatMap { ["focus", "firstItem"].contains($0) ? $0 : nil } ?? "focus"
+            interactOnTab = (try? c.decodeIfPresent(Bool.self, forKey: .interactOnTab)) ?? true
+            fastSearching = (try? c.decodeIfPresent(Bool.self, forKey: .fastSearching)) ?? false
+            logLevel = (try? c.decodeIfPresent(String.self, forKey: .logLevel)).flatMap { Log.level(named: $0) != nil ? $0 : nil } ?? "io"
+            loginGreeting = (try? c.decodeIfPresent(String.self, forKey: .loginGreeting)) ?? ""
         }
         public func encode(to encoder: Encoder) throws {
             var c = encoder.container(keyedBy: Keys.self)
@@ -134,6 +152,8 @@ public struct Config: Codable {
             try c.encode(handOverChimes, forKey: .handOverChimes)
             try c.encode(navigationSounds, forKey: .navigationSounds)
             try c.encode(screenCurtain, forKey: .screenCurtain); try c.encode(sounds, forKey: .sounds)
+            try c.encode(cursorStart, forKey: .cursorStart); try c.encode(interactOnTab, forKey: .interactOnTab)
+            try c.encode(fastSearching, forKey: .fastSearching); try c.encode(logLevel, forKey: .logLevel); try c.encode(loginGreeting, forKey: .loginGreeting)
         }
         /// How the TurnOver key is spoken in help and the shortcuts list.
         public var turnOverKeyName: String {
@@ -277,6 +297,9 @@ public struct Config: Codable {
         /// VoiceOver's Option key Commander: right Option with a letter runs a command (right Option T, the time).
         /// VO-Shift-K turns it off and on (12 Oct 2026).
         public var optionCommander = true
+        /// The Keyboard Commander's modifier, chosen as in VoiceOver (Commander.Key; right Option by default). The
+        /// letters' own keys stay stored as "kb:rightoption+…" whichever modifier is chosen (14 Nov 2026).
+        public var commanderKey = "rightOption"
         /// The keypad (Keypad.swift): VoiceOver's NumPad Commander in the Mac style (off, as VoiceOver, until VO-Clear);
         /// NVDA's keypad commands in the Windows style (on, as NVDA with Num Lock off; Clear types numbers instead).
         public var numpadCommander = false
@@ -304,7 +327,8 @@ public struct Config: Codable {
         /// The user's own keys (UserGestures): key identifier → "script:<name>", "app:<bundle id>" or "none".
         public var userGestures: [String: String] = [:]
         enum Keys: String, CodingKey { case speakTypedCharacters, speakTypedWords, speakCommandKeys, multiPressTimeoutMs, layout, speakNewLine, userGestures, optionCommander, numpadCommander, keypadCommands,
-            announceModifierKeys, interruptSpeechForTypedCharacters, interruptSpeechForEnter, beepForLowercaseWithCapsLock, spellingErrorSoundWhileTyping, allowSkimReading, reviewFollowsFocus, reviewFollowsCaret, reviewFollowsMouse, simpleReviewMode }
+            announceModifierKeys, interruptSpeechForTypedCharacters, interruptSpeechForEnter, beepForLowercaseWithCapsLock, spellingErrorSoundWhileTyping, allowSkimReading, reviewFollowsFocus, reviewFollowsCaret, reviewFollowsMouse, simpleReviewMode
+            case commanderKey }
         // Each setting falls back on its own, so adding one never resets the others.
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
@@ -327,6 +351,7 @@ public struct Config: Codable {
             reviewFollowsCaret = (try? c.decodeIfPresent(Bool.self, forKey: .reviewFollowsCaret)) ?? true
             reviewFollowsMouse = (try? c.decodeIfPresent(Bool.self, forKey: .reviewFollowsMouse)) ?? false
             simpleReviewMode = (try? c.decodeIfPresent(Bool.self, forKey: .simpleReviewMode)) ?? true
+            commanderKey = (try? c.decodeIfPresent(String.self, forKey: .commanderKey)).flatMap { Commander.Key(rawValue: $0)?.rawValue } ?? "rightOption"
             userGestures = (try? c.decodeIfPresent([String: String].self, forKey: .userGestures)) ?? [:]
             // Saved before the code name went (12 Oct 2026): "kb:bosun+n" is "kb:turnover+n"; "script:bosunMenu" is
             // "script:turnOverMenu".
@@ -347,6 +372,7 @@ public struct Config: Codable {
             try c.encode(allowSkimReading, forKey: .allowSkimReading)
             try c.encode(reviewFollowsFocus, forKey: .reviewFollowsFocus); try c.encode(reviewFollowsCaret, forKey: .reviewFollowsCaret)
             try c.encode(reviewFollowsMouse, forKey: .reviewFollowsMouse); try c.encode(simpleReviewMode, forKey: .simpleReviewMode)
+            try c.encode(commanderKey, forKey: .commanderKey)
         }
     }
     public struct EditableText: Codable {

@@ -36,7 +36,9 @@ public enum UserGestures {
         var ids: [String] = []
         // With Shift too: right Option Shift N is its own key, not Option Shift N (a tester, 19 Oct 2026: it was
         // stored without "right", so any Option Shift N ran it).
-        if g.flags.rawValue & 0x40 != 0, g.modifiers == [.option] || g.modifiers == [.option, .shift] {
+        // The Commander's key is the one chosen in Settings (right Option unless changed, 14 Nov 2026); its letters keep
+        // the "rightoption" identifiers whichever it is.
+        if Commander.holds(Commander.key(config.keyboard.commanderKey), modifiers: g.modifiers, flags: g.flags.rawValue) {
             ids.append("kb:rightoption+" + (g.modifiers.contains(.shift) ? "shift+" : "") + g.keyName)
         }
         return ids + g.identifiers
@@ -78,6 +80,11 @@ public enum UserGestures {
     public static func lookup(_ g: KeyboardGesture) -> Found? {
         if isProtected(g) { return nil }
         guard let t = target(for: g) else { return nil }
+        return found(t)
+    }
+
+    /// What a stored target runs: for a key, and for a trackpad gesture given a command (Trackpad, 14 Nov 2026).
+    public static func found(_ t: Target) -> Found? {
         switch t {
         case .removed: return .removed
         case .script(let name):
@@ -105,10 +112,11 @@ public enum UserGestures {
 
     /// "right option S", "numpad 8", "caps shift L".
     public static func spoken(_ id: String) -> String {
+        if id.hasPrefix(Trackpad.userPrefix) { return Trackpad.gestureName(String(id.dropFirst(Trackpad.userPrefix.count))) }
         let body = id.components(separatedBy: ":").last ?? id
         return body.split(separator: "+").map { part -> String in
             switch part {
-            case "rightoption": return "right option"
+            case "rightoption": return Commander.key(config.keyboard.commanderKey).spokenName
             case "turnover", "bosun": return config.general.turnOverKeyName
             default:
                 if let code = KeyNames.code(for: String(part)) { return KeyNames.spoken(for: code, characters: "") }

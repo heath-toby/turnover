@@ -638,9 +638,10 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         // Right Option+T: the date and time, as the owner has it under VoiceOver (4 Oct 2026). Right Option only, so
         // left Option+T still types its character. Not for pass next key, a key capture or keyboard help: the key goes
         // the usual way there, as the keypad's and Quick Nav's do; it ran the time regardless (a review, 14 Nov 2026).
-        if code == 17, optionCode == 61, settings.optionCommander, event.flags.intersection([.maskControl, .maskCommand, .maskShift]).isEmpty, event.flags.contains(.maskAlternate),
-           !InputManager.passNextKey, !InputManager.isCapturing, !InputManager.isInputHelpActive {
-            let g = KeyboardGesture(keyCode: code, modifiers: .option, characters: "", timestamp: 0, isRepeat: false, flags: event.flags)
+        // The Commander's key is chosen in Settings (14 Nov 2026); right Option unless changed, so the same test as before.
+        if code == 17, settings.optionCommander, !capsDown, Commander.holds(settings.commanderKey, modifiers: Self.plainModifiers(event.flags), flags: event.flags.rawValue),
+           !event.flags.contains(.maskShift), !InputManager.passNextKey, !InputManager.isCapturing, !InputManager.isInputHelpActive {
+            let g = KeyboardGesture(keyCode: code, modifiers: settings.commanderKey.modifier, characters: "", timestamp: 0, isRepeat: false, flags: event.flags)
             // Through the user's keys, where right Option T is the time and date unless they gave it something else
             // (UserGestures.defaults). It asked for "vo_dateTime", a name no command has had since, so it did nothing
             // (12 Oct 2026).
@@ -842,6 +843,16 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         guard Keypad.action(for: g, windows: windows) != nil else { return nil }
         onMain { Keypad.run(g, windows: windows) }
         return taken()
+    }
+
+    /// Shift, Control, Option and Command as a gesture carries them (no TurnOver key).
+    private static func plainModifiers(_ f: CGEventFlags) -> Modifiers {
+        var m = Modifiers()
+        if f.contains(.maskShift) { m.insert(.shift) }
+        if f.contains(.maskControl) { m.insert(.control) }
+        if f.contains(.maskAlternate) { m.insert(.option) }
+        if f.contains(.maskCommand) { m.insert(.command) }
+        return m
     }
 
     private static func characters(of event: CGEvent) -> String {
