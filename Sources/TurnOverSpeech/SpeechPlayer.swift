@@ -419,6 +419,7 @@ public final class SpeechPlayer: @unchecked Sendable {
                 }
             }
             doing("tone buffer")
+            toneNode.pan = 0   // (a panned beep before it left its pan: a review)
             toneNode.scheduleBuffer(buf, completionHandler: nil)
             play(toneNode)
         }
@@ -427,6 +428,7 @@ public final class SpeechPlayer: @unchecked Sendable {
     /// `nvda`: NVDA's beep: a sine doubled and clipped (brighter), a whole number of cycles so it starts and ends at
     /// zero with no fade (as the tester's IndentBeeper models it). `pan`: -1 left to 1 right (NVDA's audio coordinates).
     public func playTone(frequency: Double, durationMs: Int, volume: Float = 0.25, nvda: Bool = false, pan: Float? = nil) {
+        guard frequency > 0, durationMs > 0 else { return }
         queue.async { [self] in
             let rate = format.sampleRate
             var frames = AVAudioFrameCount(rate * Double(durationMs) / 1000)

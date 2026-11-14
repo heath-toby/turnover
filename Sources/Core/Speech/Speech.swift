@@ -1003,6 +1003,8 @@ public enum Speech {
     public static func selectionWords(_ t: String, level: SymbolLevel? = nil) -> String {
         if t.count == 1 { return Symbols.name(of: t.first!) }
         if t.count > selectionReadLimit { return Phrases.characters(t.count) }
+        // Only spaces and breaks: how many, not nothing (a review: "\n\n" said just "selected").
+        if t.allSatisfy(\.isWhitespace) { return Phrases.characters(t.count) }
         var w = Substring(t)
         while let c = w.last, c.isWhitespace || c.isNewline { w = w.dropLast() }
         if (level ?? config.speech.symbolLevel) != .all, let c = w.last, ".!?".contains(c), w.count > 1 { w = w.dropLast() }

@@ -209,6 +209,9 @@ open class TextInfo {
     /// Nil when counting characters would require fetching an unbounded text value.
     open func characterStoryLength() -> Int? { storyLength() }
     open func textRange(_ s: Int, _ e: Int) -> String { "" }
+    /// The text as the control holds it, offsets one for one (attachments left as U+FFFC, not named): for working out
+    /// offsets, as the word stops do (a review: names put in for pictures moved the caret).
+    open func offsetText(_ s: Int, _ e: Int) -> String { textRange(s, e) }
     /// Unexpanded source text: spoken attachment labels must not change UTF-16 positions.
     open func characterTextRange(_ s: Int, _ e: Int) -> String { textRange(s, e) }
     open func caretOffset() -> Int? { nil }
@@ -500,6 +503,8 @@ open class AXTextInfo: TextInfo {
         let t = rawTextRange(s, e)
         return t.contains(Attachments.mark) ? Attachments.expand(t, in: textElement, from: max(0, s)) : t
     }
+
+    open override func offsetText(_ s: Int, _ e: Int) -> String { rawTextRange(s, e) }
 
     open override func characterTextRange(_ s: Int, _ e: Int) -> String {
         guard let n = characterStoryLength() else { return "" }

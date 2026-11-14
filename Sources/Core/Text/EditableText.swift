@@ -396,7 +396,10 @@ open class EditableText: TurnOverObject {
         }
         // The Windows style's word keys: TurnOver's own stops, punctuation included (WordStops).
         if unit == .word, config.general.windowsKeys, ["leftArrow", "rightArrow"].contains(gesture.keyName), !gesture.modifiers.contains(.shift),
-           let n = newInfo, let old = try? makeTextInfo(.bookmark(bookmark)), windowsWordStop(from: old, after: n, forward: gesture.keyName == "rightArrow", gesture: gesture) {
+           role != .passwordEdit,   // (never the bullets of a password read as marks: a review)
+           let n = newInfo, let old = try? makeTextInfo(.bookmark(bookmark)), n.start != old.start,
+           // The way the app moved, not the key: in right-to-left text Right goes back (a review).
+           windowsWordStop(from: old, after: n, forward: n.start > old.start, gesture: gesture) {
             return
         }
         // Option+Right on the Mac stops at the end of the word, on the space or comma after it: say the word passed
@@ -443,13 +446,19 @@ open class EditableText: TurnOverObject {
         let length = n.storyLength()
         let a = max(0, old.start - 300), b = min(length, old.start + 300)
         guard b > a else { return false }
-        let window = n.textRange(a, b)
+        let window = n.offsetText(a, b)
+        // Text written without spaces (Chinese, Japanese, Thai): the app's own word breaks, which know the words.
+        if window.unicodeScalars.contains(where: { (0x3040...0x9FFF).contains($0.value) || (0x0E00...0x0E7F).contains($0.value) || (0xAC00...0xD7AF).contains($0.value) }) { return false }
         guard let stop = WordStops.stop(in: window, from: old.start - a, forward: forward) else { return false }
         // A stop cut by the window's edge isn't one: the word goes on past it.
         if !forward, stop.at == 0, a > 0 { return false }
         let at = a + stop.at
         let here = type(of: n).init(obj: n.obj, start: at, end: at)
-        if n.start != at { here.updateCaret(); _ = hasCaretMoved(from: n.bookmark) }
+        if n.start != at {
+            here.updateCaret(); _ = hasCaretMoved(from: n.bookmark)
+            // A field that won't take the caret from accessibility: the app's own move is read instead (a review).
+            if let now = try? makeTextInfo(.caret), now.start != at { return false }
+        }
         caretMoved(speak: nil, gesture: gesture, info: here)
         let u = Array(window.utf16)
         func names(_ r: Range<Int>) -> String {

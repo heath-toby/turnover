@@ -781,7 +781,9 @@ public enum Braille {
         if messageUntil != nil {
             if case .key(let name) = key, let action = keyMap[name], action == "scrollBack" || action == "scrollForward" {
                 let next = action == "scrollForward" ? windows.first { $0 > windowStart } : windows.last { $0 < windowStart }
-                if let next { windowStart = next; show(); holdMessage(Double(max(1, config.braille.messageSeconds)) + 2); return }
+                if let next { windowStart = next; show(); if historyIndex == nil { holdMessage(Double(max(1, config.braille.messageSeconds)) + 2) }; return }
+                // The announcement history keeps its edge (a review: panning out left it half open).
+                if historyIndex != nil { Tones.edge(); return }
                 // Past its edge: it gives way to what is underneath, as NVDA's does, and the pan carries on there. In
                 // Terminal, panning back from the output it flashed only gave the edge sound, so earlier lines couldn't
                 // be reached (14 Nov 2026).
@@ -799,8 +801,8 @@ public enum Braille {
             switch keyMap[name] {
             case "scrollBack": pan(forward: false)
             case "scrollForward": pan(forward: true)
-            case "previousLine": line(-1)
-            case "nextLine": line(1)
+            case "previousLine": line(-1, fromPan: false)
+            case "nextLine": line(1, fromPan: false)
             case "activate": activate()
             default:
                 // VoiceOver's other display commands (Escape, the Dock, first item…): as its space-with-dots chord for
@@ -979,7 +981,9 @@ public enum Braille {
 
     /// Move the caret a line, and say it. On an item rather than
     /// text (Mail's message list, a menu), up and down move to the previous or next item, as VoiceOver's do.
-    private static func line(_ direction: Int, toEnd: Bool = false, fromTimer: Bool = false) {
+    /// `fromPan`: reached by panning (or auto scroll), where "Speak the line when panning to it" applies; the display's
+    /// own line keys always speak (a review).
+    private static func line(_ direction: Int, toEnd: Bool = false, fromTimer: Bool = false, fromPan: Bool = true) {
         guard case .text(let info, _) = source else { press(direction > 0 ? "downArrow" : "upArrow"); return }
         let r = info.copy()
         r.collapse()
@@ -1000,10 +1004,11 @@ public enum Braille {
         }
         // The line is spoken as well as shown, as VoiceOver does (the display moved on silently, 6 Oct 2026).
         // Unless turned off (Braille settings, "Speak the line when panning to it"): NVDA's braille pans silently.
-        SayAll.stop()
-        Speech.cancel()
         let spoken = r.copy(); spoken.expand(unit)
-        if config.braille.speakWhenPanning { Speech.speakTextInfo(spoken, unit: unit, reason: .caret) }
+        // Speech stopped only when something is said, or when panning is to stop it (a silent pan stopped say all).
+        let speaks = !fromPan || config.braille.speakWhenPanning
+        if speaks || config.braille.interruptSpeechWhileScrolling { SayAll.stop(); Speech.cancel() }
+        if speaks { Speech.speakTextInfo(spoken, unit: unit, reason: .caret) }
         refresh()
         if toEnd {
             endOfLineWanted = (spoken.start, Date())

@@ -152,12 +152,22 @@ final class WordTextInfo: AXTextInfo {
 package enum WordSelection {
     /// A selection's part on page `page` joined with the parts on the pages either side that meet it end to start.
     /// Bounded at 500 pages each way.
+    /// The selected pages are one run, so each end is found by halving: about 16 questions for 219 pages, not 219
+    /// (a review: every braille refresh after Command-A took most of a second).
     package static func joined(_ s: (Int, Int), page: Int, pages: Int, part: (Int) -> (Int, Int)?) -> (Int, Int) {
+        func has(_ j: Int) -> Bool { part(j).map { $0.1 > $0.0 } ?? false }
         var a = s.0, b = s.1
-        var j = page - 1
-        while j >= 0, page - j <= 500, let p = part(j), p.1 > p.0, p.1 == a { a = p.0; j -= 1 }
-        j = page + 1
-        while j < pages, j - page <= 500, let p = part(j), p.1 > p.0, p.0 == b { b = p.1; j += 1 }
+        // Only when the part meets the page before or after does the run go on.
+        if page > 0, let p = part(page - 1), p.1 > p.0, p.1 == a {
+            var lo = 0, hi = page - 1   // the first page in the run lies in lo...hi
+            while lo < hi { let mid = (lo + hi) / 2; if has(mid) { hi = mid } else { lo = mid + 1 } }
+            if let first = part(lo), first.1 > first.0 { a = first.0 }
+        }
+        if page + 1 < pages, let p = part(page + 1), p.1 > p.0, p.0 == b {
+            var lo = page + 1, hi = pages - 1   // the last page in the run
+            while lo < hi { let mid = (lo + hi + 1) / 2; if has(mid) { lo = mid } else { hi = mid - 1 } }
+            if let last = part(lo), last.1 > last.0 { b = last.1 }
+        }
         return (a, b)
     }
 }

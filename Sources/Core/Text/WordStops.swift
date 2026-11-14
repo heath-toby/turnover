@@ -18,6 +18,7 @@ nonisolated public enum WordStops {
         return CharacterSet.alphanumerics.contains(s) || u == 0x27 || u == 0x2019
     }
     nonisolated static func isSpace(_ u: unichar) -> Bool {
+        if u < 0x20 { return true }   // control characters: Word's cell marks (7), tabs and breaks
         guard let s = Unicode.Scalar(u) else { return false }
         return CharacterSet.whitespacesAndNewlines.contains(s) || u == 0xFFFC
     }
