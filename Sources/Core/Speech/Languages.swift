@@ -7,6 +7,7 @@
 import Foundation
 import AVFoundation
 import NaturalLanguage
+import AppKit
 
 public enum Languages {
     /// "ar-SA" → "ar".
@@ -135,6 +136,11 @@ public enum Languages {
 
     /// A line to hear a language's voice by: a sentence in it for the commonest, else its own name for itself.
     public static func sample(_ code: String) -> String {
+        // The voice's own greeting, which macOS keeps for every voice ("Hallo! Ich heiße Viktor."): the tester's idea.
+        if let id = voice(forPreview: code),
+           let demo = NSSpeechSynthesizer.attributes(forVoice: NSSpeechSynthesizer.VoiceName(rawValue: id))[.demoText] as? String, !demo.isEmpty {
+            return demo
+        }
         let samples = ["de": "Das ist die Stimme für Deutsch.", "fr": "Voici la voix pour le français.", "es": "Esta es la voz para el español.",
                        "it": "Questa è la voce per l'italiano.", "ru": "Это голос для русского языка.", "nl": "Dit is de stem voor het Nederlands.",
                        "pt": "Esta é a voz para o português.", "pl": "To jest głos dla języka polskiego.", "sv": "Det här är rösten för svenska.",
@@ -144,6 +150,35 @@ public enum Languages {
                        "nb": "Dette er stemmen for norsk.", "hu": "Ez a magyar nyelv hangja.", "ro": "Aceasta este vocea pentru limba română."]
         let b = base(code)
         return samples[b] ?? Locale(identifier: b).localizedString(forLanguageCode: b) ?? b
+    }
+
+    /// The voice a language is read with, for its preview: the one chosen, else the best installed.
+    static func voice(forPreview code: String) -> String? {
+        if let id = config.speech.languageVoices[base(code)], AVSpeechSynthesisVoice(identifier: id) != nil { return id }
+        return best(for: code)?.identifier
+    }
+
+    /// Space, tab and a line break named in a language, for a character read in another language's voice: a voice
+    /// says nothing for a lone space (a tester, 14 Nov 2026: "Leerzeichen in German"). Nil where none is known.
+    nonisolated public static func whitespaceName(_ c: Character, language: String) -> String? {
+        let names: [String: (space: String, tab: String, line: String)] = [
+            "de": ("Leerzeichen", "Tabulator", "neue Zeile"), "ru": ("пробел", "табуляция", "новая строка"),
+            "uk": ("пробіл", "табуляція", "новий рядок"), "fr": ("espace", "tabulation", "nouvelle ligne"),
+            "es": ("espacio", "tabulador", "nueva línea"), "it": ("spazio", "tabulazione", "nuova riga"),
+            "pt": ("espaço", "tabulação", "nova linha"), "nl": ("spatie", "tab", "nieuwe regel"),
+            "pl": ("spacja", "tabulator", "nowa linia"), "sv": ("mellanslag", "tabb", "ny rad"),
+            "da": ("mellemrum", "tabulator", "ny linje"), "nb": ("mellomrom", "tabulator", "ny linje"),
+            "fi": ("välilyönti", "sarkain", "uusi rivi"), "cs": ("mezera", "tabulátor", "nový řádek"),
+            "tr": ("boşluk", "sekme", "yeni satır"), "el": ("διάστημα", "στηλοθέτης", "νέα γραμμή"),
+            "hu": ("szóköz", "tabulátor", "új sor"), "ro": ("spațiu", "tab", "linie nouă"),
+        ]
+        guard let n = names[base(language)] else { return nil }
+        switch c {
+        case " ", "\u{00A0}": return n.space
+        case "\t": return n.tab
+        case "\n", "\r", "\r\n", "\u{2028}", "\u{2029}": return n.line
+        default: return nil
+        }
     }
 
     /// The pitch (VoiceOver's scale, 0 to 1) and volume (percent) set for a language, if any.

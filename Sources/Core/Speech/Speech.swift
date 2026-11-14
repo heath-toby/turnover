@@ -606,7 +606,7 @@ public enum Speech {
         // A character that isn't a letter of another alphabet (a comma, a digit, ä) in a line in another language:
         // the line's language, so the voice names it in that language (a tester, 14 Nov 2026: "punctuation reads in
         // its language as well, and numbers").
-        if unit == .character, language == nil, let c = info.text.first, !c.isWhitespace, config.speech.autoLanguageSwitching,
+        if unit == .character, language == nil, info.text.first != nil, config.speech.autoLanguageSwitching,
            !config.speech.recognisedLanguages.isEmpty {
             let line = info.copy(); line.collapse(); line.expand(.line)
             language = line.language()
@@ -716,7 +716,11 @@ public enum Speech {
             // One character that stands for more (an attachment: Mail's recipient token) is said whole.
             if text.count > 1 { return (prefix + [text]).joined(separator: " ") }
             if text.isEmpty { onlyBlank = prefix.isEmpty; return (prefix + [Phrases.blank]).joined(separator: " ") }
-            // In another language's voice: the character itself, which the voice names ("," is "Komma").
+            // In another language's voice: a space, tab or line break by that language's name for it ("Leerzeichen"),
+            // and anything else as itself, which the voice names ("," is "Komma").
+            if let lang = foreignLanguage, let c = text.first, let name = Languages.whitespaceName(c, language: lang) {
+                return (prefix.map(ui) + [name]).joined(separator: " ")
+            }
             if foreignLanguage != nil, let c = text.first, !c.isWhitespace {
                 let mark = c.isUppercase && (config.speech.capitalPitch > 0 || config.speech.capitalTone) ? capitalMark : ""
                 return (prefix.map(ui) + [mark + text]).joined(separator: " ")
