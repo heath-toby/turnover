@@ -702,8 +702,10 @@ public enum Speech {
             let mode = config.documentFormatting.lineIndentation
             let element = info.obj.element
             if let ind = Indentation.leading(rawText) {
+                // A new document starts at the margin: "no indent" isn't news on its first line (14 Nov 2026).
                 let sameDoc = lastIndent.map { CFEqual($0.element, element) } ?? false
-                if !sameDoc || lastIndent?.tabs != ind.tabs || lastIndent?.spaces != ind.spaces {
+                let was = sameDoc ? (lastIndent!.tabs, lastIndent!.spaces) : (0, 0)
+                if was.0 != ind.tabs || was.1 != ind.spaces {
                     if mode == "speech" || mode == "both" { indentWords = Indentation.words(tabs: ind.tabs, spaces: ind.spaces) }
                     if mode == "tones" || mode == "both" { Tones.nvdaBeep(Indentation.frequency(columns: ind.columns), Indentation.durationMs(columns: ind.columns)) }
                 }

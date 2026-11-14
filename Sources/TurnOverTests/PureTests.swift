@@ -494,6 +494,8 @@ func pureTests() {
         // VoiceOver's text options (the settings audit, 14 Nov 2026).
         expect(Symbols.unicodeName("→"), "rightwards arrow", "an arrow the voice passes over: its Unicode name")
         expect(Symbols.unicodeName("😀"), nil, "an emoji: left to the voice, which names it")
+        expect(Symbols.namedInText("→"), true, "an arrow is named inside text")
+        expect(Symbols.namedInText("⎿"), false, "box drawing and technical signs only at level All (Claude Code in Terminal)")
         expect(Symbols.unicodeName("a"), nil, "a letter: itself")
         expect(Symbols.namingEmoticons("Great :-) see you"), "Great smiley see you", "an emoticon named")
         expect(Symbols.namingEmoticons("http://example.com"), "http://example.com", "not inside an address")

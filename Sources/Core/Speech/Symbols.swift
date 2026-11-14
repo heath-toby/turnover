@@ -107,6 +107,13 @@ nonisolated public enum Symbols {
         return String(raw.dropFirst(3).dropLast()).lowercased()
     }
 
+    /// Symbols worth naming inside text at every level: arrows, mathematical operators, letterlike symbols.
+    nonisolated static func namedInText(_ c: Character) -> Bool {
+        guard let v = c.unicodeScalars.first?.value else { return false }
+        return (0x2190...0x21FF).contains(v) || (0x27F0...0x27FF).contains(v) || (0x2900...0x297F).contains(v)
+            || (0x2200...0x22FF).contains(v) || (0x2A00...0x2AFF).contains(v) || (0x2100...0x214F).contains(v)
+    }
+
     /// Emoticons said by name (":-)" is "smiley"), standing alone between spaces: off with Settings, Speech.
     nonisolated static let emoticons: [(String, String)] = [
         (":-)", "smiley"), (":)", "smiley"), ("(:", "smiley"), (";-)", "winking smiley"), (";)", "winking smiley"),
@@ -182,8 +189,10 @@ nonisolated public enum Symbols {
                 if !out.isEmpty, out.last != " " { out.append(" ") }
                 out.append(s.name)
                 lastWasName = true
-            } else if table[c] == nil, let n = unicodeName(c) {
-                // A symbol the voice would pass over ("→"): its Unicode name, at any level but none.
+            } else if table[c] == nil, level == .all || namedInText(c), let n = unicodeName(c) {
+                // A symbol the voice would pass over ("→"): its Unicode name. In running text only arrows, maths and
+                // letterlike symbols below level All: box drawing and technical signs (Claude Code's ⎿ and ⏺ in
+                // Terminal) made every line a list of names (14 Nov 2026). Moving by character names them all.
                 if !out.isEmpty, out.last != " " { out.append(" ") }
                 out.append(n)
                 lastWasName = true
