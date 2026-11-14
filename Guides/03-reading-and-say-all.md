@@ -24,6 +24,22 @@ natural voice. Natural voice speed is there too.
 The natural voice reads ahead: while one paragraph plays, the next ones are being made, so it never waits.
 Natural voices speak English for now; other languages keep your Mac's voices.
 
+## Other languages
+
+Settings, Speech, **Automatic language switching** reads text in another language in that language's voice, as
+VoiceOver does:
+
+- Text a page or document marks as another language, and text in another alphabet (Arabic, Russian, Greek and so on),
+  is always switched.
+- Text in your own alphabet is recognised as one of the languages you tick in the **Languages** table: a German line in
+  an English document is read in German. It takes three words or more (two when they are plainly German), so names
+  and borrowed words stay in your voice; a single word you move to keeps the language of the lines around it.
+
+The **Languages** table lists every language with a voice on your Mac, the ones you have set up first. Up and Down
+go through the languages; Tab goes on to the chosen one's voice, rate, pitch and volume, and **Recognise in text**.
+A language you haven't set up uses its best voice at your own rate, pitch and volume. Each change is heard in that
+language as you make it.
+
 ## Documents
 
 In Word, Pages and TextEdit, the arrows read as they move. **VO Command H** goes to the next heading (Shift for the

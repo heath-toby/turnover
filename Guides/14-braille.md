@@ -18,6 +18,13 @@ in Settings, Braille; the TurnOver menu's Braille submenu has the table and the 
 - **Output table:** what you read. Automatic is the contracted table for your language (Unified English Braille,
   contracted, in English). Every table macOS has is listed, by language.
 - **Input table:** what you type on the display's braille keyboard; the same as the output table unless you choose.
+- **Automatic language switching:** each line is shown in the table for the language it is in, as JAWS does: a German
+  line in German braille, a Russian one in Russian. Only the languages ticked in **Language profiles…** are recognised;
+  every other line is in the output table. The alphabet decides first (a Cyrillic line is Russian, or Ukrainian if
+  that is ticked too), then the words, needing three or more as speech does; a short line keeps the language of the
+  lines around it. What you type stays in the input table.
+- **Language profiles…:** tick the languages braille recognises and choose a table for each; Automatic is that
+  language's own contracted table. It opens whether switching is on or off.
 - **Show the word at the cursor uncontracted:** while editing, the word you are on is in computer braille, letter by
   letter, so each letter can be checked and routed to.
 - **Show bold, italic and underline:** with the table's own signs (the indicators braille books use: Unified English
