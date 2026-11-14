@@ -108,7 +108,7 @@ nonisolated public enum Symbols {
     }
 
     /// Symbols worth naming inside text at every level: arrows, mathematical operators, letterlike symbols.
-    nonisolated static func namedInText(_ c: Character) -> Bool {
+    nonisolated public static func namedInText(_ c: Character) -> Bool {
         guard let v = c.unicodeScalars.first?.value else { return false }
         return (0x2190...0x21FF).contains(v) || (0x27F0...0x27FF).contains(v) || (0x2900...0x297F).contains(v)
             || (0x2200...0x22FF).contains(v) || (0x2A00...0x2AFF).contains(v) || (0x2100...0x214F).contains(v)
