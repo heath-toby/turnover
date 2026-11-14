@@ -309,7 +309,8 @@ public enum Trackpad {
               let frame = TurnOverObject.frame(w) else { return }
         let screen = CGPoint(x: frame.minX + p.x * frame.width, y: frame.minY + (1 - p.y) * frame.height)
         var hit: AXUIElement?
-        guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(screen.x), Float(screen.y), &hit) == .success, let hit else {
+        guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(screen.x), Float(screen.y), &hit) == .success, let hit,
+              !VisionAids.isOwnWindow(hit) else {   // a Vision ring's strip: not something to explore
             if explored != nil { explored = nil; VoiceOverSounds.play("EmptySpace.aiff") }   // a blank area, as VoiceOver marks it
             return
         }

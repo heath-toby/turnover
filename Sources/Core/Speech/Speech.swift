@@ -33,6 +33,9 @@ public enum Speech {
     nonisolated(unsafe) public static var demandedUntil = Date.distantPast
     nonisolated(unsafe) private static var lastBeep = Date.distantPast
     public private(set) static var lastSpoken = ""
+    /// lastSpoken was private (a password echoed, a two-factor code): the braille panel's "display speech output"
+    /// shows it only as "(private)" (a review, 14 Nov 2026).
+    public private(set) static var lastSpokenPrivate = false
     /// What was said, kept in memory for a feedback report the tester asks to include speech in: the log on disk
     /// holds lengths only (a code review, 14 Oct 2026: it held 30 days of mail, chat and Terminal). The last
     /// 3,000 phrases; never the private ones.
@@ -172,7 +175,7 @@ public enum Speech {
         // Nothing left to say (zero-width marks, a bidi mark): it still "starts", or say all's count of queued
         // chunks never came down and three such lines stopped it for good (a code review, 14 Oct 2026).
         guard !s.isEmpty else { onStart?(); completion?(true); return }
-        lastSpoken = s
+        lastSpoken = s; lastSpokenPrivate = privateNext
         // Speech that came with its text as written (a message, text from the screen) keeps it for "copy last
         // spoken"; anything else (an object: "alert, dialog") is copied as spoken.
         if rawPending { rawPending = false } else { lastRaw = "" }
@@ -182,7 +185,6 @@ public enum Speech {
         else if Self.logsWords { Log.io("say\(voice != nil ? " [\(language ?? "")]" : ""): \(s.prefix(160))") }
         else { Log.io("say\(voice != nil ? " [\(language ?? "")]" : ""): [\(s.count) characters]") }
         if !privateNext { history.value.append((Date(), s)); if history.value.count > 3000 { history.value.removeFirst(500) } }
-        if !privateNext { VisionAids.spoke(s) }   // the caption panel (Vision settings), never private speech
         if let pitch { Log.io("say: (pitch raised to \(Int(pitch * 100)) percent)") }
         // Kokoro (the maintainer's Mac): say all, or everything, in a natural voice; another language keeps its own voice, and
         // a capital said higher keeps the Mac voice (Kokoro has no pitch).
@@ -197,15 +199,22 @@ public enum Speech {
         // Another language's own pitch and volume, from the languages table (a tester, 14 Nov 2026).
         let langPitch = voice == nil ? nil : Languages.pitch(for: language).map { 0.5 * pow(4, min(1, max(0, $0))) }
         let langVolume = voice == nil ? nil : Languages.volume(for: language).map { Float($0) / 100 }
+        // The caption panel (Vision settings) shows the words as they start, not as they are queued: say all queues
+        // ahead, and the caption ran a paragraph early (a review, 14 Nov 2026). Never private speech.
+        let start = !privateNext && VisionAids.captionWanted ? Self.withCaption(s, onStart) : onStart
         player.speak(said, interrupt: false, voice: kokoro ?? voice, rate: voice == nil ? nil : Languages.rate(for: language), pitch: pitch,
                      voicePitch: langPitch, voiceVolume: langVolume,
                      // The capital's tone as its letter starts, not as it is queued (a review: three at once for "ABC").
-                     onStart: tone ? Self.withCapitalTone(onStart) : onStart, completion: completion)
+                     onStart: tone ? Self.withCapitalTone(start) : start, completion: completion)
     }
     private static var pitchNext: Float?
     /// `onStart` with the capital's tone first, played on the main thread.
     nonisolated private static func withCapitalTone(_ onStart: (@Sendable () -> Void)?) -> @Sendable () -> Void {
         { DispatchQueue.main.async { Tones.beep(1760, 25, volume: 0.15) }; onStart?() }
+    }
+    /// `onStart` with the caption panel shown first, on the main thread.
+    nonisolated private static func withCaption(_ text: String, _ onStart: (@Sendable () -> Void)?) -> @Sendable () -> Void {
+        { onMain { VisionAids.spoke(text) }; onStart?() }
     }
     /// The next utterance is a capital to have a tone before it (capitalTone).
     private static var toneNext = false
@@ -303,9 +312,9 @@ public enum Speech {
 
     /// TurnOver's own confirmations ("copied"): spoken, but not remembered as the last thing said.
     public static func speakMessage(_ text: String, remember: Bool) {
-        let keepRaw = lastRaw, keepSpoken = lastSpoken
+        let keepRaw = lastRaw, keepSpoken = lastSpoken, keepPrivate = lastSpokenPrivate
         enqueue(text)
-        if !remember { lastRaw = keepRaw; lastSpoken = keepSpoken }
+        if !remember { lastRaw = keepRaw; lastSpoken = keepSpoken; lastSpokenPrivate = keepPrivate }
     }
 
     /// What was last spoken, as written on screen (not "slash Users slash …"): what "copy last spoken" copies.

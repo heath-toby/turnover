@@ -312,6 +312,7 @@ extension VoiceOverKeysPlugin {
     static func element(at p: CGPoint) -> AXUIElement? {
         var e: AXUIElement?
         guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(p.x), Float(p.y), &e) == .success else { return nil }
+        if let e, VisionAids.isOwnWindow(e) { return nil }   // a Vision ring's strip or panel
         return e
     }
 

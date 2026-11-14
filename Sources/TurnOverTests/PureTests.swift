@@ -1005,6 +1005,14 @@ func pureTests() {
         expect(VisionGeometry.caption(previous: "Mail", adding: "Inbox, table", continues: true), "Mail Inbox, table")
         expect(VisionGeometry.caption(previous: "Mail", adding: "Inbox", continues: false), "Inbox")
         expect(VisionGeometry.caption(previous: "", adding: String(repeating: "a", count: 400), continues: true).count, 301)
+        // The caption keeps its newest words: whole words go from the head until it fits.
+        let fits10: (String) -> Bool = { $0.count <= 10 }
+        expect(VisionGeometry.trimHead("one two", fits: fits10), "one two")
+        expect(VisionGeometry.trimHead("one two three four", fits: fits10), "…four")
+        expect(VisionGeometry.trimHead("one two three fo", fits: fits10), "…three fo")
+        expect(VisionGeometry.trimHead("…aa bb cc dd ee", fits: fits10), "…cc dd ee")
+        expect(VisionGeometry.trimHead("averyveryverylongword", fits: fits10), "averyveryverylongword")
+        expect(VisionGeometry.trimHead("a averyveryverylongword", fits: fits10), "…averyveryverylongword")
         // Settings: all off by default, and an older file without the section reads the defaults.
         let v = Config().vision
         check(!v.highlight && !v.captionPanel && !v.braillePanel, "nothing shown by default")

@@ -163,6 +163,9 @@ public enum Braille {
         display = nil
         updateBlink()
         Log.info("braille: \(driver.name) gone")
+        // The braille panel stays: laid out again at its own 40 cells and shown now, not left with the display's
+        // width until the next change (a review, 14 Nov 2026).
+        if VisionAids.wantsBraillePanel { panelChanged() }
         // Lost, or let go to VoiceOver: either way the display is no longer TurnOver's.
         Tones.brailleDisconnected()
     }
@@ -412,7 +415,7 @@ public enum Braille {
         plain()
         if let m = modalLine?() {
             let changed = !modalShowing || text != displayed(m.0)
-            source = .message; modalShowing = true
+            source = .message; modalShowing = true; messagePrivate = false
             text = displayed(m.0); cursor = m.1; selection = nil
             layout()
             if changed { windowStart = 0 }
@@ -427,6 +430,9 @@ public enum Braille {
             let said = Speech.lastSpoken
             let fresh = text != displayed(said)
             source = .message; text = displayed(said); cursor = nil; selection = nil
+            // A password echoed, a two-factor code: on the display, but "(private)" on the braille panel and only its
+            // length in the log (a review, 14 Nov 2026).
+            messagePrivate = Speech.lastSpokenPrivate
             layout()
             if fresh { windowStart = 0 }
             if !windows.contains(windowStart) { windowStart = window(containing: windowStart) }
@@ -657,7 +663,12 @@ public enum Braille {
             let a = start < cellMap.count ? cellMap[start] : 0
             let b = windowEnd(start) < cellMap.count ? cellMap[windowEnd(start)] : (text as NSString).length
             let ns = text as NSString, lo = min(a, ns.length), hi = max(lo, min(b, ns.length))
-            let secret: Bool = { if case .message = source { return messagePrivate }; return false }()
+            // Braille typed into a password field is private too (a review, 14 Nov 2026).
+            let secret: Bool = {
+                if !BrailleInput.pending.isEmpty && BrailleInput.typingSecret { return true }
+                if case .message = source { return messagePrivate }
+                return false
+            }()
             VisionAids.braille(cells: secret ? [] : window, text: secret ? String(localized: "(private)", comment: "The braille panel in place of a private message") : ns.substring(with: NSRange(location: lo, length: hi - lo)))
         }
     }
@@ -671,9 +682,11 @@ public enum Braille {
     private static var cellCount: Int { display?.cellCount ?? 40 }
 
     /// The panel came or went: write again, even what is already written.
+    /// A message held (until a key, or for its seconds) is laid out for the new width and shown at once, as attach
+    /// does: refresh() leaves a held message as it was, so the panel stayed empty or stale (a review, 14 Nov 2026).
     static func panelChanged() {
         lastWritten = []
-        refresh()
+        if let until = messageUntil, Date() < until { layout(); show() } else { refresh() }
     }
 
     /// The cursor blinks while it is in view (NVDA: cursor blink rate).

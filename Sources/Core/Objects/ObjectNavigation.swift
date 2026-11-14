@@ -1413,7 +1413,7 @@ public final class ObjectNavigator {
         guard let cur = element, let f = TurnOverObject.frame(cur), f.width > 1, f.height > 1 else { Speech.speakMessage(String(localized: "nothing to click", comment: "Spoken message")); return }
         let p = CGPoint(x: f.midX, y: f.midY)
         var hit: AXUIElement?
-        if AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(p.x), Float(p.y), &hit) == .success, let h = hit {
+        if AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(p.x), Float(p.y), &hit) == .success, let h = hit, !VisionAids.isOwnWindow(h) {   // (a ring's strip lets clicks through)
             var x: AXUIElement? = h; var hops = 0; var inside = false
             while let y = x, hops < 8 { if CFEqual(y, cur) { inside = true; break }; x = y.element(kAXParentAttribute); hops += 1 }
             if !inside { Speech.speakMessage(String(localized: "something else is over it; not clicked", comment: "Spoken message")); return }

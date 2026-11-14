@@ -52,6 +52,25 @@ public enum VisionGeometry {
         let joined = continues && !previous.isEmpty ? previous + " " + text : text
         return joined.count > limit ? "…" + String(joined.suffix(limit)) : joined
     }
+
+    /// The text with whole words dropped from its head until `fits` says it fits, so the newest words always show
+    /// (at the large size three lines held only the oldest words: a review, 14 Nov 2026). Dropped words become "…".
+    /// When not even the last word fits, the last word (the label truncates it).
+    nonisolated public static func trimHead(_ text: String, fits: (String) -> Bool) -> String {
+        if fits(text) { return text }
+        let body = text.hasPrefix("…") ? String(text.dropFirst()) : text
+        let words = body.split(separator: " ")
+        guard words.count > 1 else { return text }
+        func tail(_ k: Int) -> String { "…" + words[k...].joined(separator: " ") }
+        // The fewest words dropped that fits (more dropped never fits worse).
+        var lo = 1, hi = words.count - 1
+        guard fits(tail(hi)) else { return tail(hi) }
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if fits(tail(mid)) { hi = mid } else { lo = mid + 1 }
+        }
+        return tail(lo)
+    }
 }
 
 /// A window of TurnOver's that is only to be looked at: it never takes the keyboard or the mouse, and accessibility
@@ -165,8 +184,17 @@ private final class TextPanel {
         var y = pad
         var placed: [(NSTextField, CGFloat)] = []
         for (i, l) in labels.enumerated() {
-            let (text, font) = i < lines.count ? lines[i] : ("", NSFont.systemFont(ofSize: 13))
+            var (text, font) = i < lines.count ? lines[i] : ("", NSFont.systemFont(ofSize: 13))
             l.font = font
+            if i == 0, wrapLines > 1, !text.isEmpty {
+                // Measured unlimited against `wrapLines` lines' height: the head goes, the newest words stay.
+                l.maximumNumberOfLines = 0
+                l.lineBreakMode = .byWordWrapping
+                let size = NSSize(width: width - 2 * pad, height: 10_000)
+                l.stringValue = "Ag"
+                let allowed = ceil(l.sizeThatFits(size).height) * CGFloat(wrapLines) + 2
+                text = VisionGeometry.trimHead(text) { t in l.stringValue = t; return l.sizeThatFits(size).height <= allowed }
+            }
             l.stringValue = text
             l.maximumNumberOfLines = i == 0 ? wrapLines : 1
             l.lineBreakMode = i == 0 && wrapLines > 1 ? .byWordWrapping : .byTruncatingTail
@@ -201,6 +229,8 @@ public enum VisionAids {
     private static let browseRing = Ring(color: .systemYellow)
     private static var timer: Timer?
     private static var pending = false
+    /// Apps whose frames are not asked for until then: one that did not answer within the ring's short timeout.
+    private static var quietUntil: [pid_t: Date] = [:]
 
     private static var caption: TextPanel?
     private static var captionText = ""
@@ -214,7 +244,7 @@ public enum VisionAids {
     /// The settings changed, or TurnOver took over or handed back: show or hide what is wanted.
     public static func apply() {
         let v = vision
-        let wantsHighlight = on && v.highlight
+        let wantsHighlight = on && v.highlight && (v.highlightFocus || v.highlightReview || v.highlightBrowse)
         if wantsHighlight, timer == nil {
             // Every half second while shown: windows move and scroll with no event TurnOver hears.
             let t = Timer(timeInterval: 0.5, repeats: true) { _ in MainActor.assumeIsolated { updateHighlight() } }
@@ -256,31 +286,74 @@ public enum VisionAids {
         let v = vision
         guard on, v.highlight else { focusRing.hide(); reviewRing.hide(); browseRing.hide(); return }
         let primary = NSScreen.screens.first?.frame.height ?? 0
-        func rect(_ e: AXUIElement?) -> CGRect? {
-            guard let e, let r = TurnOverObject.frame(e), r.width >= 1, r.height >= 1 else { return nil }
-            return VisionGeometry.cocoa(r, primaryHeight: primary)
+        // A hung app is not asked (a review, 14 Nov 2026: every half second a frame read waited out the 1 s messaging
+        // timeout on the main thread): .keep leaves its ring where it was.
+        func rect(_ e: AXUIElement?) -> Look {
+            guard let e else { return .hidden }
+            var pid: pid_t = 0
+            AXUIElementGetPid(e, &pid)
+            if let q = quietUntil[pid], Date() < q { return .keep }
+            if AXHealth.backoff(for: pid) != nil { return .keep }
+            switch quickFrame(e, pid: pid) {
+            case .timedOut: quietUntil[pid] = Date().addingTimeInterval(3); return .keep
+            case .none: return .hidden
+            case .frame(let r): return r.width >= 1 && r.height >= 1 ? .at(VisionGeometry.cocoa(r, primaryHeight: primary)) : .hidden
+            }
         }
         let doc: BrowseModeDocument? = { if let d = API.focusTreeInterceptor, !d.passThrough { return d }; return nil }()
         let focusElement = API.focusObject?.element
         // In browse mode the focus is often the page itself: a ring round the whole page says nothing.
-        let focus = v.highlightFocus && !(doc.map { d in focusElement.map { CFEqual($0, d.webArea) } ?? false } ?? false) ? rect(focusElement) : nil
+        let focus = v.highlightFocus && !(doc.map { d in focusElement.map { CFEqual($0, d.webArea) } ?? false } ?? false) ? rect(focusElement) : .hidden
         // The review cursor only once it has left the focus (nil: it follows the focus).
         let reviewElement = ObjectNavigator.shared.reviewElement
-        let review = v.highlightReview && !(reviewElement != nil && focusElement != nil && CFEqual(reviewElement!, focusElement!)) ? rect(reviewElement) : nil
-        let browse = v.highlightBrowse ? rect(doc?.elementAtPosition()) : nil
+        let review = v.highlightReview && !(reviewElement != nil && focusElement != nil && CFEqual(reviewElement!, focusElement!)) ? rect(reviewElement) : .hidden
+        let browse = v.highlightBrowse ? rect(doc?.elementAtPosition()) : .hidden
         // Rings round the same item nest, each a step further out, so every colour shows.
         var placed: [CGRect] = []
-        for (ring, r) in [(focusRing, focus), (reviewRing, review), (browseRing, browse)] {
-            guard let r else { ring.hide(); continue }
+        for (ring, look) in [(focusRing, focus), (reviewRing, review), (browseRing, browse)] {
+            let r: CGRect
+            switch look { case .keep: continue; case .hidden: ring.hide(); continue; case .at(let f): r = f }
             let step = CGFloat(placed.filter { $0 == r }.count)
             ring.show(item: r, gap: baseGap + step * (ringWidth + 1))
             placed.append(r)
         }
     }
 
+    /// A hit test landed on one of TurnOver's own windows (a ring's strip, a panel). They hide from accessibility,
+    /// but whether the system-wide hit test passes them by is not checked (a review, 14 Nov 2026): callers treat it
+    /// as no answer rather than read or move to TurnOver's window.
+    nonisolated static func isOwnWindow(_ e: AXUIElement) -> Bool {
+        var pid: pid_t = 0
+        return AXUIElementGetPid(e, &pid) == .success && pid == getpid()
+    }
+
+    /// What a ring does this time: drawn round a frame, hidden, or kept where it is (its app is not answering).
+    private enum Look { case at(CGRect), hidden, keep }
+    private enum Frame { case frame(CGRect), none, timedOut }
+
+    /// The frame in one question (position and size together), waiting at most 0.2 s: the ring is not worth a
+    /// longer stall on the main thread. The element's own timeout goes back to the global one after.
+    private static func quickFrame(_ e: AXUIElement, pid: pid_t) -> Frame {
+        AXUIElementSetMessagingTimeout(e, 0.2)
+        defer { AXUIElementSetMessagingTimeout(e, 0) }
+        var values: CFArray?
+        let names = [kAXPositionAttribute, kAXSizeAttribute] as CFArray
+        let error = AXHealth.query(pid: pid) { AXUIElementCopyMultipleAttributeValues(e, names, AXCopyMultipleAttributeOptions(rawValue: 0), &values) }.legacyError
+        if error == .cannotComplete { return .timedOut }
+        guard error == .success, let list = values as? [AnyObject], list.count == 2,
+              CFGetTypeID(list[0]) == AXValueGetTypeID(), CFGetTypeID(list[1]) == AXValueGetTypeID() else { return .none }
+        var pt = CGPoint.zero, sz = CGSize.zero
+        // A missing attribute comes back as an AXValue of type .axError, which these refuse.
+        guard AXValueGetValue(list[0] as! AXValue, .cgPoint, &pt), AXValueGetValue(list[1] as! AXValue, .cgSize, &sz) else { return .none }
+        return .frame(CGRect(origin: pt, size: sz))
+    }
+
     // MARK: The caption panel (VoiceOver: Show caption panel)
 
-    /// What speech is saying now (never private speech).
+    /// Speech asks before it queues, so a caption is only made ready when one is shown.
+    static var captionWanted: Bool { on && vision.captionPanel }
+
+    /// What speech is saying now, as it starts (never private speech).
     static func spoke(_ text: String) {
         guard on, vision.captionPanel else { return }
         let now = Date()
