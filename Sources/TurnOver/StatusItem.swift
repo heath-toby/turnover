@@ -30,7 +30,7 @@ final class StatusItem: NSObject, NSMenuDelegate {
         it.button?.setAccessibilityLabel("TurnOver")
         let menu = NSMenu(title: "TurnOver")
         menu.addItem(withTitle: "TurnOver menu: Command Control Comma, from anywhere", action: #selector(openMenu), keyEquivalent: "").target = self
-        menu.addItem(withTitle: "Every shortcut: the TurnOver menu, Keys", action: #selector(openShortcuts), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Every shortcut: the TurnOver menu, Settings, Keyboard shortcuts", action: #selector(openShortcuts), keyEquivalent: "").target = self
         menu.addItem(.separator())
         let login = menu.addItem(withTitle: "Open at Login", action: #selector(toggleLogin), keyEquivalent: "")
         login.target = self

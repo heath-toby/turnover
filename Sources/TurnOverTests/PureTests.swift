@@ -9,6 +9,7 @@ import ApplicationServices
 import TurnOverCore
 import TurnOverSpeech
 import TurnOverControl
+import TurnOverVoices
 import AXFixtures
 
 func pureTests() {
@@ -171,6 +172,79 @@ func pureTests() {
         let (plain, marks) = PronunciationDictionary.phonemes(in: marked)
         expect(plain, "Hello Siobhan, hi", "an IPA pronunciation keeps the word in the text")
         expect(marks, [PronunciationDictionary.IPAMark(location: 6, length: 7, ipa: "ʃɪˈvɔːn")], "and marks it with its phonemes")
+    }
+    test("speech dictionaries: file names, and NVDA's order: the voice's, the language's, then the default") {
+        expect(SpeechDictionaries.fileName(.standard), "pronunciations.txt", "the default is the file there was before")
+        expect(SpeechDictionaries.fileName(.language("de-DE")), "pronunciations/language-de.txt", "a language by its base code")
+        expect(SpeechDictionaries.fileName(.voice("com.apple.voice.premium.en-GB.Malcolm")), "pronunciations/voice-com.apple.voice.premium.en-GB.Malcolm.txt", "a voice by its identifier")
+        expect(SpeechDictionaries.fileName(.voice("external:af_heart/../x")), "pronunciations/voice-external_af_heart_.._x.txt", "a colon or slash never makes another folder")
+        expect(SpeechDictionaries.scopes(voice: "v1", language: "fr-CA"), [.voice("v1"), .language("fr-CA"), .standard], "voice, language, default")
+        expect(SpeechDictionaries.scopes(voice: nil, language: nil), [.standard], "the default alone")
+        for scope in [SpeechDictionaries.Scope.standard, .language("de"), .voice("com.apple.eloquence.en-GB.Reed")] {
+            expect(SpeechDictionaries.Scope(id: scope.id), scope, "the menu's request names the dictionary: \(scope.id)")
+        }
+        expect(SpeechDictionaries.Scope(id: "nonsense"), nil, "anything else is no dictionary")
+        // Made-up dictionaries in a folder of the test's own.
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("turnover-dict-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        func write(_ scope: SpeechDictionaries.Scope, _ text: String) {
+            let url = SpeechDictionaries.fileURL(scope, in: folder)
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? text.write(to: url, atomically: true, encoding: .utf8)
+        }
+        write(.voice("testvoice"), "Zorbly = voice word\n")
+        write(.language("xx"), "voice word = language word\nQuimby = from the language\n")
+        write(.standard, "language word = default word\nQuimby = from the default\nFlib = flob\n")
+        let said = PronunciationDictionary.apply("Zorbly, Quimby, Flib", voice: "testvoice", language: "xx-YY", system: false, folder: folder)
+        expect(said, "default word, from the language, flob", "the voice's first, its result through the language's, then the default; the language's word wins over the default's")
+        expect(PronunciationDictionary.apply("Zorbly, Quimby", voice: "other", language: "zz", system: false, folder: folder), "Zorbly, from the default",
+               "another voice and language: only the default")
+        // A word given its sounds isn't marked again by a later dictionary.
+        let twice = PronunciationDictionary.apply(PronunciationDictionary.apply("say Brannagh", PronunciationDictionary.parse("Brannagh = /bɹænə/")),
+                                                  PronunciationDictionary.parse("Brannagh = /bɹɑːnə/"))
+        expect(PronunciationDictionary.phonemes(in: twice).ipa.map(\.ipa), ["bɹænə"], "the first dictionary's sounds kept")
+    }
+    test("speech dictionaries: System Settings' list decoded from a made-up archive, and filtered by active, language and voice") {
+        func record(_ word: String, say: String? = nil, ipa: String? = nil, active: Bool = true, ignoreCase: Bool = true,
+                    languages: [String] = [], voices: [String] = []) -> SystemPronunciationRecord {
+            let r = SystemPronunciationRecord()
+            r.originalString = word; r.replacementString = say; r.phonemes = ipa; r.active = active; r.ignoreCase = ignoreCase
+            r.languages = languages; r.voiceIds = voices
+            return r
+        }
+        let records = [record("Glorp", say: "glorpington", languages: ["en-GB"]),
+                       record("Snib", ipa: "snɪb"),
+                       record("Wuzzle", say: "never", active: false),
+                       record("Mexo", say: "meck so", voices: ["voice.one"]),
+                       record("CAPS", say: "capitals", ignoreCase: false)]
+        let archiver = NSKeyedArchiver(requiringSecureCoding: false)
+        archiver.setClassName("TTSSubstitution", for: SystemPronunciationRecord.self)
+        archiver.encode(NSMutableArray(array: records), forKey: NSKeyedArchiveRootObjectKey)
+        archiver.finishEncoding()
+        let prefs = try? PropertyListSerialization.data(fromPropertyList: [SpeechDictionaries.systemPreferencesKey: archiver.encodedData], format: .binary, options: 0)
+        guard let entries = prefs.flatMap(SpeechDictionaries.systemEntries(fromPreferences:)) else { check(false, "the made-up preferences decode"); return }
+        expect(entries.count, 5, "every entry decoded")
+        expect(entries.first?.languages, ["en-GB"], "its languages")
+        expect(entries.first?.voiceIds, [], "no voices: every voice")
+        expect(entries[1].phonemes, "snɪb", "its sounds")
+        expect(entries[2].active, false, "switched off in System Settings")
+        expect(SpeechDictionaries.systemEntries(fromArchive: Data("not an archive".utf8)), nil, "anything else: nothing, and no exception")
+        expect(SpeechDictionaries.systemEntries(fromPreferences: (try? PropertyListSerialization.data(fromPropertyList: ["other": 1], format: .binary, options: 0)) ?? Data()), [],
+               "preferences without the list: none")
+        let list = PronunciationDictionary.compiled(entries)
+        expect(list.count, 4, "the switched-off entry left out")
+        @MainActor func say(_ text: String, voice: String?, language: String?) -> String {
+            PronunciationDictionary.phonemes(in: PronunciationDictionary.applySystem(text, list, voice: voice, language: language, app: nil)).text
+        }
+        expect(say("Glorp Wuzzle Mexo", voice: "voice.two", language: "en-US"), "glorpington Wuzzle Mexo", "English of any country; not off, not another voice's")
+        expect(say("Glorp Mexo", voice: "voice.one", language: "fr"), "Glorp meck so", "another language: not the English one; this voice's: yes")
+        expect(say("caps CAPS", voice: nil, language: "en"), "caps capitals", "case kept when it doesn't ignore case")
+        let marked = PronunciationDictionary.applySystem("a Snib b", list, voice: nil, language: "de", app: nil)
+        expect(PronunciationDictionary.phonemes(in: marked).ipa, [PronunciationDictionary.IPAMark(location: 2, length: 4, ipa: "snɪb")], "sounds as IPA marks")
+        var limited = SpeechDictionaries.SystemEntry(original: "x", replacement: "y", appliesToAllApps: false, bundleIdentifiers: ["com.example.one"])
+        check(limited.applies(voice: nil, language: nil, app: "com.example.one") && !limited.applies(voice: nil, language: nil, app: "com.example.two"), "kept to its apps")
+        limited.appliesToAllApps = true
+        check(limited.applies(voice: nil, language: nil, app: "com.example.two"), "or every app")
     }
     test("Help make TurnOver: every way to help named, by the menu's own words, and it opens by itself once") {
         let body = HelpMakeTurnOver.body

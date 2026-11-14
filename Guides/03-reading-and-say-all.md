@@ -76,10 +76,20 @@ Settings has VoiceOver's and NVDA's choices for how text is read:
 - **Emoji and symbols:** emoji are named by the voice itself ("grinning face"), in the voice's language. Symbols a
   voice would pass over in silence, such as arrows, maths and shapes, are said by their Unicode names ("rightwards
   arrow"). Emoticons such as :-) and <3 are said by name ("smiley", "heart"), unless you turn that off in Speech.
-- **Pronunciations** (Speech): words said your way. Choose one in the list to change or remove it, or type a word and
-  how to say it and Add. "LBRF" said as "L B R F", for instance. It changes speech only; braille shows the word as
-  written. For the exact sounds, give them in IPA between slashes: Siobhan said as /ʃɪˈvɔːn/. The Mac's voices
-  say IPA, which VoiceOver can't; a natural voice says the word as written.
+- **Speech dictionaries** (its own section, after Speech): words said your way, as NVDA's speech dictionaries.
+  There are three kinds: the default dictionary, for every voice and language; a language's, for any voice speaking
+  it; and a voice's, for that voice only. Choose which to edit in **Dictionary** at the top; the list has the
+  default, your main voice's language and the other languages with voices, then your main voice and the voices you
+  chose for other languages. Choose a word in the list to change or remove it, or type a word and how to say it and
+  Add. "LBRF" said as "L B R F", for instance. They apply in NVDA's order: the voice's dictionary first, then the
+  language's, then the default. It changes speech only; braille shows the word as written. For the exact sounds,
+  give them in IPA between slashes: Siobhan said as /ʃɪˈvɔːn/. The Mac's voices say IPA, which VoiceOver can't; a
+  natural voice says the word as written. The TurnOver menu, Settings, Speech dictionaries, opens the window on the
+  default dictionary, this language's or this voice's.
+- **Also use the pronunciations from System Settings** (Speech dictionaries, on unless you turn it off): the words
+  you gave in System Settings, Accessibility, Read & Speak, Pronunciation, are said that way too, after TurnOver's
+  own dictionaries, for the languages and voices they were given for. TurnOver only reads that list; change it in
+  System Settings. The section says how many there are.
 - **Documents, Lines:** line indentation as the caret moves by line, when it changes: spoken ("4 space", "tab",
   "no indent"), as tones (higher for deeper), or both, as NVDA does.
 - **Documents, Fonts:** colour, with the font's name, size and style.
