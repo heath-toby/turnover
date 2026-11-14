@@ -126,9 +126,10 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
     /// left out: its on and off are their own news.
     private var modifierTap = LoneModifier()
     private var modifierTapCode: Int64 = -1
-    private func modifierTapped(code: Int64, flags: CGEventFlags, settings: KeySettings) {
+    /// Returns the name, unsaid, for a key that quiets speech: its own stop or pause decides.
+    private func modifierTapped(code: Int64, flags: CGEventFlags, settings: KeySettings) -> String? {
         guard code != 57, let (name, mask) = Self.modifierName(code: code, capsIsTurnOver: settings.capsIsTurnOver), let mask else {
-            modifierTap.cancel(); return
+            modifierTap.cancel(); return nil
         }
         let secure = IsSecureEventInputEnabled()
         let all: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskCommand, .maskSecondaryFn]
@@ -136,22 +137,21 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             if modifierTapCode != code, modifierTapCode >= 0 { modifierTap.cancel() }   // another one already held
             modifierTapCode = code
             modifierTap.down(alone: flags.intersection(all.subtracting(mask)).isEmpty && !capsDown && !InputManager.turnOverKeyLocked, secureInput: secure)
-            return
+            return nil
         }
-        guard code == modifierTapCode else { modifierTap.cancel(); return }
+        guard code == modifierTapCode else { modifierTap.cancel(); return nil }
         modifierTapCode = -1
-        guard modifierTap.up(secureInput: secure), settings.announceModifiers, !InputManager.isInputHelpActive else { return }
+        guard modifierTap.up(secureInput: secure), settings.announceModifiers, !InputManager.isInputHelpActive else { return nil }
         // Control on its own stops or pauses speech, and so does Shift in the Windows style: those are named only when
-        // there was nothing to stop, or the name would be paused, or follow the speech it resumed. (Their own action
-        // was queued to main before this, so the player shows what it did.)
-        let quietsSpeech = code == 59 || code == 62 || (settings.windowsKeys && (code == 56 || code == 60))
+        // there was nothing to stop, or the name would be paused, or follow the speech it resumed. Decided where the
+        // stop or pause is done, from the player as it was before: checked in a closure of its own, after the stop,
+        // the player was always idle and "control" was said straight after the speech it silenced (a review, 14 Nov 2026).
+        if code == 59 || code == 62 || (settings.windowsKeys && (code == 56 || code == 60)) { return name }
         // In the Windows style Command alone opens the menus and Option the Dock or shortcut menu: they say where
         // they went, and a name after it would only be in the way.
-        if settings.windowsKeys, [54, 55, 58, 61].contains(code) { return }
-        onMain {
-            if quietsSpeech, let p = Speech.player, p.isBusy || p.isPaused { return }
-            Speech.speakMessage(name)
-        }
+        if settings.windowsKeys, [54, 55, 58, 61].contains(code) { return nil }
+        onMain { Speech.speakMessage(name) }
+        return nil
     }
 
     /// Command pressed and released alone: Alt in Windows, the menus.
@@ -271,8 +271,10 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
 
         // Mouse downs too, only to cancel a lone modifier: Command, Option or Shift held to click, let go quickly,
         // counted as pressed alone and opened the menus or the Dock (a review, 14 Nov 2026). They pass untouched.
+        // Scrolling likewise: Shift or Command held to scroll sideways or zoom was named as it came up (a review, 14 Nov 2026).
         let mask = CGEventMask(1 << CGEventType.flagsChanged.rawValue | 1 << CGEventType.keyDown.rawValue | 1 << CGEventType.keyUp.rawValue
-            | 1 << CGEventType.leftMouseDown.rawValue | 1 << CGEventType.rightMouseDown.rawValue | 1 << CGEventType.otherMouseDown.rawValue)
+            | 1 << CGEventType.leftMouseDown.rawValue | 1 << CGEventType.rightMouseDown.rawValue | 1 << CGEventType.otherMouseDown.rawValue
+            | 1 << CGEventType.scrollWheel.rawValue)
         // Coexisting with VoiceOver: at the head of the HID level, before VoiceOver sees a chord (TapProbe, 16 Oct 2026).
         guard let t = CGEvent.tapCreate(tap: Coexist.on ? .cghidEventTap : .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
                                         eventsOfInterest: mask, callback: { proxy, type, event, refcon in
@@ -447,12 +449,15 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
 
     private func tapEvent(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         // A click with a modifier held: that modifier is not pressed alone. The click itself goes on, untouched.
-        if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
+        if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown || type == .scrollWheel {
             loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel(); modifierTap.cancel()
             return Unmanaged.passUnretained(event)
         }
         guard let generation = layer?.generation, isRequested(generation) else { return Unmanaged.passUnretained(event) }
         if Self.bypass, type != .tapDisabledByTimeout, type != .tapDisabledByUserInput {
+            // A key that goes by in the bypass is still a key: a modifier held with it is not pressed alone, and was
+            // named (or stopped speech) as it came up after the bypass ended (a review, 14 Nov 2026).
+            loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel(); modifierTap.cancel()
             // Their key-ups pass now, untouched: none must be swallowed or translated later, and a held Quick Nav
             // arrow is no longer held (remapped and arrowHeld were kept: a review, 13 Nov 2026).
             forgetHeldKeys()
@@ -529,6 +534,9 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             // that type or run something (12 Oct 2026: "it isn't reading command, control, option").
             if InputManager.isInputHelpActive { announceModifier(code: code, flags: event.flags, capsIsTurnOver: settings.capsIsTurnOver) }
             if code == 57 { modifierTap.cancel(); return settings.capsIsTurnOver ? nil : Unmanaged.passUnretained(event) }   // caps lock's own event: nobody sees it while it is the TurnOver key
+            // The name of a modifier tapped alone that also quiets speech (Control; Shift in the Windows style): said
+            // by the closure below that stops or pauses, only if nothing was speaking.
+            let quietName = modifierTapped(code: code, flags: event.flags, settings: settings)
             // Control pressed and released alone stops speech (NVDA: the control key cancels).
             let ctrl = event.flags.contains(.maskControl)
             // Let go within LoneModifier's time, as the other lone keys: with no limit, Control held a while (to
@@ -540,8 +548,14 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
                     // In keyboard help, Control is only named. Mac style: VoiceOver's pause and resume. Windows style:
                     // NVDA's stop (Shift pauses there, below) (12 Oct 2026).
                     let stop = settings.windowsKeys
-                    if !InputManager.isInputHelpActive { onMain { if stop { SayAll.stop(); Speech.cancel() } else { Speech.togglePause() } } }
-                }
+                    if !InputManager.isInputHelpActive {
+                        onMain {
+                            let speaking = Speech.player.map { $0.isBusy || $0.isPaused } ?? false
+                            if stop { SayAll.stop(); Speech.cancel() } else { Speech.togglePause() }
+                            if !speaking, let quietName { Speech.speakMessage(quietName) }
+                        }
+                    } else if let quietName { onMain { Speech.speakMessage(quietName) } }
+                } else if let quietName { onMain { Speech.speakMessage(quietName) } }
             } else { loneControl.cancel() }
             // While secure input is on no key between is heard, so Shift, Command and Option are not pressed alone then
             // (LoneModifier). Control, above, is never set aside for it (secureInput: false): it is all there is to
@@ -554,7 +568,13 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
                 } else {
                     let tapped = loneShift.up(secureInput: secure)
                     if loneShift.setAsideForSecureInput, settings.windowsKeys { Log.io("shift released alone with secure input on: not taken") }
-                    if tapped, settings.windowsKeys, !InputManager.isInputHelpActive { onMain { Speech.togglePause() } }
+                    if tapped, settings.windowsKeys, !InputManager.isInputHelpActive {
+                        onMain {
+                            let speaking = Speech.player.map { $0.isBusy || $0.isPaused } ?? false
+                            Speech.togglePause()
+                            if !speaking, let quietName { Speech.speakMessage(quietName) }
+                        }
+                    } else if let quietName { onMain { Speech.speakMessage(quietName) } }
                 }
             } else { loneShift.cancel() }
             if code == 55 || code == 54 {
@@ -597,7 +617,6 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
                 }
             } else { loneOption.cancel() }
             if !event.flags.contains(.maskAlternate) { optionCode = 0 }
-            modifierTapped(code: code, flags: event.flags, settings: settings)
             return Unmanaged.passUnretained(event)
         }
         loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel(); modifierTap.cancel()

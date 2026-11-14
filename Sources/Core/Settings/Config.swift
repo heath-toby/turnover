@@ -305,14 +305,13 @@ public struct Config: Codable {
         public var numpadCommander = false
         public var keypadCommands = true
         // VoiceOver's Verbosity > Announcements and NVDA's Keyboard options (14 Nov 2026). Defaults keep what
-        // TurnOver did before: no modifier names, every key cuts speech, no caps lock or spelling sounds, skim reading.
+        // TurnOver did before: no modifier names, every key cuts speech, no spelling sound, skim reading. (NVDA's
+        // beep for lowercase with Caps Lock on went, 14 Nov 2026: Shift with Caps Lock types capitals on the Mac.)
         /// VoiceOver's "Announce when a modifier key is pressed": a modifier pressed and let go on its own is named.
         public var announceModifierKeys = false
         /// NVDA's "Speech interrupt for typed characters" and "Speech interrupt for Enter key".
         public var interruptSpeechForTypedCharacters = true
         public var interruptSpeechForEnter = true
-        /// NVDA's "Beep if typing lowercase letters when caps lock is on".
-        public var beepForLowercaseWithCapsLock = false
         /// NVDA's "Play sound for spelling errors while typing": a word just typed that is misspelt.
         public var spellingErrorSoundWhileTyping = false
         /// NVDA's "Allow skim reading in Say All": the line and paragraph keys move say all on rather than stop it.
@@ -327,7 +326,7 @@ public struct Config: Codable {
         /// The user's own keys (UserGestures): key identifier → "script:<name>", "app:<bundle id>" or "none".
         public var userGestures: [String: String] = [:]
         enum Keys: String, CodingKey { case speakTypedCharacters, speakTypedWords, speakCommandKeys, multiPressTimeoutMs, layout, speakNewLine, userGestures, optionCommander, numpadCommander, keypadCommands,
-            announceModifierKeys, interruptSpeechForTypedCharacters, interruptSpeechForEnter, beepForLowercaseWithCapsLock, spellingErrorSoundWhileTyping, allowSkimReading, reviewFollowsFocus, reviewFollowsCaret, reviewFollowsMouse, simpleReviewMode
+            announceModifierKeys, interruptSpeechForTypedCharacters, interruptSpeechForEnter, spellingErrorSoundWhileTyping, allowSkimReading, reviewFollowsFocus, reviewFollowsCaret, reviewFollowsMouse, simpleReviewMode
             case commanderKey }
         // Each setting falls back on its own, so adding one never resets the others.
         public init(from decoder: Decoder) throws {
@@ -344,7 +343,6 @@ public struct Config: Codable {
             announceModifierKeys = (try? c.decodeIfPresent(Bool.self, forKey: .announceModifierKeys)) ?? false
             interruptSpeechForTypedCharacters = (try? c.decodeIfPresent(Bool.self, forKey: .interruptSpeechForTypedCharacters)) ?? true
             interruptSpeechForEnter = (try? c.decodeIfPresent(Bool.self, forKey: .interruptSpeechForEnter)) ?? true
-            beepForLowercaseWithCapsLock = (try? c.decodeIfPresent(Bool.self, forKey: .beepForLowercaseWithCapsLock)) ?? false
             spellingErrorSoundWhileTyping = (try? c.decodeIfPresent(Bool.self, forKey: .spellingErrorSoundWhileTyping)) ?? false
             allowSkimReading = (try? c.decodeIfPresent(Bool.self, forKey: .allowSkimReading)) ?? true
             reviewFollowsFocus = (try? c.decodeIfPresent(Bool.self, forKey: .reviewFollowsFocus)) ?? true
@@ -368,7 +366,7 @@ public struct Config: Codable {
             try c.encode(numpadCommander, forKey: .numpadCommander); try c.encode(keypadCommands, forKey: .keypadCommands)
             try c.encode(announceModifierKeys, forKey: .announceModifierKeys)
             try c.encode(interruptSpeechForTypedCharacters, forKey: .interruptSpeechForTypedCharacters); try c.encode(interruptSpeechForEnter, forKey: .interruptSpeechForEnter)
-            try c.encode(beepForLowercaseWithCapsLock, forKey: .beepForLowercaseWithCapsLock); try c.encode(spellingErrorSoundWhileTyping, forKey: .spellingErrorSoundWhileTyping)
+            try c.encode(spellingErrorSoundWhileTyping, forKey: .spellingErrorSoundWhileTyping)
             try c.encode(allowSkimReading, forKey: .allowSkimReading)
             try c.encode(reviewFollowsFocus, forKey: .reviewFollowsFocus); try c.encode(reviewFollowsCaret, forKey: .reviewFollowsCaret)
             try c.encode(reviewFollowsMouse, forKey: .reviewFollowsMouse); try c.encode(simpleReviewMode, forKey: .simpleReviewMode)

@@ -34,5 +34,6 @@ nonisolated public struct KeySettings: Sendable {
                             keypadCommands: config.keyboard.keypadCommands, announceModifiers: config.keyboard.announceModifierKeys,
                             commanderKey: Commander.key(config.keyboard.commanderKey), fastSearching: config.general.fastSearching)
         lock.lock(); _current = s; lock.unlock()
+        Announcements.warmSpellChecker()   // (run after each settings change: the spelling sound may just have come on)
     }
 }

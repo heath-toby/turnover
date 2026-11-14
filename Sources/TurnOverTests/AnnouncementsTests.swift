@@ -8,7 +8,7 @@ func announcementsTests() {
         let k = Config.Keyboard()
         check(!k.announceModifierKeys, "modifier names off")
         check(k.interruptSpeechForTypedCharacters && k.interruptSpeechForEnter, "every key cuts speech")
-        check(!k.beepForLowercaseWithCapsLock && !k.spellingErrorSoundWhileTyping, "no typing sounds")
+        check(!k.spellingErrorSoundWhileTyping, "no typing sounds")
         check(k.allowSkimReading, "skim reading in say all")
         let p = Config.Presentation()
         expect(p.statusTextChanges, "off"); expect(p.rowCountChanges, "off"); check(!p.dialogSound, "no dialog sound")
@@ -18,9 +18,9 @@ func announcementsTests() {
         let oldK = try! JSONDecoder().decode(Config.Keyboard.self, from: Data(#"{"speakNewLine": false}"#.utf8))
         check(!oldK.speakNewLine && oldK.allowSkimReading && !oldK.announceModifierKeys, "old keyboard file")
         var k = Config.Keyboard(); k.announceModifierKeys = true; k.interruptSpeechForEnter = false; k.allowSkimReading = false
-        k.beepForLowercaseWithCapsLock = true; k.spellingErrorSoundWhileTyping = true; k.interruptSpeechForTypedCharacters = false
+        k.spellingErrorSoundWhileTyping = true; k.interruptSpeechForTypedCharacters = false
         let k2 = try! JSONDecoder().decode(Config.Keyboard.self, from: JSONEncoder().encode(k))
-        check(k2.announceModifierKeys && !k2.interruptSpeechForEnter && !k2.allowSkimReading && k2.beepForLowercaseWithCapsLock
+        check(k2.announceModifierKeys && !k2.interruptSpeechForEnter && !k2.allowSkimReading
               && k2.spellingErrorSoundWhileTyping && !k2.interruptSpeechForTypedCharacters, "keyboard round trip")
         var p = Config.Presentation(); p.statusTextChanges = "speak"; p.rowCountChanges = "tone"; p.dialogSound = true; p.skipRedundantLabels = false
         let p2 = try! JSONDecoder().decode(Config.Presentation.self, from: JSONEncoder().encode(p))
@@ -36,13 +36,16 @@ func announcementsTests() {
         check(!Announcements.isStatusText(role: "AXProgressIndicator", subrole: nil), "a progress bar is ProgressWatch's")
         check(!Announcements.isStatusText(role: "AXButton", subrole: nil), "a button")
     }
-    test("announcements: lowercase with caps lock on") {
-        check(Announcements.lowercaseWithCapsLock("a", capsLockOn: true), "a lowercase letter")
-        check(!Announcements.lowercaseWithCapsLock("a", capsLockOn: false), "caps lock off")
-        check(!Announcements.lowercaseWithCapsLock("A", capsLockOn: true), "a capital")
-        check(!Announcements.lowercaseWithCapsLock("5", capsLockOn: true), "a digit")
-        check(!Announcements.lowercaseWithCapsLock(",", capsLockOn: true), "punctuation")
-        check(Announcements.lowercaseWithCapsLock("é", capsLockOn: true), "an accented letter")
+    test("announcements: the spelling checker is always given a language") {
+        let have = ["en", "en_GB", "tr", "de"]
+        expect(Announcements.spellingLanguage(typing: nil, available: have, checkers: "en_GB"), "en_GB", "no layout language: the checker's")
+        expect(Announcements.spellingLanguage(typing: "en", available: have, checkers: "en_GB"), "en_GB", "same language: the checker's own variety")
+        expect(Announcements.spellingLanguage(typing: "tr", available: have, checkers: "en_GB"), "tr", "a Turkish layout")
+        expect(Announcements.spellingLanguage(typing: "pt", available: ["en", "pt_BR"], checkers: "en"), "pt_BR", "the layout's language in a variety")
+        expect(Announcements.spellingLanguage(typing: "ja", available: have, checkers: "en_GB"), "en_GB", "a language the checker hasn't")
+        check(Announcements.checksSpelling(of: "seemless"), "a word")
+        check(!Announcements.checksSpelling(of: "a"), "one letter")
+        check(!Announcements.checksSpelling(of: "mp3"), "digits")
     }
     test("announcements: which keys cut speech") {
         let both = { (k: String, plain: Bool, typed: Bool) in Announcements.keyInterruptsSpeech(keyName: k, plain: plain, typesCharacter: typed, forCharacters: false, forEnter: false) }

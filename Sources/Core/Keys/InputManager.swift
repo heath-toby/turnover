@@ -163,7 +163,9 @@ public enum InputManager {
             // NVDA's "interrupt speech for typed characters": every key cuts what is being said, so the echo keeps
             // up with fast typing (letting each echo finish first left it seconds behind an e-mail address, 3 Oct).
             // Its two switches (14 Nov 2026) can leave typed characters and Return to queue behind what is said.
-            if interrupts { Speech.cancel() }
+            // Say all is stopped by every key whatever the switches (NVDA cancels it on any key): its speech goes
+            // with it, or its queued sentences played on and then stopped dead (a review, 14 Nov 2026).
+            if interrupts || SayAll.isRunning { Speech.cancel() }
             if saysWord { Speech.finishTypedWord() } else if endsWord { Speech.clearTypedWordBuffer() }
             SayAll.stop(byGesture: true)
         }
@@ -254,7 +256,6 @@ public enum InputManager {
             ScriptHandler.clearLastScript()
             onPassThrough?(gesture)
             for w in passThroughWatchers { w(gesture) }
-            if let c = gesture.typedCharacter { Announcements.typed(c, flags: gesture.flags) }
             if let c = gesture.typedCharacter, let focus = API.focusObject {
                 EventHandler.queue(Event(.typedCharacter, focus, character: c))
             }
