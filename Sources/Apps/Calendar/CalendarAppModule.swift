@@ -27,6 +27,8 @@ final class CalendarAppModule: AppModule {
     /// Return opened an event: waiting for its details to take the focus, then for the focus to come back.
     private enum Opened { case no, waiting, showing }
     private var opened = Opened.no
+    /// Counts Return's presses, so a later press's wait isn't ended by an earlier one's time limit.
+    private var openPresses = 0
 
     required init(pid: pid_t, bundleIdentifier: String, appName: String) {
         super.init(pid: pid, bundleIdentifier: bundleIdentifier, appName: appName)
@@ -260,11 +262,13 @@ final class CalendarAppModule: AppModule {
         }
         guard let shown = dayShowing(day) else { Log.io("calendar: the saved event's day not reached"); return }
         current = shown.date
-        eventIndex = title.isEmpty ? nil : events(shown).firstIndex { Self.brief($0).contains(title) }
+        // The events read once: a second read could be shorter, and indexing it crashed (a review, 14 Nov 2026).
+        let list = events(shown)
+        eventIndex = title.isEmpty ? nil : list.firstIndex { Self.brief($0).contains(title) }
         lastOwnMove = Date()
         // Calendar's focus put there too, so the view's keys (Up, Down, Return) work at once: after the box it was on
         // the window, and Down did nothing (driver, 18 Oct 2026).
-        let target = eventIndex.map { events(shown)[$0] } ?? shown.element
+        let target = eventIndex.flatMap { list.indices.contains($0) ? list[$0] : nil } ?? shown.element
         if target.set(kAXFocusedAttribute, kCFBooleanTrue) != .success { _ = shown.element.set(kAXFocusedAttribute, kCFBooleanTrue) }
         // Calendar posts no focus change for it: TurnOver's own focus follows (said nothing: lastOwnMove).
         AXHandler.shared.focusChanged(target, pid: pid)
@@ -611,12 +615,23 @@ final class CalendarAppModule: AppModule {
     }
 
     private func openEvent(_ g: KeyboardGesture) {
-        guard let day = dayShowing(current), let i = eventIndex, i < events(day).count else { g.send(); return }
-        let e = events(day)[i]
+        // The events read once, so the index checked is the index used (a review, 14 Nov 2026).
+        guard let day = dayShowing(current), let i = eventIndex else { g.send(); return }
+        let list = events(day)
+        guard list.indices.contains(i) else { g.send(); return }
+        let e = list[i]
         Tones.press()
         opened = .waiting
         lastOwnMove = Date()
-        _ = AXUIElementPerformAction(e, kAXPressAction as CFString)
+        // Nothing opened (the press failed, or no box came): not left waiting, where a later popover's focus would be
+        // taken for this event's and its return said as this event (a review, 14 Nov 2026).
+        if AXUIElementPerformAction(e, kAXPressAction as CFString) != .success { opened = .no; return }
+        openPresses &+= 1
+        let press = openPresses
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self, openPresses == press, opened == .waiting else { return }
+            opened = .no
+        }
     }
 
     // MARK: Words

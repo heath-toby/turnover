@@ -1021,7 +1021,15 @@ public final class MediaView {
         let old = max(0, min(all.count - 1, index[pane] ?? 0))
         let new = startsAtHeading && delta > 0 ? old + (delta - 1) : old + delta
         guard all.indices.contains(new) else {
-            if pane == .page, delta > 0 { loadMore(then: { [weak self] in self?.move(delta) }) } else { Tones.edge() }
+            // A Tab, letter or Home while it loads owns the newer place: the load must not move from there (a review,
+            // 14 Nov 2026). Arrows pressed meanwhile are queued without a new intent, so they still follow.
+            let intent = navigationIntent
+            if pane == .page, delta > 0 {
+                loadMore(then: { [weak self] in
+                    guard let self, navigationIntent == intent else { return }
+                    move(delta)
+                })
+            } else { Tones.edge() }
             return
         }
         index[pane] = new
@@ -1181,10 +1189,16 @@ public final class MediaView {
     }
 
     /// Every shelf of the page, scrolling to the bottom (End).
-    private func loadAll(rounds: Int = 25, then: @escaping () -> Void) {
+    /// `intent`: the End that asked. A newer Tab, letter or Home while it loads ends the loading, and `then` is not
+    /// run, so End doesn't move from the newer place (a review, 14 Nov 2026).
+    private func loadAll(rounds: Int = 25, intent: UInt64, then: @escaping () -> Void) {
         guard canUseResult else { stop(); return }
+        guard navigationIntent == intent else { return }
         guard rounds > 0 else { then(); return }
-        loadMore(then: { [weak self] in self?.loadAll(rounds: rounds - 1, then: then) }, nothing: then)
+        loadMore(then: { [weak self] in self?.loadAll(rounds: rounds - 1, intent: intent, then: then) }, nothing: { [weak self] in
+            guard let self, navigationIntent == intent else { return }
+            then()
+        })
     }
 
     public func toEnd(_ last: Bool) {
@@ -1196,12 +1210,13 @@ public final class MediaView {
             let session = currentSession
             let window = modelWindow
             var done = false
+            let intent = navigationIntent
             // Reading to the bottom of a long page takes a few seconds: say so, rather than silence.
             delay(0.8) { [weak self] in
-                guard let self, isCurrent(session), !done, acceptsWindow(window) else { return }
+                guard let self, isCurrent(session), !done, navigationIntent == intent, acceptsWindow(window) else { return }
                 Speech.speakMessage(String(localized: "reading the whole page", comment: "Spoken message"), remember: false)
             }
-            loadAll { [weak self] in
+            loadAll(intent: intent) { [weak self] in
                 guard let self, isCurrent(session) else { return }
                 done = true
                 Log.io("media: End loaded \(shelves.count) shelves in \(String(format: "%.1f", Date().timeIntervalSince(t))) s")
@@ -1412,16 +1427,9 @@ public final class MediaView {
         // without moving skipped the check (a review, 14 Nov 2026). With none, or another song there now, its words
         // are spoken and the key waits for the next press.
         guard let i = index[pane] else { g.send(); return }
-        let title = Self.rowText(item.element).first ?? ""
-        let heard = lastSpokenRow.flatMap { $0.index == i ? $0.text : nil }
-        // An empty title is a mismatch too: a row with no words now can't be shown to be the song heard (a review,
-        // 14 Nov 2026: it skipped the check and the key was sent).
-        if heard == nil || title.isEmpty || (heard != title && !heard!.hasPrefix(title + ", ")) {
+        if !rowIsTheOneHeard(item, at: i) {
             Log.io("media: \(g.identifier) not sent; the row's words weren't the ones heard")
-            rowLabels[i] = nil
-            Tones.edge()
-            announce(crossedFrom: i)
-            builtAt = .distantPast
+            reannounceRow(at: i)
             return
         }
         selectTableRow(item)
@@ -1435,6 +1443,22 @@ public final class MediaView {
         g.send()
         // The list changes under the cached words: read afresh at the next move, and heard again before another key.
         rowLabels = [:]; builtAt = .distantPast; lastSpokenRow = nil
+    }
+
+    /// The row's title now is the one last heard at that place. An empty title is a mismatch too: a row with no
+    /// words now can't be shown to be the song heard (a review, 14 Nov 2026: it skipped the check and the key was sent).
+    private func rowIsTheOneHeard(_ item: Item, at i: Int) -> Bool {
+        let title = Self.rowText(item.element).first ?? ""
+        guard let heard = lastSpokenRow.flatMap({ $0.index == i ? $0.text : nil }), !title.isEmpty else { return false }
+        return heard == title || heard.hasPrefix(title + ", ")
+    }
+
+    /// Another song (or none) at the place heard: its words now are spoken, and the key waits for the next press.
+    private func reannounceRow(at i: Int) {
+        rowLabels[i] = nil
+        Tones.edge()
+        announce(crossedFrom: i)
+        builtAt = .distantPast
     }
 
     private func hint(for item: Item) -> String {
@@ -1505,6 +1529,13 @@ public final class MediaView {
             let title = item.label.components(separatedBy: ", ").prefix(2).joined(separator: ", ")
             Speech.speakText(String(localized: "playing, \(title)", comment: "Something started playing: %@ is its title"))
             confirmPlaying()
+            return
+        }
+        // Return on a library song plays the row's song now: Music can reuse the row's element for another song, so
+        // its title is checked against the one heard, as for Delete (a review, 14 Nov 2026).
+        if pane != .sidebar, item.tableRow, let i = index[pane], !rowIsTheOneHeard(item, at: i) {
+            Log.io("media: Return not sent; the row's words weren't the ones heard")
+            reannounceRow(at: i)
             return
         }
         let originalKeys = keyCount()
