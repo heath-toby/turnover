@@ -30,6 +30,13 @@ public enum SayAll {
     /// JAWS: Page Up and Page Down during say all change the speed for this say all only. Nil when unchanged.
     private static var sayAllRate: Float?
     private static var continuing = false
+    /// This say all, for marks made under it (BrowseModeDocument.loadedUnderSayAll).
+    public static var runID: Int { generation }
+    /// The say all that has read its page again at its end already: once per say all (a review, 13 Nov 2026).
+    private static var readAgainIn: Int?
+    /// Counts the copies say all has read: a part started from the copy before a read again (the last chunk's second
+    /// part, still to start) does not set `hearing` to its offsets, which mean other text in the new copy.
+    private static var copy = 0
 
     /// Whether say all is reading this browse mode document's copy (whose offsets a read of the page again changes).
     public static func isReading(_ d: BrowseModeDocument) -> Bool {
@@ -104,6 +111,7 @@ public enum SayAll {
         }
         firstChunk = false
         let total = max(1, parts.reduce(0) { $0 + $1.count })
+        let thisCopy = copy
         var before = 0
         for (i, part) in parts.enumerated() {
             let from = bookmark.start + (bookmark.end - bookmark.start) * before / total
@@ -113,7 +121,7 @@ public enum SayAll {
             Speech.enqueue(part, language: language, onStart: {
                 DispatchQueue.main.async {
                     guard gen == generation else { return }
-                    hearing = (obj, from, to)
+                    if thisCopy == copy { hearing = (obj, from, to) }
                     guard isFirst else { return }
                     tones.forEach { $0() }
                     // NVDA: lineReached — move the caret to the chunk now being spoken.
@@ -153,14 +161,24 @@ public enum SayAll {
         // A whole copy marked changed under the say all (the page finished loading as it was read: pageLoadCompleted only
         // marks it): read again at its end and carried on past what was read, not "end of document" with the rest of
         // the page come (a review, 13 Nov 2026). Only once the last chunk has started (buffered 0), so no chunk queued
-        // with an offset in the old copy moves the caret after the read.
-        if buffered == 0, let r = reader, let doc = (r.obj as? WebArea)?.document, !doc.buffer.isPartial, doc.buffer.isDirty,
-           let at = doc.readAgainAtSayAllEnd(reached: r.start),
-           let info = try? r.obj.makeTextInfo(.bookmark(Bookmark(start: at, end: at))) {
-            Log.io("say all: the page changed under it; read again, on from \(at)")
-            reader = info
-            nextLine(gen)
-            return
+        // with an offset in the old copy moves the caret after the read. Only for a load under this say all, and once:
+        // isDirty alone (every layout change) had nearly every say all read the page again (a review, 13 Nov 2026).
+        if buffered == 0, readAgainIn != gen, let r = reader, let doc = (r.obj as? WebArea)?.document,
+           doc.loadedUnderSayAll == gen, !doc.buffer.isPartial {
+            doc.loadedUnderSayAll = nil
+            readAgainIn = gen
+            // The last chunk, still playing, has offsets in the old copy: stopped during it, the caret went to its old
+            // offset in the new text. It goes to where the reading carries on, or stays (a review, 13 Nov 2026).
+            copy += 1
+            hearing = nil
+            if let at = doc.readAgainAtSayAllEnd(reached: r.start),
+               let info = try? r.obj.makeTextInfo(.bookmark(Bookmark(start: at, end: at))) {
+                Log.io("say all: the page finished loading under it; read again, on from \(at)")
+                hearing = (r.obj, at, at)
+                reader = info
+                nextLine(gen)
+                return
+            }
         }
         // The app may go on (Kindle's next page): reader is kept, so a key still stops say all while it turns.
         if buffered == 0, let obj = reader?.obj,

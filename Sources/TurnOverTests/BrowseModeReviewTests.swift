@@ -111,7 +111,7 @@ func browseModeReviewTests() {
         let grown = "Banner\nTop\nFirst part read\nThe rest\n" as NSString
         expect(BrowseModeDocument.carryOnAfterRebuild(oldText: old, reached: old.length, newText: grown),
                grown.range(of: "The rest").location, "more above too: past the text read last")
-        expect(BrowseModeDocument.carryOnAfterRebuild(oldText: old, reached: old.length, newText: "Other\n" as NSString), 6, "all gone: within the copy")
+        expect(BrowseModeDocument.carryOnAfterRebuild(oldText: old, reached: old.length, newText: "Other\n" as NSString), nil, "all gone: stops, not on mid-word in other text")
     }
 
     test("browse mode review: the anchor's climb goes past an element an earlier line's climb ended at") {
@@ -144,6 +144,14 @@ func browseModeReviewTests() {
         check(!BrowseModeDocument.isSamePage("https://example.com/app/", "https://example.com/app/#/a"), "a route gone: the app's start")
         check(!BrowseModeDocument.isSamePage("https://example.com/app/#!/b", "https://example.com/app/#!/a"), "a hash-bang route")
         check(BrowseModeDocument.isSamePage("https://example.com/a#section-2", "https://example.com/a#section-1"), "plain anchors still are")
+    }
+
+    test("browse mode review: a web app's route change keeps focus mode; a new page does not") {
+        check(BrowseModeDocument.isRouteChange("https://mail.example.com/mail/u/0/#inbox/FMfcg", "https://mail.example.com/mail/u/0/#inbox"), "a message opened")
+        check(BrowseModeDocument.isRouteChange("https://example.com/app/", "https://example.com/app/#/a"), "the route gone")
+        check(!BrowseModeDocument.isRouteChange("https://example.com/a#b", "https://example.com/a"), "a plain anchor")
+        check(!BrowseModeDocument.isRouteChange("https://example.com/b#/x", "https://example.com/a#/x"), "another page")
+        check(!BrowseModeDocument.isRouteChange("https://example.com/a#/x", ""), "the first look")
     }
 
     test("browse mode review: focus mode for a list box or grid, not for a plain list or table that took the focus (NVDA)") {
