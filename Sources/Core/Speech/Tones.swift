@@ -27,6 +27,11 @@ public enum Tones {
         guard own else { return }
         Speech.player?.playTone(frequency: frequency, durationMs: ms, volume: volume)
     }
+    /// NVDA's beep (tones.beep): its brighter clipped sine, panned -1 left to 1 right. For indentation and audio
+    /// coordinates, which are information, not one of TurnOver's sound set: played whatever set is chosen.
+    public static func nvdaBeep(_ frequency: Double, _ ms: Int, volume: Float = 0.21, pan: Float? = nil) {
+        Speech.player?.playTone(frequency: frequency, durationMs: ms, volume: volume, nvda: true, pan: pan)
+    }
     /// Headings: higher for level 1, descending by level.
     public static func heading(level: Int) { if off("heading") { return }; if fresh("heading\(min(6, max(1, level)))") { return }; beep(level <= 0 ? 700 : max(440, 1000 - Double(level - 1) * 110), 60) }
     /// VoiceOver's own sound where it has one (17 Oct 2026), or the set's with TurnOver's chosen; false off the main

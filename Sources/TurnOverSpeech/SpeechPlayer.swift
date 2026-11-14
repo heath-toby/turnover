@@ -424,18 +424,24 @@ public final class SpeechPlayer: @unchecked Sendable {
         }
     }
 
-    public func playTone(frequency: Double, durationMs: Int, volume: Float = 0.25) {
+    /// `nvda`: NVDA's beep: a sine doubled and clipped (brighter), a whole number of cycles so it starts and ends at
+    /// zero with no fade (as the tester's IndentBeeper models it). `pan`: -1 left to 1 right (NVDA's audio coordinates).
+    public func playTone(frequency: Double, durationMs: Int, volume: Float = 0.25, nvda: Bool = false, pan: Float? = nil) {
         queue.async { [self] in
-            let frames = AVAudioFrameCount(format.sampleRate * Double(durationMs) / 1000)
+            let rate = format.sampleRate
+            var frames = AVAudioFrameCount(rate * Double(durationMs) / 1000)
+            if nvda { let cycles = (Double(durationMs) / 1000 * frequency).rounded(.up); frames = AVAudioFrameCount((cycles * rate / frequency).rounded()) }
             guard frames > 0, let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames), let data = buf.floatChannelData?[0] else { return }
             buf.frameLength = frames
-            let fade = min(Int(format.sampleRate * 0.005), Int(frames) / 2)
+            let fade = nvda ? 0 : min(Int(rate * 0.005), Int(frames) / 2)
             for i in 0..<Int(frames) {
                 var a = volume
-                if i < fade { a *= Float(i) / Float(fade) }
-                if i > Int(frames) - fade { a *= Float(Int(frames) - i) / Float(fade) }
-                data[i] = a * Float(sin(2 * Double.pi * frequency * Double(i) / format.sampleRate))
+                if fade > 0, i < fade { a *= Float(i) / Float(fade) }
+                if fade > 0, i > Int(frames) - fade { a *= Float(Int(frames) - i) / Float(fade) }
+                let w = sin(2 * Double.pi * frequency * Double(i) / rate)
+                data[i] = a * Float(nvda ? max(-1, min(1, w * 2)) : w)
             }
+            toneNode.pan = max(-1, min(1, pan ?? 0))
             toneNode.scheduleBuffer(buf, completionHandler: nil)
             play(toneNode)
         }

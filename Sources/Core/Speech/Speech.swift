@@ -701,7 +701,7 @@ public enum Speech {
                 let sameDoc = lastIndent.map { CFEqual($0.element, element) } ?? false
                 if !sameDoc || lastIndent?.tabs != ind.tabs || lastIndent?.spaces != ind.spaces {
                     if mode == "speech" || mode == "both" { indentWords = Indentation.words(tabs: ind.tabs, spaces: ind.spaces) }
-                    if mode == "tones" || mode == "both" { Tones.beep(Indentation.frequency(columns: ind.columns), 40, volume: 0.15) }
+                    if mode == "tones" || mode == "both" { Tones.nvdaBeep(Indentation.frequency(columns: ind.columns), Indentation.durationMs(columns: ind.columns)) }
                 }
                 lastIndent = (element, ind.tabs, ind.spaces)
             }

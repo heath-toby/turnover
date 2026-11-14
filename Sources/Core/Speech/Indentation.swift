@@ -25,6 +25,9 @@ nonisolated public enum Indentation {
         return parts.isEmpty ? String(localized: "no indent", comment: "Line indentation: none") : parts.joined(separator: " ")
     }
 
-    /// The tone's frequency for a width: 220 Hz, a quarter tone higher for each column, round again past 72.
+    /// The tone's frequency for a width: 220 Hz, a quarter tone higher for each column, round again past 72 (NVDA).
     public static func frequency(columns: Int) -> Double { 220 * pow(2, Double(columns % 72) / 24) }
+    /// Its length: NVDA's 40 ms, 80 ms longer each time round the scale (the tester's IndentBeeper), so 80 columns
+    /// is told from 8.
+    public static func durationMs(columns: Int) -> Int { 40 + (columns / 72) * 80 }
 }
