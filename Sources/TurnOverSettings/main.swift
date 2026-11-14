@@ -1291,8 +1291,17 @@ struct OneSoundSettings: View {
     }
     var body: some View {
         Section(header: Text("Each sound")) {
-            Toggle("Positional sound: each sound comes from where its item is on the screen", isOn: Binding(
-                get: { model.get("sounds", "positional") as? Bool ?? true }, set: { model.set("sounds", "positional", $0) }))
+            // 14 Nov 2026: a choice of Off, Stereo and 3D in place of the "Positional sound" switch. A settings file with
+            // only the switch reads as Stereo (on) or Off (Config.Sounds).
+            Picker("Where sounds come from", selection: Binding(
+                get: { model.get("sounds", "placement") as? String ?? ((model.get("sounds", "positional") as? Bool ?? true) ? "stereo" : "off") },
+                set: { model.set("sounds", "placement", $0) })) {
+                Text("The middle").tag("off")
+                Text("Across the screen (stereo)").tag("stereo")
+                Text("Across and up or down the screen (3D, best with headphones)").tag("3d")
+            }
+            Toggle("A touch of reverb on the sounds", isOn: Binding(
+                get: { model.get("sounds", "reverb") as? Bool ?? false }, set: { model.set("sounds", "reverb", $0) }))
             if sounds.isEmpty {
                 Text("The list of sounds comes from TurnOver: it shows once TurnOver is running.").font(.caption)
             } else {
@@ -1305,7 +1314,7 @@ struct OneSoundSettings: View {
                 if custom[chosen] != nil {
                     Button("Use TurnOver's sound again") { model.setSpecial("_soundClear", chosen) }
                 }
-                Text("A sound turned off is silent; where TurnOver has words for it, such as Quick Nav on and off, it says them instead. Your own file is copied into TurnOver's folder, so moving the original doesn't silence it. Positional sound pans the sound files; a plain tone played where a file is missing stays in the middle, as do sounds that belong to no item, such as TurnOver starting.").font(.caption)
+                Text("A sound turned off is silent; where TurnOver has words for it, such as Quick Nav on and off, it says them instead. Your own file is copied into TurnOver's folder, so moving the original doesn't silence it. Where sounds come from applies to the sound files: each comes from where its item is on the screen. A plain tone played where a file is missing stays in the middle, as do sounds that belong to no item, such as TurnOver starting. Reverb, too, is heard on the sound files only, never on speech.").font(.caption)
             }
         }
     }
