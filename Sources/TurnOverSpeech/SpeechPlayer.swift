@@ -67,7 +67,10 @@ public final class SpeechPlayer: @unchecked Sendable {
     /// Panned beeps (NVDA's audio coordinates) on a node of their own (a review, 14 Nov 2026): each one replaces the
     /// last, as NVDA's beep stops the one before, instead of queueing behind it and falling behind the pointer; and a
     /// node's pan is the whole node's, so on the shared tone node a panned beep re-panned tones already queued there.
-    private let pannedNode = AVAudioPlayerNode()
+    /// Panned tones (NVDA's audio coordinates) take turns on these, so each plays out in full over the one before
+    /// instead of cutting it off or waiting behind it (the tester, 14 Nov 2026).
+    private let pannedNodes = (0..<4).map { _ in AVAudioPlayerNode() }
+    private var nextPanned = 0
     private let queue = DispatchQueue(label: "turnover.speech", qos: .userInteractive)
     private var synth = AVSpeechSynthesizer()   // the speech queue's; replaced when it stops giving sound (freshSynth)
     /// Every call into a synthesizer runs on that synthesizer's own queue, never on the speech queue: its write and its
@@ -167,8 +170,7 @@ public final class SpeechPlayer: @unchecked Sendable {
         engine.connect(player, to: engine.mainMixerNode, format: format)
         engine.attach(toneNode)
         engine.connect(toneNode, to: engine.mainMixerNode, format: format)
-        engine.attach(pannedNode)
-        engine.connect(pannedNode, to: engine.mainMixerNode, format: format)
+        for n in pannedNodes { engine.attach(n); engine.connect(n, to: engine.mainMixerNode, format: format) }
         if let unit = engine.outputNode.audioUnit {
             var frames = bufferFrames
             let status = AudioUnitSetProperty(unit, kAudioDevicePropertyBufferFrameSize, kAudioUnitScope_Global, 0, &frames, UInt32(MemoryLayout<UInt32>.size))
@@ -177,7 +179,7 @@ public final class SpeechPlayer: @unchecked Sendable {
         try engine.start()
         play(player)
         play(toneNode)
-        play(pannedNode)
+        pannedNodes.forEach(play)
         engineDevice = Self.defaultOutputDevice()
         watchDefaultOutput()
         // The engine stops itself when the output changes (AirPods or a USB headset connect, a sample-rate change):
@@ -451,9 +453,10 @@ public final class SpeechPlayer: @unchecked Sendable {
                 data[i] = a * Float(nvda ? max(-1, min(1, w * 2)) : w)
             }
             if let pan {
-                pannedNode.pan = max(-1, min(1, pan))
-                pannedNode.scheduleBuffer(buf, at: nil, options: .interrupts, completionHandler: nil)
-                play(pannedNode)
+                let node = pannedNodes[nextPanned]; nextPanned = (nextPanned + 1) % pannedNodes.count
+                node.pan = max(-1, min(1, pan))
+                node.scheduleBuffer(buf, at: nil, options: .interrupts, completionHandler: nil)   // (only its own beep of four ago)
+                play(node)
             } else {
                 toneNode.scheduleBuffer(buf, completionHandler: nil)
                 play(toneNode)
@@ -844,7 +847,7 @@ public final class SpeechPlayer: @unchecked Sendable {
             try engine.start()
             play(player)
             play(toneNode)
-            play(pannedNode)
+            pannedNodes.forEach(play)
             NSLog("speech: audio engine restarted (%@)", reason)
         } catch {
             NSLog("speech: audio engine would not restart (%@): %@", reason, "\(error)")

@@ -134,12 +134,10 @@ public enum MouseTracking {
         }
     }
 
-    /// NVDA's audio coordinates: a beep at every move of the mouse, each cutting off the one before (its own player
-    /// node), as NVDA's does, so the beeps come as fast as the mouse moves: 50 a second or more (the tester, 14 Nov
-    /// 2026: one per 40 ms held them to 25 a second, slower than the hand). Only a mouse reporting faster than 125
-    /// times a second is thinned, which no ear can tell.
+    /// NVDA's audio coordinates: a beep every 40 ms while the mouse moves, each playing out in full over the one before
+    /// (the tester, 14 Nov 2026: cut off by the next, a beep could be lost and with it where the mouse went).
     private static func beep(at p: CGPoint) {
-        guard Date().timeIntervalSince(lastBeep) >= 0.008 else { return }
+        guard Date().timeIntervalSince(lastBeep) >= 0.04 else { return }
         lastBeep = Date()
         let c = MouseMath.audioCoordinates(p, desktop: desktop())
         let v = MouseMath.volumeAndPan(left: c.left, right: c.right)
