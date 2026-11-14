@@ -12,7 +12,7 @@
 // - Announce when the mouse enters a window (VoiceOver's Verbosity > Announcements).
 // The pointer is watched by an AppKit global monitor (listen only; it can't hold anything back), installed only while
 // one of these is on. The item under the pointer is asked for at most every 80 ms, after the pointer rests for the
-// delay when one is set.
+// delay when one is set, off the main thread (AXWalkRunner), each question limited to a quarter of a second.
 import Foundation
 import AppKit
 import ApplicationServices
@@ -31,11 +31,14 @@ nonisolated public enum MouseMath {
         return (pitch, left, right)
     }
     /// NVDA's left and right volumes (0 to 100 each) as TurnOver's beep takes them: a volume and a pan. Tones.nvdaBeep's
-    /// 0.21 is NVDA's ordinary beep, 50 left and 50 right; so the volume is 0.21 for every 100 of the two together.
+    /// 0.21 is NVDA's ordinary beep, 50 a side; the louder side is on that scale (85 at a screen's edge is 0.357, as
+    /// loud in that ear as NVDA's), and the pan is the quieter side's share of it: 1 - |pan| is quieter / louder, so a
+    /// balance-style pan gives the quieter ear NVDA's level too (a review, 14 Nov 2026: the sum had made an edge beep
+    /// no louder than a centred one).
     public static func volumeAndPan(left: Double, right: Double) -> (volume: Float, pan: Float) {
-        let sum = left + right
-        guard sum > 0 else { return (0, 0) }
-        return (Float(0.21 * sum / 100), Float((right - left) / sum))
+        let louder = max(left, right)
+        guard louder > 0 else { return (0, 0) }
+        return (Float(0.21 * louder / 50), Float((right - left) / louder))
     }
     /// The range of a unit around a UTF-16 offset in `text`: "character", "word" or "paragraph" (a line where the app
     /// gives no lines). A word is the system's word there; between words, nothing (an empty range).
@@ -55,6 +58,19 @@ nonisolated public enum MouseMath {
     }
 }
 
+/// What the background look under the pointer found, for the main thread to say and move to.
+nonisolated struct MouseHit: Sendable {
+    var hit: AXUIElement?
+    var window: AXUIElement?
+    var windowTitle: String?
+    /// A password field (or inside one): its text is never read, only its kind said.
+    var secure = false
+    var text: MouseText?
+    /// A question timed out: the app is left alone for a while.
+    var timedOut = false
+}
+nonisolated struct MouseText: Sendable { let text: String; let key: String }
+
 public enum MouseTracking {
     private static var monitor: Any?
     /// The item last under the pointer, its window, and the text last said there (NVDA's _lastMouseTextInfoObject).
@@ -65,6 +81,16 @@ public enum MouseTracking {
     private static var probeScheduled = false
     private static var restGeneration = 0
     private static var lastProbePoint: CGPoint?
+    /// The look under the pointer runs off the main thread (a review, 14 Nov 2026: 15 to 40 accessibility questions a
+    /// move, each able to wait a second, had run on main every 80 ms, so a slow app stalled TurnOver and the keys).
+    /// One look at a time; a newer one replaces a waiting one, and a superseded result is dropped.
+    private static let runner = AXWalkRunner<MouseHit>()
+    /// Apps that timed out under the pointer, left alone until then.
+    private static var resting: [pid_t: Date] = [:]
+    /// Each question under the pointer waits at most this long (the global limit is 1 s).
+    nonisolated private static let questionTimeout: Float = 0.25
+    /// True while the mouse itself moves the review cursor: the pointer is not then sent to the item's middle.
+    private static var cursorFromMouse = false
 
     private static var anyOn: Bool {
         let m = config.mouse
@@ -83,6 +109,7 @@ public enum MouseTracking {
         } else if !anyOn, let m = monitor {
             NSEvent.removeMonitor(m)
             monitor = nil
+            runner.cancel()
             lastElement = nil; lastWindow = nil; lastTextKey = nil
             Log.info("mouse: no longer watching the pointer")
         }
@@ -90,6 +117,7 @@ public enum MouseTracking {
 
     private static func moved(fromSelf: Bool) {
         // TurnOver's own clicks (VO-Shift-Space puts the pointer on the item and back) are not the user's moves.
+        // While trackpad control is on, the trackpad is TurnOver's: every mouse setting is silent.
         guard Core.active, !fromSelf, !Trackpad.controlOn else { return }
         let m = config.mouse
         let p = VoiceOverKeysPlugin.mouseLocation()
@@ -106,9 +134,8 @@ public enum MouseTracking {
         }
     }
 
-    /// NVDA's audio coordinates. NVDA beeps at every move; here at most once per beep's length (40 ms): TurnOver's
-    /// tones queue rather than cut each other off, so beeps closer together would fall further and further behind
-    /// the pointer.
+    /// NVDA's audio coordinates: at most one beep per beep's length (40 ms). Each beep cuts off the one before (its own
+    /// player node), as NVDA's does, so they never fall behind the pointer or hold up TurnOver's other tones.
     private static func beep(at p: CGPoint) {
         guard Date().timeIntervalSince(lastBeep) >= 0.04 else { return }
         lastBeep = Date()
@@ -125,46 +152,126 @@ public enum MouseTracking {
             .reduce(CGRect.null) { $0.union($1) }
     }
 
+    /// The window under the pointer: nil over a window of TurnOver's own that takes the mouse (asking it would wait on
+    /// this very thread: SettingsBridge's note); otherwise its owner's process (0 when unknown). TurnOver's look-only
+    /// windows (the Vision rings and panels ignore the mouse) are passed through to the window below (a review,
+    /// 14 Nov 2026: tracking was silent over them).
+    private static func ownerUnderPointer() -> pid_t? {
+        let at = NSEvent.mouseLocation
+        var below = 0
+        for _ in 0..<16 {
+            let number = NSWindow.windowNumber(at: at, belowWindowWithWindowNumber: below)
+            guard number > 0 else { return 0 }
+            if let own = NSApp?.window(withWindowNumber: number) {
+                if own.ignoresMouseEvents || own is LookOnlyPanel { below = number; continue }
+                return nil
+            }
+            guard let info = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(number)) as? [[String: Any]],
+                  let pid = info.first?[kCGWindowOwnerPID as String] as? Int else { return 0 }
+            return pid_t(pid)
+        }
+        return 0
+    }
+
     private static func probe() {
-        guard Core.active, anyOn else { return }
+        guard Core.active, anyOn, !Trackpad.controlOn else { return }
         let p = VoiceOverKeysPlugin.mouseLocation()
         if let last = lastProbePoint, last == p { return }
         lastProbePoint = p
-        // Over a window of TurnOver's own, asking it would wait on this very thread (SettingsBridge's note).
-        let number = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
-        if number > 0, NSApp?.window(withWindowNumber: number) != nil { return }
-        guard let hit = VoiceOverKeysPlugin.element(at: p) else { lastElement = nil; lastTextKey = nil; return }
+        guard let owner = ownerUnderPointer() else { return }
+        if owner > 0, let until = resting[owner] {
+            if until > Date() { return }
+            resting[owner] = nil
+        }
+        let m = config.mouse
+        let unit = m.textUnit, wantText = m.tracking || m.pointer == "moves", wantWindow = m.announceWindow
+        runner.submit(collect: { request in
+            look(at: p, unit: unit, wantText: wantText, wantWindow: wantWindow, request: request)
+        }, publish: { found in
+            apply(found, owner: owner)
+        })
+    }
+
+    /// Off the main thread: the item under the pointer, its window, and the text there. Every question waits at most a
+    /// quarter of a second, and stops once a newer look replaces this one or a second and a half has gone.
+    nonisolated private static func look(at p: CGPoint, unit: String, wantText: Bool, wantWindow: Bool, request: AXWalkRequest) -> MouseHit {
+        var found = MouseHit()
+        let start = DispatchTime.now().uptimeNanoseconds
+        var e: AXUIElement?
+        let r = AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(p.x), Float(p.y), &e)
+        if r == .cannotComplete { found.timedOut = true; return found }
+        guard r == .success, let hit = e else { return found }
+        AXUIElementSetMessagingTimeout(hit, questionTimeout)
+        found.hit = hit
+        var timedOut = false
+        AXReadScope.with(while: { !request.isCancelled && DispatchTime.now().uptimeNanoseconds &- start < 1_500_000_000 },
+                         onResult: { status in if case .returned(.cannotComplete) = status { timedOut = true } }) {
+            let role = hit.role, subrole = hit.string(kAXSubroleAttribute)
+            // Never a password field's text (WebKit's text at a point included). Its parent too: the text inside one.
+            if role == "AXSecureTextField" || subrole == "AXSecureTextField" { found.secure = true }
+            else if let parent = hit.element(kAXParentAttribute) {
+                AXUIElementSetMessagingTimeout(parent, questionTimeout)
+                if parent.role == "AXSecureTextField" || parent.string(kAXSubroleAttribute) == "AXSecureTextField" { found.secure = true }
+            }
+            if wantWindow, let w = hit.element(kAXWindowAttribute) {
+                AXUIElementSetMessagingTimeout(w, questionTimeout)
+                found.window = w
+                found.windowTitle = w.string(kAXTitleAttribute)
+                AXUIElementSetMessagingTimeout(w, 0)
+            }
+            if wantText, !found.secure, !timedOut { found.text = textAt(p, in: hit, role: role, unit: unit) }
+        }
+        found.timedOut = timedOut
+        return found
+    }
+
+    /// On main, with what the look found: the cursor moved and the item or text said.
+    private static func apply(_ found: MouseHit, owner: pid_t) {
+        let pid = found.hit?.pid ?? owner
+        if found.timedOut, pid > 0 {
+            resting[pid] = Date().addingTimeInterval(3)
+            Log.info("mouse: \(pid) slow to answer under the pointer; left alone for 3 s")
+        }
+        // A slow app is not asked again from here, on main, for the item's description.
+        guard Core.active, anyOn, !Trackpad.controlOn, !found.timedOut else { return }
+        guard let hit = found.hit else { lastElement = nil; lastTextKey = nil; return }
+        // What main asks of the item here (its description) waits no longer than the look did; then back to the
+        // global limit, as the review cursor may keep it.
+        AXUIElementSetMessagingTimeout(hit, questionTimeout)
+        defer { AXUIElementSetMessagingTimeout(hit, 0) }
         let m = config.mouse
         let entered = lastElement.map { !CFEqual($0, hit) } ?? true
         lastElement = hit
         if entered { lastTextKey = nil }   // another item's text is new, whatever its offsets
         var said: [String] = []
         // VoiceOver's "Announce when mouse cursor enters a window".
-        let window = hit.element(kAXWindowAttribute)
-        if let w = window, lastWindow.map({ !CFEqual($0, w) }) ?? true {
+        if m.announceWindow, let w = found.window, lastWindow.map({ !CFEqual($0, w) }) ?? true {
             lastWindow = w
-            if m.announceWindow {
-                let title = (w.string(kAXTitleAttribute) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                said.append(title.isEmpty ? (NSRunningApplication(processIdentifier: hit.pid)?.localizedName ?? String(localized: "window", comment: "Spoken message")) : title)
-            }
+            let title = (found.windowTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            said.append(title.isEmpty ? (NSRunningApplication(processIdentifier: hit.pid)?.localizedName ?? String(localized: "window", comment: "Spoken message")) : title)
         }
+        // The cursor moved by the mouse: the pointer is where it should be already (with "follows the cursor" on as
+        // well, the pointer had jumped to the item's middle: a review, 14 Nov 2026).
+        cursorFromMouse = true
         // VoiceOver's "Moves VoiceOver cursor": the cursor goes where the pointer is, without the keyboard following.
         if m.pointer == "moves", entered { ObjectNavigator.shared.place(hit) }
         // NVDA's "Review cursor follows mouse": silently, where the pointer is (Keyboard, Moving around).
         else if entered, m.pointer != "moves" { _ = ObjectNavigator.shared.mouseMoved(to: hit, pid: hit.pid) }
+        cursorFromMouse = false
         let speaks = m.tracking || m.pointer == "moves"
         if speaks {
-            let obj = ObjectFactory.make(hit)
-            if let t = textAt(p, in: hit, unit: m.textUnit) {
+            if found.secure {
+                if entered { lastTextKey = nil; said.append(Role.passwordEdit.displayString) }
+            } else if let t = found.text {
                 // Text: the role on entering, when asked for, then the unit, each time it is a different piece.
-                if entered, m.reportRole { said.append(obj.roleText ?? obj.role.displayString) }
+                if entered, m.reportRole { let obj = ObjectFactory.make(hit); said.append(obj.roleText ?? obj.role.displayString) }
                 if t.key != lastTextKey {
                     lastTextKey = t.key
                     if t.text.contains(where: { !$0.isWhitespace }) { said.append(t.text) }
                 }
             } else if entered {
                 lastTextKey = nil
-                said.append(contentsOf: Speech.objectPropertiesSpeech(obj, reason: .mouse))
+                said.append(contentsOf: Speech.objectPropertiesSpeech(ObjectFactory.make(hit), reason: .mouse))
             }
         }
         guard !said.isEmpty else { return }
@@ -174,10 +281,12 @@ public enum MouseTracking {
 
     /// The unit of text under the pointer, and a key that tells one piece from another: through WebKit's text markers
     /// in a page, through the standard text calls elsewhere. Nil where the item has no text to point into.
-    private static func textAt(_ p: CGPoint, in e: AXUIElement, unit: String) -> (text: String, key: String)? {
+    nonisolated private static func textAt(_ p: CGPoint, in e: AXUIElement, role: String, unit: String) -> MouseText? {
         var pt = p
         guard let point = AXValueCreate(.cgPoint, &pt) else { return nil }
-        if ["AXStaticText", "AXTextArea", "AXTextField", "AXHeading"].contains(e.role), let web = webArea(of: e) {
+        if ["AXStaticText", "AXTextArea", "AXTextField", "AXHeading"].contains(role), let web = webArea(of: e) {
+            AXUIElementSetMessagingTimeout(web, questionTimeout)
+            defer { AXUIElementSetMessagingTimeout(web, 0) }
             return webText(point, web: web, unit: unit)
         }
         var r = CFRange()
@@ -188,7 +297,7 @@ public enum MouseTracking {
         if unit == "line", let line = e.param(kAXLineForIndexParameterizedAttribute, i as CFNumber) as? Int {
             var lr = CFRange()
             if axValue(e.param(kAXRangeForLineParameterizedAttribute, line as CFNumber), .cfRange, &lr), let s = string(e, lr) {
-                return (s, "\(lr.location):\(lr.length)")
+                return MouseText(text: s, key: "\(lr.location):\(lr.length)")
             }
         }
         // A stretch around the point (a long document is never read whole), the unit found in it.
@@ -196,11 +305,11 @@ public enum MouseTracking {
         guard let window = string(e, CFRange(location: start, length: end - start)) else { return nil }
         let ns = window as NSString
         let u = MouseMath.unitRange(ns, at: i - start, unit: unit)
-        guard u.length > 0, NSMaxRange(u) <= ns.length else { return ("", "\(start + u.location):0") }
-        return (ns.substring(with: u), "\(start + u.location):\(u.length)")
+        guard u.length > 0, NSMaxRange(u) <= ns.length else { return MouseText(text: "", key: "\(start + u.location):0") }
+        return MouseText(text: ns.substring(with: u), key: "\(start + u.location):\(u.length)")
     }
 
-    private static func string(_ e: AXUIElement, _ r: CFRange) -> String? {
+    nonisolated private static func string(_ e: AXUIElement, _ r: CFRange) -> String? {
         var range = r
         guard let v = AXValueCreate(.cfRange, &range) else { return nil }
         if let s = e.param(kAXStringForRangeParameterizedAttribute, v) as? String { return s }
@@ -209,9 +318,10 @@ public enum MouseTracking {
         return all.substring(with: NSRange(location: r.location, length: r.length))
     }
 
-    private static func webArea(of e: AXUIElement) -> AXUIElement? {
+    nonisolated private static func webArea(of e: AXUIElement) -> AXUIElement? {
         var x: AXUIElement? = e; var hops = 0
         while let y = x, hops < 30 {
+            AXUIElementSetMessagingTimeout(y, questionTimeout)
             let role = y.role
             if role == "AXWebArea" { return y }
             if role == "AXWindow" || role == "AXApplication" { return nil }
@@ -220,7 +330,7 @@ public enum MouseTracking {
         return nil
     }
 
-    private static func webText(_ point: AXValue, web: AXUIElement, unit: String) -> (text: String, key: String)? {
+    nonisolated private static func webText(_ point: AXValue, web: AXUIElement, unit: String) -> MouseText? {
         guard let mv = web.param("AXTextMarkerForPosition", point), CFGetTypeID(mv) == AXTextMarkerGetTypeID() else { return nil }
         let marker = mv as! AXTextMarker   // checked: a text marker
         let bridge = WebDocumentBridge(webArea: web)
@@ -242,7 +352,7 @@ public enum MouseTracking {
         }
         guard let f = found else { return nil }
         let key = bridge.indices(of: f).map { "web \($0.0):\($0.1)" } ?? "web \(bridge.string(f).hashValue)"
-        return (bridge.string(f), key)
+        return MouseText(text: bridge.string(f), key: key)
     }
 
     // MARK: VoiceOver's "Follows VoiceOver cursor"
@@ -250,9 +360,9 @@ public enum MouseTracking {
     private static var followPending: AXUIElement?
 
     /// The review cursor moved (ObjectNavigator): with the pointer following it, the pointer goes to the item's
-    /// middle. Once per turn of the main thread, however many moves the turn made.
+    /// middle. Once per turn of the main thread, however many moves the turn made. Not when the mouse moved it.
     public static func cursorMoved(_ e: AXUIElement?) {
-        guard let e, config.mouse.pointer == "follows" else { return }
+        guard let e, config.mouse.pointer == "follows", !cursorFromMouse else { return }
         let first = followPending == nil
         followPending = e
         guard first else { return }
@@ -265,6 +375,9 @@ public enum MouseTracking {
             guard desktop().contains(p), abs(now.x - p.x) > 1 || abs(now.y - p.y) > 1 else { return }
             // A warp makes no mouse event, so mouse tracking doesn't hear the cursor's own move back.
             CGWarpMouseCursorPosition(p)
+            // Without this, a warp holds the mouse still for about a quarter of a second (CGWarpMouseCursorPosition's
+            // documented suppression interval), and a hand already on the mouse feels it stick.
+            CGAssociateMouseAndMouseCursorPosition(1)
         }
     }
 }

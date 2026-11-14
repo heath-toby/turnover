@@ -43,8 +43,8 @@ Settings, Keyboard, Moving around has NVDA's review cursor settings:
   switches it, and so does VoiceOver's cursor tracking (VO Shift F3); the change is kept.
 - **Review cursor follows the caret** (on): in text, the review cursor goes back to the caret when the caret moves.
   Caps Lock 6 switches it.
-- **Review cursor follows the mouse** (off): the review cursor goes to whatever the pointer is over, once
-  TurnOver follows the mouse.
+- **Review cursor follows the mouse** (off): the review cursor goes to whatever the pointer is over, silently. To
+  hear it as well, use Settings, Mouse, "Moving the pointer moves the cursor".
 - **Simple review mode** (on): moving to the next and previous object skips layout, such as unnamed groups and scroll
   areas. Off, every object is a stop, as in NVDA's full review.
 

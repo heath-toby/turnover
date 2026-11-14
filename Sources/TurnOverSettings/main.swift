@@ -817,6 +817,7 @@ struct KeyboardView: View {
                 Toggle("Review cursor follows the keyboard focus", isOn: model.bool("keyboard", "reviewFollowsFocus"))
                 Toggle("Review cursor follows the caret", isOn: model.bool("keyboard", "reviewFollowsCaret"))
                 Toggle("Review cursor follows the mouse", isOn: model.bool("keyboard", "reviewFollowsMouse"))
+                Text("Silent: the review cursor goes to what the pointer is over, and nothing is said. To hear it as well, use Mouse, Moving the pointer moves the cursor.").font(.caption)
                 Toggle("Simple review mode: NVDA keys skip layout", isOn: model.bool("keyboard", "simpleReviewMode"))
                 Picker("Initial position of the cursor in a new window", selection: model.string("general", "cursorStart", "focus")) {
                     Text("Keyboard focused item").tag("focus"); Text("First item in window").tag("firstItem")
@@ -865,11 +866,12 @@ struct MouseView: View {
             Toggle("Say the kind of item, such as button, when the pointer reaches it", isOn: model.bool("mouse", "reportRole"))
             Toggle("Say the window's name when the pointer moves into another window", isOn: model.bool("mouse", "announceWindow"))
             Toggle("Play audio coordinates as the mouse moves", isOn: model.bool("mouse", "audioCoordinates"))
-            Text("A short beep at each move: higher towards the top of the screen, lower towards the bottom, and from the left or right speaker by where the pointer is across, as in NVDA.").font(.caption)
+            Text("A short beep at each move: higher towards the top of the screen, lower towards the bottom, and from the left or right speaker by where the pointer is across, as in NVDA. It works on its own, without speaking what is under the pointer (NVDA's needs mouse tracking on).").font(.caption)
             Picker("Mouse pointer and the cursor", selection: model.string("mouse", "pointer", "ignores")) {
                 Text("The pointer ignores the cursor").tag("ignores"); Text("The pointer follows the cursor").tag("follows"); Text("Moving the pointer moves the cursor").tag("moves")
             }
-            Text("Follows: the pointer goes to each item the cursor reaches. Moves: the cursor goes to the item under the pointer, and it is read.").font(.caption)
+            Text("Follows: the pointer goes to each item the cursor reaches. Moves: the cursor goes to the item under the pointer, and it is read. To move the cursor silently instead, use Keyboard, Review cursor follows the mouse.").font(.caption)
+            Text("While trackpad control is on, none of these mouse settings speaks or beeps.").font(.caption)
         }.formStyle(.grouped).navigationTitle("Mouse")
     }
 }
