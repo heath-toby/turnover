@@ -83,6 +83,9 @@ public final class SystemPrompts {
     }
 
     private func check() {
+        // (Dead windows forgotten.)
+        ignored.removeAll { $0.role == "?" }
+        emptyLooks.removeAll { $0.window.role == "?" }
         var windows: [(AXUIElement, pid_t)] = []
         for bundle in Self.agents {
             for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundle) {
@@ -141,7 +144,7 @@ public final class SystemPrompts {
             }
             returnTo = nil
         }
-        for (w, pid) in windows where !shown.contains(where: { $0.isSame(w) }) {
+        for (w, pid) in windows where !shown.contains(where: { $0.isSame(w) }) && !ignored.contains(where: { $0.isSame(w) }) {
             let first = shown.isEmpty
             shown.append(w)
             if handsToVoiceOver {
@@ -173,6 +176,12 @@ public final class SystemPrompts {
         if handsToVoiceOver { return }
         let ax = AXUIElementCreateApplication(pid)
         guard let w = ax.element(kAXFocusedWindowAttribute) ?? ax.elements(kAXWindowsAttribute).first else { return }
+        // A window given up on (empty for half a minute) is looked at again when its agent comes forward, and the
+        // regular look tries it afresh (a review, 14 Nov 2026).
+        if ignored.contains(where: { $0.isSame(w) }) {
+            ignored.removeAll { $0.isSame(w) }
+            emptyLooks.removeAll { $0.window.isSame(w) }
+        }
         if shown.contains(where: { $0.isSame(w) }), Date().timeIntervalSince(lastAnnounced) < 2 { return }
         if !shown.contains(where: { $0.isSame(w) }) { shown.append(w) }
         announce(w, pid: pid)
@@ -197,14 +206,25 @@ public final class SystemPrompts {
     /// (the agent came to the front, the user went to it), it always is (a review, 11 Nov 2026).
     /// Windows found with nothing to read yet, and how many looks found them so.
     private var emptyLooks: [(window: AXUIElement, count: Int)] = []
+    /// Windows given up on, empty for 60 looks: kept out of `shown` (left there, one was never read when it later had
+    /// words, and `shown` never emptied, so the focus didn't come back to the app when a real prompt closed) and not
+    /// looked into by the regular look until their agent comes to the front (a review, 14 Nov 2026).
+    private var ignored: [AXUIElement] = []
+
+    /// Out of `shown`, so the next look retries; after 60 empty looks, given up on until its agent comes forward.
+    private func notYet(_ window: AXUIElement, looks n: Int) {
+        shown.removeAll { $0.isSame(window) }
+        if n >= 60, !ignored.contains(where: { $0.isSame(window) }) { ignored.append(window) }
+    }
 
     private func announce(_ window: AXUIElement, pid: pid_t, fromTimer: Bool = false) {
         // A window found empty six times is looked into every fourth look after (two seconds), for half a minute:
         // a slow prompt is still read, without walking an empty helper twice a second (a review, 14 Nov 2026).
-        if let i = emptyLooks.firstIndex(where: { $0.window.isSame(window) }), emptyLooks[i].count >= 6 {
+        // Only the regular look: asked for (the agent came to the front), it is always looked into (a review, 14 Nov 2026).
+        if fromTimer, let i = emptyLooks.firstIndex(where: { $0.window.isSame(window) }), emptyLooks[i].count >= 6 {
             emptyLooks[i].count += 1
             let n = emptyLooks[i].count
-            guard n % 4 == 0 else { if n < 60 { shown.removeAll { $0.isSame(window) } }; return }
+            guard n % 4 == 0 else { notYet(window, looks: n); return }
         }
         lastAnnounced = Date()
         var texts: [String] = []
@@ -233,7 +253,7 @@ public final class SystemPrompts {
             let n = (emptyLooks.first { $0.window.isSame(window) }?.count ?? 0) + 1
             emptyLooks.removeAll { $0.window.isSame(window) }
             emptyLooks.append((window, n))
-            if n < 60 { shown.removeAll { $0.isSame(window) } }
+            notYet(window, looks: n)
             return
         }
         emptyLooks.removeAll { $0.window.isSame(window) }
