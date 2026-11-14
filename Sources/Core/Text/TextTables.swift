@@ -88,6 +88,8 @@ public enum TextTables {
         // Entering a table: its extent and size from the marks around the caret (at most 50,000 characters each way).
         let from = max(0, at - 50_000), to = min(length, at + 50_000)
         guard let around = element.param(kAXAttributedStringForRangeParameterizedAttribute, axRangeValue(from, to - from)) as? NSAttributedString else { return nil }
+        // A shorter answer (the document shrank since, or the app clipped it): asked past its end, the call raises.
+        guard at - from < around.length else { return nil }
         var table = NSRange(location: NSNotFound, length: 0)
         _ = around.attribute(NSAttributedString.Key("AXTextTable"), at: at - from, longestEffectiveRange: &table, in: NSRange(location: 0, length: around.length))
         guard table.location != NSNotFound else { return nil }

@@ -55,7 +55,8 @@ extension BrowseModeDocument {
     func clearSelection() { selectionAnchor = nil }
 
     func copySelection(_ g: KeyboardGesture) {
-        guard let (lo, hi) = selectedRange else { g.send(); return }   // nothing selected here: the app's own copy
+        // Nothing selected here: the app's own copy, said as anywhere else (it was silent: a review, 14 Nov 2026).
+        guard let (lo, hi) = selectedRange else { ClipboardAnnouncer.keyDown(g); g.send(); return }
         let t = text(lo, hi)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(t, forType: .string)

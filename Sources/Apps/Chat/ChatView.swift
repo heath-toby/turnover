@@ -549,7 +549,10 @@ public final class ChatView {
         let keep = currentItem().map(Self.words)
         let fresh = pane == .transcript ? messages() : pane == .conversations ? conversations() : pane == .sections ? sections() : []
         items = fresh
-        if let k = keep, let i = fresh.firstIndex(where: { Self.words($0) == k }) {
+        // The match nearest the old place: short replies ("ok") repeat, and the first of them pulled the cursor back,
+        // so Down looped and actions went to an earlier message (a review, 14 Nov 2026).
+        let old = index[pane] ?? 0
+        if let k = keep, let i = fresh.indices.filter({ Self.words(fresh[$0]) == k }).min(by: { abs($0 - old) < abs($1 - old) }) {
             // The list slid under us (rows dropped or added above): the numbers keep their place.
             if pane == .conversations, let j = index[pane] { listShift = max(0, listShift + j - i) }
             index[pane] = i

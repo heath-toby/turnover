@@ -1204,6 +1204,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
         return out.sorted { $0.1.minY < $1.1.minY }.map { $0.0 }
     }
 
+    /// A page scroll in a row list waiting to land.
+    static var rowScrollPending = false
+
     /// Up and Down in a row list TurnOver is holding.
     private func rowListMove(_ delta: Int) {
         guard let v = Self.virtual, let (rows, i, _, container) = Self.rowList(of: v) else { return }
@@ -1218,11 +1221,19 @@ public final class SettingsPanePlugin: GlobalPlugin {
         // Past the rows in sight: the list is scrolled a page, read again, and the move goes on from the same row
         // (found by its words if the list made it anew). Unafraid to scroll (a tester, 11 Nov 2026).
         guard Self.scrolls(container), !Self.isSideways(container) else { Tones.edge(); return }
+        // A scroll already waiting to land: a second Down inside it would scroll another page and land twice, a page
+        // never read (a review, 14 Nov 2026).
+        guard !Self.rowScrollPending else { return }
         let name = ObjectFactory.make(v).name
         let r = AXUIElementPerformAction(container, (delta > 0 ? "AXScrollDownByPage" : "AXScrollUpByPage") as CFString)
         Log.io("row list: scrolled \(delta > 0 ? "down" : "up") a page → \(describeError(r))")
         guard r == .success else { Tones.edge(); return }
+        Self.rowScrollPending = true
+        let keyAt = InputManager.lastKeyDownAt
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            Self.rowScrollPending = false
+            // Another key since (Tab away), or the row held changed: the landing is no longer wanted.
+            guard InputManager.lastKeyDownAt == keyAt, let held = Self.virtual, held.isSame(v) else { return }
             let fresh = Self.rowsIn(container, like: v)
             guard !fresh.isEmpty else { Tones.edge(); return }
             let k = fresh.firstIndex(where: { $0.isSame(v) }) ?? fresh.firstIndex(where: { ObjectFactory.make($0).name == name })

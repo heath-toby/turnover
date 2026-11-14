@@ -741,7 +741,10 @@ open class TurnOverObject: ScriptableObject {
         if let chosen = TurnOverObject.chosenInGroup(element) { Speech.speakObject(ObjectFactory.make(chosen), reason: .focus) }
         else if name.isEmpty, axRole == "AXGroup", let inner = TurnOverObject.namedInside(element) { Speech.speakObject(ObjectFactory.make(inner), reason: .focus) }
         else { Speech.speakObject(self, reason: .focus) }
-        if let note = TurnOverObject.selectionNote { TurnOverObject.selectionNote = nil; Speech.speakMessage(note) }   // "3 selected", after the row that changed
+        // "3 selected", after the row that changed: only this row's, and only just set (one left by an event that was
+        // dropped or swallowed came out minutes later in another app: a review, 14 Nov 2026).
+        if let note = TurnOverObject.selectionNote, note.element.isSame(element), Date().timeIntervalSince(note.at) < 2 { Speech.speakMessage(note.text) }
+        TurnOverObject.selectionNote = nil
     }
     /// The first named thing inside a nameless wrapper, looking at twenty elements at most.
     public static func namedInside(_ e: AXUIElement) -> AXUIElement? {
@@ -754,7 +757,7 @@ open class TurnOverObject: ScriptableObject {
         return nil
     }
     /// Set by the selection notification when several rows are selected: said after the row that changed.
-    public static var selectionNote: String?
+    public static var selectionNote: (text: String, element: AXUIElement, at: Date)?
     private static var lastSelectionSpoken: (AXUIElement, Date)?
     public static func noteSelectionSpoken(_ e: AXUIElement) { lastSelectionSpoken = (e, Date()) }
     /// Whether any selection was read since `date` (a key's own read already done).

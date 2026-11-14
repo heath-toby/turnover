@@ -1401,6 +1401,15 @@ public final class MediaView {
     /// read; otherwise not sent at all, so it can't act on another (a review, 13 Nov 2026).
     public func sendForLibraryRow(_ g: KeyboardGesture) {
         guard let item = currentItem(), item.tableRow, let table = item.element.element(kAXParentAttribute) else { g.send(); return }
+        // The row's words now are the ones spoken: Music can reuse a row's element for another song after a delete,
+        // and the cached words would name the old one (a review, 14 Nov 2026).
+        if let i = index[pane], let spoken = rowLabels[i], spoken != Self.rowText(item.element).joined(separator: ", ") {
+            Log.io("media: \(g.identifier) not sent; the row now holds another song")
+            rowLabels = [:]; builtAt = .distantPast
+            Tones.edge()
+            Speech.speakMessage(String(localized: "could not select that song", comment: "Spoken message: a key that acts on the selected song was not sent"))
+            return
+        }
         selectTableRow(item)
         let selected = table.elements(kAXSelectedRowsAttribute)
         guard selected.count == 1, selected[0].isSame(item.element) else {
@@ -1410,6 +1419,8 @@ public final class MediaView {
             return
         }
         g.send()
+        // The list changes under the cached words: read afresh at the next move.
+        rowLabels = [:]; builtAt = .distantPast
     }
 
     private func hint(for item: Item) -> String {

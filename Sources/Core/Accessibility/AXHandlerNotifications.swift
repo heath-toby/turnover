@@ -221,7 +221,7 @@ extension AXHandler {
                 let added = all.filter { a in !before.contains { $0.isSame(a) } }
                 let removed = before.filter { b in !all.contains { $0.isSame(b) } }
                 guard focused, let target = added.last ?? removed.last ?? all.last else { return }
-                TurnOverObject.selectionNote = (removed.isEmpty || !added.isEmpty ? "" : "not selected, ") + "\(count) selected"
+                TurnOverObject.selectionNote = ((removed.isEmpty || !added.isEmpty ? "" : "not selected, ") + "\(count) selected", target, Date())
                 lastSelectionReport = (target, Date())
                 EventHandler.queue(Event(.selection, ObjectFactory.make(target)))
                 return

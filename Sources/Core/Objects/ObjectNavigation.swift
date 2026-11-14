@@ -82,7 +82,9 @@ public final class ObjectNavigator {
     private var followed: (element: AXUIElement, at: Date, window: AXUIElement?)?
     private func noteFollowed(_ e: AXUIElement) { followed = (e, Date(), e.element(kAXWindowAttribute)) }
     public func isFollowedFocus(_ e: AXUIElement) -> Bool {
-        guard let f = followed, Date().timeIntervalSince(f.at) < 1.5 else { return false }
+        // No key since: a Tab away and Shift Tab back within the time is the user's own move, and is spoken (a review,
+        // 14 Nov 2026).
+        guard let f = followed, Date().timeIntervalSince(f.at) < 1.5, InputManager.lastKeyDownAt <= f.at else { return false }
         return CFEqual(f.element, e)
     }
 

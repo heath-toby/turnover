@@ -151,6 +151,9 @@ public enum Speech {
         switch mode {
         case .talk: break
         case .onDemand where Date() < demandedUntil: break
+        // Say all asked for on demand reads on to its end: its next part is queued only as the one before starts, so
+        // after the two seconds it stopped dead (a review, 14 Nov 2026).
+        case .onDemand where SayAll.isRunning: break
         case .beeps:
             if !NSWorkspace.shared.isVoiceOverEnabled, Date().timeIntervalSince(lastBeep) > 0.1 { lastBeep = Date(); Tones.beep(1000, 15, volume: 0.25) }
             logUnspoken(text); completion?(false); return
