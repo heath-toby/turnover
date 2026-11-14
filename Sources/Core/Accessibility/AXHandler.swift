@@ -40,6 +40,10 @@ public final class AXHandler {
     var webAreaFocusSkipped = 0
     /// A check after a burst of web-area focus news is waiting (main thread): one per burst.
     var webAreaTrailing = false
+    /// focusIsBehindFrontApp's exemption answer, kept a second per pair of apps.
+    var behindKept: (front: pid_t, other: pid_t, at: Date, exempt: Bool)?
+    /// A front app that didn't answer focusBehindFrontApp: not asked again until then.
+    var behindRest: (pid: pid_t, until: Date)?
     var running = false
 
     static let notifications = [

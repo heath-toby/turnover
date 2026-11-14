@@ -37,7 +37,8 @@ func tabLoopTests() {
     }
     test("tab trap: please wait only for an app just launched or with no window") {
         expect(SettingsPanePlugin.saysPleaseWait(launchedAgo: 2, hasWindow: true), true, "launched a moment ago")
-        expect(SettingsPanePlugin.saysPleaseWait(launchedAgo: 600, hasWindow: false), true, "no window at all")
+        expect(SettingsPanePlugin.saysPleaseWait(launchedAgo: 20, hasWindow: false), true, "no window yet, still coming")
+        expect(SettingsPanePlugin.saysPleaseWait(launchedAgo: 600, hasWindow: false), false, "long open, its last window closed")
         expect(SettingsPanePlugin.saysPleaseWait(launchedAgo: 600, hasWindow: true), false, "a window with no controls (an image viewer)")
         expect(SettingsPanePlugin.saysPleaseWait(launchedAgo: nil, hasWindow: true), false, "no launch date")
     }

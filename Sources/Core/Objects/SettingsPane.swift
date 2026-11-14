@@ -209,7 +209,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
 
     /// Tab with nowhere to go: "please wait" for an app launched in the last ten seconds, or one with no window yet.
     nonisolated public static func saysPleaseWait(launchedAgo: TimeInterval?, hasWindow: Bool) -> Bool {
-        !hasWindow || (launchedAgo.map { $0 < 10 } ?? false)
+        // (No window: only while it may still be coming, its first 30 s; an app long open with its last window closed
+        // said it on every Tab, a review, 13 Nov 2026.)
+        (launchedAgo.map { $0 < 10 } ?? false) || (!hasWindow && (launchedAgo.map { $0 < 30 } ?? true))
     }
 
     func trapMove(_ g: KeyboardGesture, forward: Bool) {

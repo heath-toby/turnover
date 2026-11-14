@@ -379,34 +379,45 @@ extension AXHandler {
     /// typed within a second (a review, 13 Nov 2026). Cheap unless it is so; when it is, every question to the front
     /// app has a quarter of a second, as an app still launching can hold one for six (the default) with the key
     /// waiting.
-    /// TurnOver's focus is another ordinary app's while this one is in front (cheap; no app is asked).
+    /// TurnOver's focus is another ordinary app's while this one is in front. The exemption's question (is that app
+    /// frontmost itself: 1Password's Quick Access) is kept a second per pair of apps, so held keys don't ask it each
+    /// time (a review, 13 Nov 2026).
     public var focusIsBehindFrontApp: Bool {
         guard running, activePid > 0, let f = API.focusObject, f.pid != activePid, f.pid != getpid(), !isMenuOpen,
               let other = NSRunningApplication(processIdentifier: f.pid), other.activationPolicy == .regular,
               NSWorkspace.shared.frontmostApplication?.processIdentifier == activePid else { return false }
-        // (Not an app that has the keys while another stays in front: 1Password's Quick Access, a helper.)
-        return !hasKeysBehindFront(other)
+        if let k = behindKept, k.front == activePid, k.other == f.pid, Date().timeIntervalSince(k.at) < 1 { return !k.exempt }
+        let exempt = hasKeysBehindFront(other)
+        behindKept = (activePid, f.pid, Date(), exempt)
+        return !exempt
     }
 
     public func focusBehindFrontApp() {
-        guard running, activePid > 0, let f = API.focusObject, f.pid != activePid, f.pid != getpid(),
-              !isMenuOpen, MenuNavigationPlugin.heldBar == nil, MenuNavigationPlugin.heldStatus == nil,
-              let other = NSRunningApplication(processIdentifier: f.pid), other.activationPolicy == .regular,
-              NSWorkspace.shared.frontmostApplication?.processIdentifier == activePid, !hasKeysBehindFront(other) else { return }
+        guard MenuNavigationPlugin.heldBar == nil, MenuNavigationPlugin.heldStatus == nil, focusIsBehindFrontApp, let f = API.focusObject,
+              let other = NSRunningApplication(processIdentifier: f.pid) else { return }
+        // A front app that didn't answer a moment ago (still coming up, or hung) isn't asked on every key: each key
+        // waited up to three quarters of a second on main and was deferred (a review, 13 Nov 2026).
+        if let r = behindRest, r.pid == activePid, Date() < r.until { return }
         Log.io("key: TurnOver's focus is \(other.localizedName ?? "another app")'s, behind the app in front; the front app's focus read")
         let app = AXUIElementCreateApplication(activePid)
         AXUIElementSetMessagingTimeout(app, 0.25)
         if let real = app.element(kAXFocusedUIElementAttribute) {
             AXUIElementSetMessagingTimeout(real, 0.25)
-            if real.role != "?" { focusChanged(real, pid: activePid) }
+            let role = real.role
+            // (Back to the usual patience for the element kept as the focus: every later question to it, a page's whole
+            // read among them, had the probe's quarter second, a review, 13 Nov 2026.)
+            AXUIElementSetMessagingTimeout(real, 0)
+            if role != "?" { focusChanged(real, pid: activePid) }
             // Taken: done. Set aside by a rule (Weather starting, its first focus a nameless group: three Tabs were
             // silent, 13 Nov 2026): the front window is presented itself, so the keys are the front app's.
             if API.focusObject?.pid == activePid { return }
         }
         if let w = app.element(kAXFocusedWindowAttribute) ?? app.element(kAXMainWindowAttribute) {
-            AXUIElementSetMessagingTimeout(w, 0.25)
+            AXUIElementSetMessagingTimeout(w, 0)
             present(w, pid: activePid)
+            return
         }
+        behindRest = (activePid, Date().addingTimeInterval(1))
     }
 
     /// Any key: if TurnOver's focus has died (its window closed, a view rebuilt) or come loose from any window, with no
