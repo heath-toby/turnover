@@ -68,9 +68,9 @@ open class Dialog: TurnOverObject {
                 else if v == nil { queue.append(contentsOf: e.elements(kAXChildrenAttribute)) }
             } else if (r == "AXTextArea" || r == "AXTextField"), Self.isReadOnlyText(e) {
                 if let v = e.string(kAXValueAttribute)?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty, !texts.contains(v) { texts.append(v) }
-            } else if r == "AXTable" || r == "AXScrollArea" && e.elements(kAXChildrenAttribute).first?.role == "AXTable" {
-                // A small table of figures (Word's Word Count: "Pages 1", "Words 11"…): each row as one line.
-                let table = r == "AXTable" ? e : e.elements(kAXChildrenAttribute)[0]
+            } else if let table = r == "AXTable" ? e : (r == "AXScrollArea" ? e.elements(kAXChildrenAttribute).first.flatMap { $0.role == "AXTable" ? $0 : nil } : nil) {
+                // A small table of figures (Word's Word Count: "Pages 1", "Words 11"…): each row as one line. (Its
+                // children read once: read twice, a table rebuilt between could leave none, and [0] crashed.)
                 // Only a small table of two columns or more: a list of choices (Go to Folder's suggested folders) was
                 // read out as the dialog's message, ".kbuild, Recents, Users…" (11 Nov 2026).
                 let rows = table.elements(kAXRowsAttribute)
@@ -254,7 +254,8 @@ open class Dialog: TurnOverObject {
     private func moveChoice(_ delta: Int) {
         let all = choices
         guard !all.isEmpty else { Speech.speakMessage(String(localized: "no choices", comment: "Spoken message")); return }
-        let cur = Self.choiceIndex[key]
+        // From the choice heard, wherever it now is (a control enabled ahead of it shifted the stored index).
+        let cur = Self.choiceElement[key].flatMap { h in all.firstIndex { $0.0.isSame(h) } } ?? Self.choiceIndex[key]
         let next = cur.map { ($0 + delta + all.count) % all.count } ?? (delta > 0 ? 0 : all.count - 1)
         Self.choiceIndex[key] = next
         Self.lineIndex[key] = nil

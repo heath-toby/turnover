@@ -220,7 +220,6 @@ public final class SystemPrompts {
     /// `fromTimer`: found by the regular look, where the same prompt in a new window isn't read again; asked for
     /// (the agent came to the front, the user went to it), it always is (a review, 11 Nov 2026).
     private func announce(_ window: AXUIElement, pid: pid_t, fromTimer: Bool = false) {
-        lastAnnounced = Date()
         var texts: [String] = []
         var stack = [window]; var visited = 0
         while let e = stack.popLast(), visited < 200 {
@@ -244,10 +243,13 @@ public final class SystemPrompts {
             return w.isSame(window)
         }()
         guard !texts.isEmpty || hasFocusHere else {
+            // (Not counted as a prompt read: an empty window looked into every two seconds kept announceFront from
+            // reading the real one the person went to: a review, 14 Nov 2026.)
             shown.removeAll { $0.isSame(window) }
             if !emptyLooks.contains(where: { $0.window.isSame(window) }) { emptyLooks.append((window, pid, 1)) }
             return
         }
+        lastAnnounced = Date()
         emptyLooks.removeAll { $0.window.isSame(window) }
         summaries.removeAll { $0.window.isSame(window) }
         summaries.append((window, pid, texts.first.map { String($0.prefix(120)) } ?? "untitled"))

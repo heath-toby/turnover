@@ -84,6 +84,9 @@ extension BrowseModeDocument {
             // Read again now, so the next press finds the live control (marking it only, nothing read it again
             // before Enter, and every press said the same: a review, 14 Nov 2026).
             rebuildKeepingPlace()
+            // What the next press will act on, said: the re-read may have put the place on another row's control
+            // (a row added above moved them all: a review, 14 Nov 2026).
+            speakUnit(.line)
             return
         }
         if !text.isEmpty, let live = Self.liveActionable(named: text, in: webArea) {

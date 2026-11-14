@@ -13,13 +13,16 @@ public enum SayAll {
             // mode; a page's own automatic say all stays as quiet as the mode (a review, 14 Nov 2026).
             // A reading carried on at once (an arrow during it, Kindle's next page) keeps what it was: stop and
             // start again lost it, and the reading went silent (a review, 14 Nov 2026).
-            if oldValue == nil, reader != nil { demanded = Date() < Speech.demandedUntil || Date().timeIntervalSince(demandedEndedAt) < 1 }
-            if reader == nil { if demanded { demandedEndedAt = Date() }; demanded = false }
+            // Only the carry-on paths say so (an arrow during it, the app's next page): a one-second window let a page's
+            // own automatic reading inherit it after Enter on a link (a review, 14 Nov 2026).
+            if oldValue == nil, reader != nil { demanded = Date() < Speech.demandedUntil || carryDemanded; carryDemanded = false }
+            if reader == nil { demanded = false }
         }
     }
     /// The say all running was asked for while speech was on demand.
     public private(set) static var demanded = false
-    private static var demandedEndedAt = Date.distantPast
+    /// Set by a reading's own carry-on just before it starts again: it keeps whether it was asked for.
+    public static var carryDemanded = false
     // Read on the keyboard thread; the reader itself is only touched on main (E6 audit, 4 Oct 2026).
     nonisolated private static let runningLock = NSLock()
     // Written on main by `reader`'s didSet, read by `isRunning` from any thread: both only under runningLock, which
@@ -195,6 +198,7 @@ public enum SayAll {
         if buffered == 0, let obj = reader?.obj,
            AppModuleHandler.shared.appModule(for: obj.pid).sayAllReachedEnd(obj, resume: { info in
                guard gen == generation else { return }
+               carryDemanded = demanded
                readText(info: info)
            }) {
             Log.io("say all: the app carries on"); return

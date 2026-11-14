@@ -198,8 +198,8 @@ public enum Braille {
     private static var historyIndex: Int?
 
     static func toggleHistory() {
-        if historyIndex != nil { historyIndex = nil; Speech.speakMessage(String(localized: "announcement history off", comment: "Spoken message")); messageUntil = nil; refresh(); return }
-        guard !history.isEmpty else { Speech.speakMessage(String(localized: "no announcements", comment: "Spoken message")); return }
+        if historyIndex != nil { historyIndex = nil; Speech.speakOnly(String(localized: "announcement history off", comment: "Spoken message")); messageUntil = nil; refresh(); return }
+        guard !history.isEmpty else { Speech.speakOnly(String(localized: "no announcements", comment: "Spoken message")); return }
         historyIndex = 0
         showHistory()
     }
@@ -375,7 +375,7 @@ public enum Braille {
     private static var messagePrivate = false
     public static func message(_ s: String) {
         if !s.isEmpty, history.first != s {
-            history.insert(s, at: 0); historyPrivate.insert(Speech.isPrivateNow, at: 0)
+            history.insert(s, at: 0); historyPrivate.insert(Speech.isRedactedNow, at: 0)
             if history.count > 30 { history.removeLast(); historyPrivate.removeLast() }
             // Browsing the history: the entry shown keeps its place as the new one goes on top.
             if let i = historyIndex { historyIndex = min(i + 1, history.count - 1) }
@@ -433,7 +433,8 @@ public enum Braille {
             return
         }
         // Tethered to focus: TurnOver's own cursor isn't shown (NVDA's "tether to focus").
-        if config.braille.tether != "focus", heldItemStillCurrent(), let h = heldItem {
+        // (The TurnOver menu shows even tethered to focus: its keys act on items the display must show.)
+        if config.braille.tether != "focus" || TurnOverMenu.shared.isOpen, heldItemStillCurrent(), let h = heldItem {
             let fresh: Bool = { if case .item = source { return text != h.text }; return true }()
             source = .item
             text = h.text; cursor = nil; selection = nil
@@ -688,6 +689,10 @@ public enum Braille {
                         // Along a long item; at its end, on to the next item, as VoiceOver does (Right and Left changed
                         // the item's setting: a review, 14 Nov 2026). No message is held for it.
                         if let next { windowStart = next; show(); return nil }
+                        // A hint over the item: off its edge, the item again, not another item.
+                        if messageUntil != nil { messageUntil = nil; refresh(); return nil }
+                        // The rotor's kinds go by Left and Right.
+                        if TurnOverMenu.shared.isRotorTop { return keyMap[name] == "scrollForward" ? "rightArrow" : "leftArrow" }
                         return keyMap[name] == "scrollForward" ? "downArrow" : "upArrow"
                     default: return nil
                     }

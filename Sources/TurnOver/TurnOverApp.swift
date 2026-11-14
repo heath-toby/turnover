@@ -533,18 +533,8 @@ final class TurnOverApp {
             reply(["op": "ack"])
             self?.toggleCoexist()
         }
-        // VoiceOver is silenced by the audio tap (VoiceOverTap), not by an Activity any more (18 Oct 2026). An Activity
-        // left by an earlier build comes out, once: it kept VoiceOver's speech off in TurnOver's apps, password fields
-        // included, where VoiceOver must be heard.
-        if ActivityFlow.shared.marker.installed {
-            Log.info("coexist: an Activity from an earlier build; taking it out")
-            // Said first: VoiceOver Utility comes forward for about ten seconds and drives itself (an update from build
-            // 19 or earlier; it was silent, and looked like something going wrong).
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                Speech.speakMessage(String(localized: "Tidying up VoiceOver's settings from an earlier TurnOver. VoiceOver Utility opens and closes by itself; a moment.", comment: "Spoken message"))
-                ActivityFlow.shared.set(apps: nil) { text in Log.info("activity removed: \(text)"); Speech.speakMessage(String(localized: "Done.", comment: "Spoken message")) }
-            }
-        }
+        // An Activity left by an earlier build: start() has already taken it out (removeOldActivity); doing it here
+        // too drove VoiceOver Utility twice and said "Done." before it was (a review, 14 Nov 2026).
     }
     private func toggleCoexist() {
         inputActivation.readerSelected()

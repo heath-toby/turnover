@@ -434,9 +434,10 @@ public final class ObjectNavigator {
     public func parent() {
         guard let e = element, e.role != "AXWindow" else { Tones.edge(); return }
         var p = e.element(kAXParentAttribute)
-        // Skip layout no one would name, as next and previous do.
-        while let x = p, x.role != "AXWindow", !Self.isItem(x), Self.layoutRoles.contains(x.role), (x.string(kAXDescriptionAttribute) ?? x.string(kAXTitleAttribute) ?? "").isEmpty {
-            p = x.element(kAXParentAttribute)
+        var hops = 0
+        // Skip layout no one would name, as next and previous do. (Bounded, as every parent walk: a looping tree.)
+        while let x = p, hops < 60, x.role != "AXWindow", !Self.isItem(x), Self.layoutRoles.contains(x.role), (x.string(kAXDescriptionAttribute) ?? x.string(kAXTitleAttribute) ?? "").isEmpty {
+            p = x.element(kAXParentAttribute); hops += 1
         }
         guard let target = p else { Tones.edge(); return }
         land(on: target)

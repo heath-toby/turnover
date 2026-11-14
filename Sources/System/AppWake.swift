@@ -28,6 +28,13 @@ public enum AppWake {
         DispatchQueue.global(qos: .userInitiated).async {
             _ = AXUIElementSetAttributeValue(AXUIElementCreateApplication(getpid()), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
             usleep(250_000)
+            // Moved on already (Command Tab during the quarter second): the app isn't brought forward at all, as the
+            // forward request itself is the activation (a review, 14 Nov 2026).
+            let frontNow = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            guard frontNow == getpid() || frontNow == pid else {
+                DispatchQueue.main.async { nudgingUntil = Date(); Log.io("wake: the person moved on; not brought forward") }
+                return
+            }
             let target = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(target, 4)
             _ = AXUIElementSetAttributeValue(target, kAXFrontmostAttribute as CFString, kCFBooleanTrue)

@@ -787,6 +787,8 @@ public final class ChatView {
     /// the picker and VO Space each emoji.
     public func reactionChooser() {
         // The message TurnOver's cursor is on, given the app's focus so Command T acts on it.
+        // Only on the message heard, as Return and the actions menu (a review, 14 Nov 2026).
+        if pane == .transcript { guard refreshItems(), heardHere() != nil else { announce(); return } }
         if pane == .transcript, let e = currentItem() {
             _ = e.set(kAXFocusedAttribute, kCFBooleanTrue)
             _ = e.set(kAXSelectedAttribute, kCFBooleanTrue)

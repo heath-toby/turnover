@@ -85,6 +85,10 @@ public enum ScriptHandler {
     nonisolated public static var keysArrivedCount: Int { keysArrived.value }
     /// Keys deferred (main did not answer within `lookupLimit`) whose turn on main has not finished yet.
     nonisolated private static let outstandingLate = Locked(0)
+    /// Counted up each time a key goes through while main is stuck: a key deferred before then, answered after, is
+    /// dropped, not typed behind the keys that went ahead of it ("worldhello "), or into another app, and its command
+    /// isn't run against a focus that has moved on (a review, 14 Nov 2026).
+    nonisolated private static let hangEpoch = Locked(0)
 
     /// With main stuck: a TurnOver chord made with the TurnOver key held (Caps Lock) is dropped, since passed it typed
     /// its letter (Caps L typed "l", a review, 14 Nov 2026). Ordinary keys still go through; so does every key while
@@ -105,6 +109,7 @@ public enum ScriptHandler {
     nonisolated public static func askMain(_ gesture: KeyboardGesture, otherwise alternative: KeyboardGesture?) -> (decision: KeyDecision, usedAlternative: Bool) {
         keysArrived.lock.lock(); keysArrived.unsafeValue &+= 1; keysArrived.lock.unlock()
         if mainStuck?() ?? false {
+            hangEpoch.withLock { $0 &+= 1 }
             let d = stuckDecision(for: gesture, turnOverKeyLocked: InputManager.turnOverKeyLocked)
             let what: String
             if case .passed = d { what = "goes through" } else { what = "dropped" }
@@ -126,7 +131,17 @@ public enum ScriptHandler {
             return true
         }()
         if behindLate { state.value = .timedOut }
+        let epoch = hangEpoch.value
         DispatchQueue.main.async { MainActor.assumeIsolated {
+            if hangEpoch.value != epoch {
+                var late = false
+                state.lock.lock()
+                if case .timedOut = state.unsafeValue { late = true } else { state.unsafeValue = .answered(true) }
+                state.lock.unlock()
+                Log.warning("keyboard: \(gesture.logDescription()) dropped; keys went through while main was stuck")
+                if late { outstandingLate.lock.lock(); outstandingLate.unsafeValue -= 1; outstandingLate.lock.unlock() } else { done.signal() }
+                return
+            }
             // TurnOver's focus still another ordinary app's, behind the one in front: read the front app's first, so the
             // key isn't looked up among the app behind's commands (Weather launched from Finder: Tab ran Finder's, a
             // sweep, 13 Nov 2026). Cheap unless it is so.
@@ -246,10 +261,11 @@ public enum ScriptHandler {
         let resume = wasInSayAll && script.resumesSayAll
         let (calls0, ms0, t0) = (AXStats.calls, AXStats.ms, DispatchTime.now().uptimeNanoseconds)
         SayAll.resuming = resume
+        if resume { SayAll.carryDemanded = SayAll.demanded }
         // NVDA's on-demand speech mode: a reporting command may speak (the time, the line, the title …).
         if Speech.mode == .onDemand, Self.speaksOnDemand(script.name) { Speech.demandedUntil = Date().addingTimeInterval(2) }
         script.handler(gesture)
-        SayAll.resuming = false
+        SayAll.resuming = false; SayAll.carryDemanded = false
         // The cost of a slow script, measured: how many questions it asked the application and how long they took.
         let took = Double(DispatchTime.now().uptimeNanoseconds &- t0) / 1e6
         if took > 100 { Log.warning(String(format: "script %@ took %.0f ms: %d accessibility calls, %.0f ms in them", script.name, took, AXStats.calls - calls0, AXStats.ms - ms0)) }

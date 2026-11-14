@@ -181,6 +181,8 @@ public final class TurnOverMenu {
         showRotorKind(intro: String(localized: "rotor", comment: "VoiceOver's rotor, as it opens"))
     }
     private var rotor: [(name: String, items: [MenuItem])]?
+    /// The rotor is open at its kinds' level (Left and Right change the kind).
+    public var isRotorTop: Bool { isOpen && rotor != nil && stack.count == 1 }
     private var rotorIndex = 0
     private var lastRotorKind = ""
 
