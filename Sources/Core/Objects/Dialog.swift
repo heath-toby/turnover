@@ -240,7 +240,8 @@ open class Dialog: TurnOverObject {
         let all = items
         guard !all.isEmpty else { Speech.speakMessage(String(localized: "empty", comment: "Spoken message")); return }
         // Start from the choice Tab is on, if any.
-        let fromChoice = Self.choiceIndex[key].flatMap { ci -> Int? in let ch = choices; return ch.indices.contains(ci) ? all.firstIndex { $0.0.isSame(ch[ci].0) } : nil }
+        let fromChoice = Self.choiceElement[key].flatMap { h in all.firstIndex { $0.0.isSame(h) } }
+            ?? Self.choiceIndex[key].flatMap { ci -> Int? in let ch = choices; return ch.indices.contains(ci) ? all.firstIndex { $0.0.isSame(ch[ci].0) } : nil }
         let cur = Self.lineIndex[key] ?? fromChoice
         let next = cur.map { min(max(0, $0 + delta), all.count - 1) } ?? (delta > 0 ? 0 : all.count - 1)
         if let cur, next == cur { Tones.edge(keySent: true) }

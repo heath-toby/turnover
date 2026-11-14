@@ -75,7 +75,8 @@ public enum ItemChooser {
         var settable: DarwinBoolean = false
         if AXUIElementIsAttributeSettable(e, kAXFocusedAttribute as CFString, &settable) == .success, settable.boolValue,
            e.set(kAXFocusedAttribute, kCFBooleanTrue) == .success { return }   // the focus event reads it
-        ObjectNavigator.shared.focusMoved(to: e, pid: e.pid)
-        ObjectNavigator.shared.reportCurrent()
+        // Landed and read whatever the cursor tracking setting: with it off, focusMoved did nothing and the old item
+        // was read again (a review, 14 Nov 2026).
+        ObjectNavigator.shared.moveTo(e)
     }
 }

@@ -181,7 +181,8 @@ public final class FindPrompt {
             Log.io("find: focus to \(target.role)")
             return
         }
-        ObjectNavigator.shared.focusMoved(to: hit, pid: hit.pid)
-        ObjectNavigator.shared.reportCurrent()
+        // Landed and read whatever the cursor tracking setting: with it off, focusMoved did nothing and the old item
+        // was read again (a review, 14 Nov 2026).
+        ObjectNavigator.shared.moveTo(hit)
     }
 }
