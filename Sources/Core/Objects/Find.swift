@@ -141,11 +141,16 @@ public final class FindPrompt {
                 }
             } else {
                 // Backwards: the window in reading order up to from, the last match before it.
+                // The window and from's own containers come before it in this order but hold it: never a match, or
+                // a previous search landed on the window or a parent of where it started (a review, 14 Nov 2026).
+                var holders: [AXUIElement] = []
+                var up = from.element(kAXParentAttribute)
+                while let x = up, holders.count < 64, !x.isSame(window) { holders.append(x); up = x.element(kAXParentAttribute) }
                 var stack: [AXUIElement] = [window]
                 while let e = stack.popLast(), Date() < deadline {
                     if e.isSame(from) { break }
                     let (m, kids) = look(e)
-                    if m { hit = e }
+                    if m, !e.isSame(window), !holders.contains(where: { $0.isSame(e) }) { hit = e }
                     stack.append(contentsOf: kids.reversed())
                 }
                 // A match inside a row stands for the row: not the row we are on.

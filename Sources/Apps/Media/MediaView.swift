@@ -1250,7 +1250,14 @@ public final class MediaView {
         let cur = max(0, min(flat.count - 1, index[.page] ?? 0))
         let shelf = flat[cur].shelf + delta
         guard shelves.indices.contains(shelf), let first = flat.firstIndex(where: { $0.shelf == shelf }) else {
-            if delta > 0 { loadMore(then: { [weak self] in self?.jumpShelf(delta) }) } else { Tones.edge() }
+            // A newer move while it loads owns the place, as for move() (a review, 14 Nov 2026).
+            let intent = navigationIntent
+            if delta > 0 {
+                loadMore(then: { [weak self] in
+                    guard let self, navigationIntent == intent else { return }
+                    jumpShelf(delta)
+                })
+            } else { Tones.edge() }
             return
         }
         let old = cur
@@ -1288,6 +1295,12 @@ public final class MediaView {
             self.pane = pane
             index[pane] = position
             jumpedToHeading = heading == nil ? nil : navigationIntent
+            // The review cursor speaks a landed library row itself, so label() never records it: its words now are
+            // the ones heard, or Return and Delete refused there (a review, 14 Nov 2026).
+            if heading == nil, items[position].tableRow {
+                let item = items[position]
+                lastSpokenRow = (position, item.label.isEmpty ? Self.rowText(item.element).joined(separator: ", ") : item.label)
+            }
             Log.io("media: the reading adopted the landing, \(pane) \(heading == nil ? "" : "heading before ")item \(position + 1) of \(items.count)")
             return heading ?? items[position].element
         }

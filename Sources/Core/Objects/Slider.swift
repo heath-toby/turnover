@@ -21,7 +21,8 @@ open class Slider: TurnOverObject {
             _ = Poll.pumping(every: 0.02, limit: 0.4) { self.element.attr(kAXValueAttribute).map { "\($0)" } != before || ScriptHandler.keysArrivedCount != keys }
             if ScriptHandler.keysArrivedCount != keys { return }
             let now = self.element.string(kAXValueDescriptionAttribute).flatMap { $0.isEmpty ? nil : $0 } ?? self.element.attr(kAXValueAttribute).map { v -> String in
-                if let n = v as? NSNumber { let d = n.doubleValue; return d == d.rounded() ? String(Int(d)) : String(format: "%.1f", d) }
+                // Int() traps on infinity or a huge value, so those use the format (a review, 14 Nov 2026).
+                if let n = v as? NSNumber { let d = n.doubleValue; return d.isFinite && abs(d) < 1e15 && d == d.rounded() ? String(Int(d)) : String(format: "%.1f", d) }
                 return "\(v)"
             }
             guard let now else { return }

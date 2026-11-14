@@ -620,12 +620,18 @@ final class CalendarAppModule: AppModule {
         let list = events(day)
         guard list.indices.contains(i) else { g.send(); return }
         let e = list[i]
-        Tones.press()
         opened = .waiting
         lastOwnMove = Date()
         // Nothing opened (the press failed, or no box came): not left waiting, where a later popover's focus would be
         // taken for this event's and its return said as this event (a review, 14 Nov 2026).
-        if AXUIElementPerformAction(e, kAXPressAction as CFString) != .success { opened = .no; return }
+        // The press tone only once the press worked: a tick then silence said nothing (a review, 14 Nov 2026).
+        if AXUIElementPerformAction(e, kAXPressAction as CFString) != .success {
+            opened = .no
+            Tones.edge()
+            Speech.speakMessage(String(localized: "could not open that event", comment: "Spoken message: pressing a Calendar event failed"))
+            return
+        }
+        Tones.press()
         openPresses &+= 1
         let press = openPresses
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in

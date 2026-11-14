@@ -83,7 +83,9 @@ public final class AXHandler {
         // Only main prunes (it asks the menus their size); other threads read the list as it is.
         if Thread.isMainThread, Date().timeIntervalSince(menuOpenedAt) > 0.3 {
             let now = openMenus
-            let open = now.filter { Self.hasSize($0) }
+            // An app resting after a timeout answers nothing (role "?"), which isn't a closed menu: kept until it is
+            // asked again (a review, 14 Nov 2026).
+            let open = now.filter { AXHealth.backoff(for: $0.pid) != nil || Self.hasSize($0) }
             if open.count != now.count {
                 openMenus = open
                 // Left or Right between menu-bar menus: the old one is found closed here before its menuEnd arrives, and
