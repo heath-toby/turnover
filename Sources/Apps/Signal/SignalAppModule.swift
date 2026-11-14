@@ -20,4 +20,11 @@ package final class SignalAppModule: AppModule {
     package override func event_appModuleGainFocus() { filter.start() }
 
     package override func terminate() { filter.stop() }
+
+    /// Signal's own live regions say what the filter already says (a message, someone typing), so they are left
+    /// unspoken here, as the tester's filter does for VoiceOver (14 Nov 2026). Everything else goes on as usual.
+    package override func handleEvent(_ event: Event, next: () -> Void) {
+        if event.kind == .liveRegionChange { return }
+        next()
+    }
 }
