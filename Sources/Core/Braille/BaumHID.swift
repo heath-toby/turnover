@@ -375,7 +375,7 @@ final class BaumHIDDriver: BrailleDisplayDriver {
         if keys.allSatisfy({ $0.hasPrefix("dot") || $0 == "space" }) {
             let dots = Set(keys.compactMap { Int($0.dropFirst(3)) })
             var late = false
-            if keys.contains("space"), !dots.isEmpty, let s = spaceAt, let d = dotAt { late = letGo || s.timeIntervalSince(d) > BrailleInput.lateSpaceSeconds }
+            if keys.contains("space"), !dots.isEmpty, let s = spaceAt, let d = dotAt { late = BrailleInput.isLateSpace(gap: s.timeIntervalSince(d), dotLetGo: letGo, ignoreDuration: config.braille.ignoreChordDuration) }
             BrailleInput.chord(dots: dots, space: keys.contains("space"), spaceLate: late)
             return
         }

@@ -207,11 +207,12 @@ final class KindleAppModule: AppModule {
     /// Keys bumped during this turn.
     private var bumps = 0
 
-    private func turnAndRead(forward: Bool, atEnd: Bool, _ g: KeyboardGesture) {
+    private func turnAndRead(forward: Bool, atEnd: Bool, _ g: KeyboardGesture?, then done: (() -> Void)? = nil) {
         if turning { Tones.edge(); bumps += 1; return }
         bumps = 0
         let keysAt = InputManager.keyDownCount
         turnPage(forward: forward) { [weak self] turned in
+            defer { done?() }
             guard let self, let (doc, page) = self.bookDocument() else { return }
             // Another key came while the page turned: it has said or moved since; this reading would talk over it.
             // (Keys bumped while it turned don't count: holding Page Down ended in silence on a page that had turned.)
@@ -223,6 +224,14 @@ final class KindleAppModule: AppModule {
             doc.position = doc.buffer.lines[atEnd ? lines.last : lines.first].start
             doc.speakUnit(.line)
         }
+    }
+
+    /// Braille's "Turn pages when panning" (14 Nov 2026): panning on from the page's last line (or back from its
+    /// first) turns the page, as Down and Up do here.
+    override func brailleTurnPage(forward: Bool, done: @escaping () -> Void) -> Bool {
+        guard onEdgeLine(last: forward) else { return false }
+        turnAndRead(forward: forward, atEnd: !forward, nil, then: done)
+        return true
     }
 
     /// Say all reaching the page's end turns the page and reads on, as VoiceOver's continuous reading does.

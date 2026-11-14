@@ -78,6 +78,10 @@ open class AppModule: ScriptableObject {
     /// where to read next. True when it will; say all then waits rather than saying "end of document".
     open func sayAllReachedEnd(_ obj: TurnOverObject, resume: @escaping (TextInfo) -> Void) -> Bool { false }
 
+    /// Braille panned past the page's last line (or before its first), with "Turn pages when panning" on: the module
+    /// may turn the page (Kindle) and call `done` once the new page is in place. True when it will (14 Nov 2026).
+    open func brailleTurnPage(forward: Bool, done: @escaping () -> Void) -> Bool { false }
+
     /// A field whose focus can't be set by accessibility: the module may put the keyboard there itself (a click).
     /// True when it did.
     open func takeFocus(_ element: AXUIElement) -> Bool { false }

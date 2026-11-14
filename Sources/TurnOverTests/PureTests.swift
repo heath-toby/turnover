@@ -938,6 +938,41 @@ func pureTests() {
         expect(Braille.brailleText(["Hello", "text"]), "Hello")
         expect(Braille.brailleText(["a", "b"], separator: ", "), "a, b")
     }
+    test("braille verbosity: same as speech, or VoiceOver's high, medium and low levels") {
+        let pieces: [(String, [String])] = [("name", ["Save"]), ("role", ["button"]), ("value", ["on"]), ("state", ["dimmed"]),
+                                            ("description", ["Saves the file"]), ("shortcut", ["Command-S"]), ("position", ["2 of 5"]), ("level", ["level 2"])]
+        let speech = Config.Verbosity(order: ["role", "name"], off: ["description"])
+        expect(speech.forBraille("speech"), speech, "same as speech: the speech list itself")
+        expect(Speech.arranged(pieces, by: speech.forBraille("low")), ["Save", "on"], "low: name and value only")
+        expect(Speech.arranged(pieces, by: speech.forBraille("medium")), ["button", "Save", "on", "dimmed"], "medium: kind and states, speech's order")
+        expect(Speech.arranged(pieces, by: speech.forBraille("high")), ["button", "Save", "on", "dimmed", "Saves the file", "Command-S", "2 of 5", "level 2"], "high: everything, help text and position too")
+        expect(speech.forBraille("unknown"), speech, "an unknown level is the speech list")
+        expect(Braille.brailleText(Speech.arranged(pieces, by: Config.Verbosity().forBraille("medium")), role: .button), "Save btn (x) unavbl", "medium abbreviates the kind and states")
+        let decode: (String) -> Config.Braille = { try! JSONDecoder().decode(Config.Braille.self, from: Data($0.utf8)) }
+        expect(decode("{}").verbosity, "speech", "the default keeps today's display")
+        expect(decode("{\"verbosity\": \"low\"}").verbosity, "low")
+        expect(decode("{\"verbosity\": \"loud\"}").verbosity, "speech", "a level TurnOver doesn't know falls back")
+        expect(decode("{}").turnPagesWhenPanning, false); expect(decode("{}").ignoreChordDuration, false)
+        let round = try! JSONDecoder().decode(Config.Braille.self, from: try! JSONEncoder().encode(decode("{\"verbosity\": \"high\", \"turnPagesWhenPanning\": true, \"ignoreChordDuration\": true}")))
+        expect(round.verbosity, "high"); expect(round.turnPagesWhenPanning, true); expect(round.ignoreChordDuration, true)
+    }
+    test("braille input: ignore chord duration leaves only a dot let go as typing") {
+        expect(BrailleInput.isLateSpace(gap: 0.3, dotLetGo: false, ignoreDuration: false), true, "space well after the dots: typing")
+        expect(BrailleInput.isLateSpace(gap: 0.05, dotLetGo: false, ignoreDuration: false), false, "together: a command")
+        expect(BrailleInput.isLateSpace(gap: 0.3, dotLetGo: false, ignoreDuration: true), false, "timing ignored: a command")
+        expect(BrailleInput.isLateSpace(gap: 0.0, dotLetGo: true, ignoreDuration: true), true, "a dot let go first is still typing")
+    }
+    test("review cursor: settings default to today's behaviour; simple review mode") {
+        let k = try! JSONDecoder().decode(Config.Keyboard.self, from: Data("{}".utf8))
+        expect(k.reviewFollowsFocus, true); expect(k.reviewFollowsCaret, true); expect(k.reviewFollowsMouse, false); expect(k.simpleReviewMode, true)
+        var changed = k; changed.reviewFollowsCaret = false; changed.simpleReviewMode = false; changed.reviewFollowsMouse = true
+        let round = try! JSONDecoder().decode(Config.Keyboard.self, from: try! JSONEncoder().encode(changed))
+        expect(round.reviewFollowsCaret, false); expect(round.simpleReviewMode, false); expect(round.reviewFollowsMouse, true); expect(round.reviewFollowsFocus, true)
+        expect(ObjectNavigator.isReviewStop(role: "AXGroup", isItem: { false }, simple: true), false, "simple: layout skipped")
+        expect(ObjectNavigator.isReviewStop(role: "AXGroup", isItem: { false }, simple: false), true, "full review: every object")
+        expect(ObjectNavigator.isReviewStop(role: "AXWindow", isItem: { true }, simple: false), false, "never the window itself")
+        expect(ObjectNavigator.isReviewStop(role: "AXButton", isItem: { true }, simple: true), true)
+    }
 
     test("braille: line breaks and placeholders are blank cells, offsets kept") {
         expect(Braille.displayed("one\ntwo"), "one two")

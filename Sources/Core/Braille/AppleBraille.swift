@@ -68,7 +68,8 @@ final class AppleBrailleDriver: BrailleDisplayDriver {
             }
             // Dot 7 held alone repeats Backspace, as a held key does (after half a second, then ten a second).
             repeatTimer?.invalidate(); repeatTimer = nil
-            if pressed, held == [6], chord == [6] {
+            // (Not with "Ignore chord duration" on: how long a chord is held then means nothing, 14 Nov 2026.)
+            if pressed, held == [6], chord == [6], !config.braille.ignoreChordDuration {
                 repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in MainActor.assumeIsolated {
                     guard let self else { return }
                     self.repeating = true
@@ -84,7 +85,7 @@ final class AppleBrailleDriver: BrailleDisplayDriver {
                 var late = false
                 if space, !dots.isEmpty, let s = spaceDown, let d = lastDotDown {
                     let gap = s.timeIntervalSince(d)
-                    late = dotLetGoBeforeSpace || gap > BrailleInput.lateSpaceSeconds
+                    late = BrailleInput.isLateSpace(gap: gap, dotLetGo: dotLetGoBeforeSpace, ignoreDuration: config.braille.ignoreChordDuration)
                     Log.io("braille: space key \(chord.filter { $0 >= 8 }), \(Int(gap * 1000)) ms after the last dot\(dotLetGoBeforeSpace ? ", a dot let go first" : "")")
                 } else if chord.contains(where: { $0 >= 8 }) { Log.io("braille: space key \(chord.filter { $0 >= 8 })") }
                 chord.removeAll(); lastDotDown = nil; spaceDown = nil; dotLetGoBeforeSpace = false

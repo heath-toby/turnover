@@ -38,8 +38,33 @@ public final class ObjectNavigator {
         return false
     }
 
-    /// VoiceOver's cursor tracking, off for now (VO-Shift-F3): the review cursor stays where it is as the focus moves.
-    public var tracksFocus = true
+    /// VoiceOver's cursor tracking (VO-Shift-F3), NVDA's "Follow system focus" (NVDA+7): off, the review cursor stays
+    /// where it is as the focus moves. A saved setting since 14 Nov 2026 (Settings, Keyboard, Moving around).
+    public var tracksFocus: Bool {
+        get { config.keyboard.reviewFollowsFocus }
+        set { config.keyboard.reviewFollowsFocus = newValue; config.save() }
+    }
+
+    /// The hook for mouse tracking (NVDA's "Follow mouse cursor", 14 Nov 2026): whoever watches the mouse calls this
+    /// with the element under it; the review cursor goes there when the setting is on. Says nothing itself.
+    /// True when the review cursor moved.
+    @discardableResult
+    public func mouseMoved(to e: AXUIElement, pid: pid_t) -> Bool {
+        guard config.keyboard.reviewFollowsMouse, heldList == nil else { return false }
+        cancelWindowSearch()
+        current = e; currentPid = pid; labelSource = nil
+        return true
+    }
+
+    /// NVDA's simple review mode: next and previous skip layout (`isItem`); off, every element but the window and the
+    /// application is a stop, as NVDA's full object review is. Pure, for the tests.
+    public nonisolated static func isReviewStop(role: String, isItem: () -> Bool, simple: Bool) -> Bool {
+        if simple { return isItem() }
+        return role != "AXWindow" && role != "AXApplication" && role != "?"
+    }
+    private func isStop(_ e: AXUIElement) -> Bool {
+        Self.isReviewStop(role: e.role, isItem: { Self.isItem(e) }, simple: config.keyboard.simpleReviewMode)
+    }
 
     public func focusMoved(to e: AXUIElement, pid: pid_t) {
         cancelWindowSearch()
@@ -428,7 +453,7 @@ public final class ObjectNavigator {
             // VoiceOver's "Skip redundant labels" (on, as before; 14 Nov 2026): the text a plugin label took the item's
             // name from is passed over, since the item has just said it.
             let redundant = config.presentation.skipRedundantLabels && (labelSource.map { $0.isSame(n) } ?? false)
-            if Self.isItem(n), !redundant { land(on: n); landedByStep = true; return }
+            if isStop(n), !redundant { land(on: n); landedByStep = true; return }
             node = forward ? nextInOrder(after: n, root: root, enter: true) : previousInOrder(before: n, root: root)
         }
         Tones.edge()
@@ -440,7 +465,7 @@ public final class ObjectNavigator {
         var p = e.element(kAXParentAttribute)
         var hops = 0
         // Skip layout no one would name, as next and previous do. (Bounded, as every parent walk: a looping tree.)
-        while let x = p, hops < 60, x.role != "AXWindow", !Self.isItem(x), Self.layoutRoles.contains(x.role), (x.string(kAXDescriptionAttribute) ?? x.string(kAXTitleAttribute) ?? "").isEmpty {
+        while let x = p, hops < 60, config.keyboard.simpleReviewMode, x.role != "AXWindow", !Self.isItem(x), Self.layoutRoles.contains(x.role), (x.string(kAXDescriptionAttribute) ?? x.string(kAXTitleAttribute) ?? "").isEmpty {
             p = x.element(kAXParentAttribute); hops += 1
         }
         guard let target = p else { Tones.edge(); return }
@@ -453,7 +478,7 @@ public final class ObjectNavigator {
         var visited = 0
         while let n = node, visited < 500 {
             visited += 1
-            if Self.isItem(n) { land(on: n); return }
+            if isStop(n) { land(on: n); return }
             node = (Self.descends(n) ? n.elements(kAXChildrenAttribute).first : nil) ?? nextInOrder(after: n, root: e, enter: false)
         }
         Tones.edge()

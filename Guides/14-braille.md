@@ -42,6 +42,10 @@ in Settings, Braille; the TurnOver menu's Braille submenu has the table and the 
   with a start marker if you want one (a pilcrow, or two blank cells).
 - **Headings:** a line in a heading starts with its level, h1 to h9 (in Word and on web pages), unless headings
   are turned off under Document formatting; with the level not reported there, just h.
+- **Braille verbosity:** how much the display shows about an item, apart from what is spoken (VoiceOver's
+  Verbosity, Braille). Same as speech (the default) shows the pieces speech says, in its order, shortened for
+  braille. High shows everything, with help text and position ("3 of 10"); Medium the name, value, kind and states
+  ("btn", "chk (x)"); Low the name and value only. Speech does not change.
 - **Avoid splitting words:** the display ends at a space rather than inside a word.
 - **Show messages:** TurnOver's messages for a time (seconds for each display's width), until a key, or not at all.
 - **Cursor:** shown or not, blinking or not and how fast, and its shape for the focus and for review (dots 7 and 8,
@@ -53,6 +57,9 @@ in Settings, Braille; the TurnOver menu's Braille submenu has the table and the 
   cursor" (Line by line, To the text shown, or Off), the caret follows what you read. The line reached is spoken
   too, as VoiceOver does; turn off "Speak the line when panning to it" to pan silently, as NVDA does. In Terminal
   the shell keeps its cursor, so the line you pan to stays on the display until new output moves it.
+- **Turn pages when panning** (off): in a Kindle book, panning on from the page's last line turns the page and shows
+  the next page's first line; panning back from its first line goes to the previous page. Other apps are not paged
+  yet.
 - **Routing keys** move the caret to that character (the character is spoken), or press a link or button in browse
   mode. Tethered to review, they move the review cursor, and the caret only if you choose.
 - The display's other keys do what VoiceOver does with them: up and down, the action key, Escape, the Dock, the menu
@@ -61,6 +68,8 @@ in Settings, Braille; the TurnOver menu's Braille submenu has the table and the 
 - **The braille keyboard:** type in contracted braille a word at a time, or letter by letter. Space with dots are
   VoiceOver's braille commands; dot 7 is Backspace and dot 8 Return. Keyboard help (TurnOver 1, or space with dots
   1 3) says what each key and chord does.
+- **Ignore chord duration** (off): a chord is just the keys pressed together, however long you hold them: holding
+  dot 7 does not repeat Backspace, and space pressed a little after the dots is still part of the chord.
 
 ## The braille panel
 
