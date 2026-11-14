@@ -13,6 +13,9 @@ import TurnOverVoices
 @MainActor
 final class Model: ObservableObject {
     @Published var state: [String: Any] = [:]
+    /// Export or import tried with TurnOver away: kept apart from the state TurnOver sends, which replaces it all, and
+    /// shown with the waiting text (a review).
+    @Published var offlineNote: String?
     @Published var connected = false
     /// TurnOver closed the connection at once, five times running: this window is an old build's, left open across an
     /// install, and TurnOver turns it away (issue 77: it knocked every two seconds until it was quit by hand).
@@ -70,7 +73,7 @@ final class Model: ObservableObject {
     func exportSettings(to url: URL) {
         // TurnOver not there (restarting): said at once, not silently nothing (a review).
         // (Shown in the window: with no connection nothing reaches TurnOver to say it: a review.)
-        guard let connection else { state["_portableMessage"] = String(localized: "Not exported: TurnOver isn't running. Start it and try again.", comment: "Settings window: export with TurnOver off"); return }
+        guard let connection else { offlineNote = String(localized: "Not exported: TurnOver isn't running. Start it and try again.", comment: "Settings window: export with TurnOver off"); return }
         exportURL = url
         connection.send(["op": "exportSettings"])
     }
@@ -86,7 +89,7 @@ final class Model: ObservableObject {
         }
     }
     func importSettings(from url: URL) {
-        guard connection != nil else { state["_portableMessage"] = String(localized: "Not imported: TurnOver isn't running. Start it and try again.", comment: "Settings window: import with TurnOver off"); return }
+        guard connection != nil else { offlineNote = String(localized: "Not imported: TurnOver isn't running. Start it and try again.", comment: "Settings window: import with TurnOver off"); return }
         // Well under the control channel's limit for one message (a megabyte), as the file is escaped twice on the way
         // (a review); a settings file is a few dozen kilobytes.
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
@@ -166,7 +169,10 @@ struct ContentView: View {
             if model.turnedAway {
                 Text("TurnOver turned this window away: it was probably updated while the window was open. Quit Settings and open it again from the TurnOver menu.").padding()
             } else if !model.connected {
-                Text("Waiting for TurnOver. Start it with Command Control Period.").padding()
+                VStack(alignment: .leading) {
+                    Text("Waiting for TurnOver. Start it with Command Control Period.")
+                    if let note = model.offlineNote { Text(note) }
+                }.padding()
             } else {
                 switch section ?? .general {
                 case .general: GeneralView()

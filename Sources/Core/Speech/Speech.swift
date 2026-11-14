@@ -59,7 +59,7 @@ public enum Speech {
     /// showed say all's next part, never spoken, at every key).
     nonisolated static let cancels = Locked<Int>(0)
     public static func cancel() {
-        cancels.value += 1
+        cancels.withLock { $0 += 1 }
         // Focus words still unfinished are cut: the same words said again straight after are no repeat (see
         // speakObject's half-second check).
         if Date().timeIntervalSince(lastFocusWordsAt) < 0.5, focusWordsDone.value != focusWordsGeneration { lastFocusWordsCut = true }

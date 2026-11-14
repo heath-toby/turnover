@@ -491,6 +491,14 @@ public final class WebBuffer {
     /// The root is a web page: a web area inside it is a frame (an iframe's page), announced as the reading enters it.
     private var rootIsWeb = false
 
+    /// A picture that is all its heading or cell holds (a logo as a heading, an icon-only cell): kept whatever the
+    /// pictures setting, or the heading or cell would be empty (a review, 14 Nov 2026).
+    private static func onlyContent(of el: AXUIElement) -> Bool {
+        guard let parent = el.element(kAXParentAttribute), ["AXHeading", "AXCell"].contains(parent.role) else { return false }
+        var count: CFIndex = 0
+        AXUIElementGetAttributeValueCount(parent, kAXChildrenAttribute as CFString, &count)
+        return count == 1
+    }
     /// Roles whose description is never needed to tell what they are (most lines): not asked for it.
     private static let plainRoles: Set<String> = ["AXStaticText", "AXLink", "AXImage", "AXHeading", "AXList", "AXTable", "AXRow", "AXCell", "AXWebArea", "AXSplitter", "AXProgressIndicator"]
     /// What an element of a line is, read once a build (its role and subrole from the walk, which read them going by).
@@ -596,7 +604,7 @@ public final class WebBuffer {
             // Kept whatever the setting on a page that is nothing but pictures (an image opened in Safari, an image-only
             // message), and as a heading's or a cell's only content: skipped, the page read as forever loading (a review).
             if linkDepth == 0, !Self.navigatesImage(described: !d.isEmpty, setting: config.virtualBuffers.navigateImages),
-               pageHasText, !["AXHeading", "AXCell"].contains(el.element(kAXParentAttribute)?.role ?? "") { break }
+               pageHasText, !Self.onlyContent(of: el) { break }
             if d.isEmpty, config.virtualBuffers.imageFileNames { d = ImageNames.fromFile(el) }
             if !d.isEmpty || linkDepth == 0 { append(d.isEmpty ? Role.graphic.displayString : "\(Role.graphic.displayString) \(d)", el) }
         case "AXLink":
