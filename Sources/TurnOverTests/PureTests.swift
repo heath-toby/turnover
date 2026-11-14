@@ -48,8 +48,9 @@ func pureTests() {
         check(!s.isSecret(now: t0), "nothing secret at first")
         s.returnPressed(commandLine: "toby@mac ~ % sudo ls", at: t0)
         check(s.isSecret(now: t0.addingTimeInterval(1)), "typed ahead of sudo's prompt: secret")
-        check(!s.isSecret(now: t0.addingTimeInterval(2.5)), "not after two seconds without a prompt")
-        s.keyTypedAhead(backspace: false); s.keyTypedAhead(backspace: false); s.keyTypedAhead(backspace: false); s.keyTypedAhead(backspace: true)
+        check(!s.isSecret(now: t0.addingTimeInterval(2.5)), "not after two seconds without a prompt or a key")
+        let t1 = t0.addingTimeInterval(1)
+        s.keyTypedAhead(backspace: false, at: t1); s.keyTypedAhead(backspace: false, at: t1); s.keyTypedAhead(backspace: false, at: t1); s.keyTypedAhead(backspace: true, at: t1)
         expect(s.aheadKeys, 2, "keys typed ahead counted, Backspace taking one off")
         expect(TerminalRules.withoutTypedAhead("ab[sudo] password for toby:", keys: 2), "[sudo] password for toby:", "their echo before the prompt taken off")
         s.sawPrompt()
@@ -62,10 +63,46 @@ func pureTests() {
         s.returnPressed(commandLine: "toby@mac ~ % ls", at: t0.addingTimeInterval(70))
         check(!s.isSecret(now: t0.addingTimeInterval(70.5)), "an ordinary command: not secret")
         s.returnPressed(commandLine: "toby@mac ~ % ssh host", at: t0.addingTimeInterval(80))
-        s.keyTypedAhead(backspace: false)
+        s.keyTypedAhead(backspace: false, at: t0.addingTimeInterval(80))
         s.returnPressed(commandLine: "", at: t0.addingTimeInterval(81))
         check(s.isSecret(now: t0.addingTimeInterval(82.5)), "a password typed ahead and sent: still ahead of its prompt")
         expect(s.aheadKeys, 1, "its count kept for the echo")
+    }
+    test("terminal: a password typed ahead of a slow prompt stays secret while typed, ten seconds at most") {
+        let t0 = Date()
+        var s = TerminalSecret()
+        s.returnPressed(commandLine: "toby@mac ~ % ssh slowhost", at: t0)
+        for i in 1...6 { s.keyTypedAhead(backspace: false, at: t0.addingTimeInterval(Double(i) * 1.5)) }
+        check(s.isSecret(now: t0.addingTimeInterval(9.5)), "each key typed ahead keeps the window open past two seconds")
+        expect(s.aheadKeys, 6, "all counted for the echo")
+        check(!s.isSecret(now: t0.addingTimeInterval(11)), "two seconds after the last key: over")
+        var c = TerminalSecret()
+        c.returnPressed(commandLine: "sudo ls", at: t0)
+        for i in 1...12 { c.keyTypedAhead(backspace: false, at: t0.addingTimeInterval(Double(i))) }
+        check(!c.isSecret(now: t0.addingTimeInterval(10.5)), "never past ten seconds from Return")
+        let before = c.aheadKeys
+        c.keyTypedAhead(backspace: false, at: t0.addingTimeInterval(10.6))
+        expect(c.aheadKeys, before, "a key after the window doesn't reopen it")
+        var o = TerminalSecret()
+        o.keyTypedAhead(backspace: false, at: t0)
+        check(!o.isSecret(now: t0), "a key with no window opens none")
+    }
+    test("terminal: the typed-ahead echo alone on a new line is not output") {
+        let rest = [TerminalRules.withoutTypedAhead("a", keys: 1)]
+        check(TerminalRules.allBlank(rest), "the first key's echo with Return's newline: the secret goes on")
+        check(TerminalRules.allBlank(["", "  "]), "blank lines are not output")
+        check(!TerminalRules.allBlank([TerminalRules.withoutTypedAhead("abSorry, try again.", keys: 2)]), "anything more is output")
+    }
+    test("terminal: Control-C at a password prompt ends the secret") {
+        let t0 = Date()
+        var s = TerminalSecret()
+        s.returnPressed(commandLine: "toby@mac ~ % sudo ls", at: t0)
+        s.sawPrompt()
+        check(s.isSecret(now: t0.addingTimeInterval(5)), "at the prompt: secret")
+        s.outputArrived()   // "^C" and the shell's prompt: new lines, the cursor's line no longer a password prompt
+        check(!s.isSecret(now: t0.addingTimeInterval(5)), "the prompt gone: the next command is not secret")
+        s.returnPressed(commandLine: "toby@mac ~ % ls", at: t0.addingTimeInterval(8))
+        check(!s.isSecret(now: t0.addingTimeInterval(8.5)), "its Return is not taken for a retry")
     }
     test("terminal: after clear, output above the prompt is read from its first line") {
         expect(TerminalRules.firstContentLineStart("\n\n  \nfile.txt\nnotes\n"), 5, "blank lines before the output skipped")
@@ -95,6 +132,10 @@ func pureTests() {
         check(TurnOverObject.isFarLeftLabel(far, of: field, between: [CGRect(x: 120, y: 160, width: 120, height: 22)]), "a control on another row doesn't stand between")
         check(TurnOverObject.isFarLeftLabel(far, of: field, between: [CGRect(x: 0, y: 90, width: 600, height: 40)]), "a box around the row doesn't stand between")
         check(!TurnOverObject.isFarLeftLabel(CGRect(x: -100, y: 102, width: 60, height: 17), of: field, between: []), "not past 300 points")
+        check(TurnOverObject.labelSide(left: far, hasAbove: true, of: field) == .above, "a label above beats a far text on the row")
+        check(TurnOverObject.labelSide(left: far, hasAbove: false, of: field) == .farLeft, "a far text on the row only with no label above")
+        check(TurnOverObject.labelSide(left: CGRect(x: 200, y: 102, width: 90, height: 17), hasAbove: true, of: field) == .left, "a near label on the row beats one above")
+        check(TurnOverObject.labelSide(left: nil, hasAbove: false, of: field) == .none, "no text: no label")
     }
     test("pronunciations: whole words, any case, longest first, comments skipped") {
         let list = PronunciationDictionary.parse("# mine\nTurnOver = turn over\nNew York = new york\nNew York City = big apple\nbad line\nLBRF = L B R F")

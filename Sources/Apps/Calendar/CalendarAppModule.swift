@@ -595,9 +595,11 @@ final class CalendarAppModule: AppModule {
     private func deleteEvent(_ g: KeyboardGesture) {
         guard let day = dayShowing(current) else { g.send(); return }
         let list = events(day)
-        let target = eventIndex.flatMap { list.indices.contains($0) ? list[$0] : nil } ?? day.element
-        guard let focused = AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute), focused.isSame(target) else {
-            Log.io("calendar: \(g.identifier) not sent; Calendar's focus isn't the \(eventIndex == nil ? "day" : "event") read")
+        // The day read, not an event: never sent. Calendar's focus can be the day while its event selection is still an
+        // event heard earlier, and Delete removed that (a review, 13 Nov 2026).
+        let target = eventIndex.flatMap { list.indices.contains($0) ? list[$0] : nil }
+        guard let target, let focused = AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute), focused.isSame(target) else {
+            Log.io("calendar: \(g.identifier) not sent; \(eventIndex == nil ? "the day is read, not an event" : "Calendar's focus isn't the event read")")
             Tones.edge()
             Speech.speakMessage(String(localized: "could not select that", comment: "Spoken message: Delete was not sent, as the Calendar event or day read isn't Calendar's selection"))
             return
