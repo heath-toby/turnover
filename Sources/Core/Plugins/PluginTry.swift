@@ -87,6 +87,7 @@ public enum PluginTry {
         if PluginPolicy.refusedSentKeys.map({ normalizeGestureIdentifier("kb:" + $0) }).contains(id) { return "\(s) reaches outside the app or uses the clipboard" }
         let m = g.modifiers, k = g.keyName.lowercased()
         if m.contains(.command) && m.contains(.control) { return "\(s): Command Control keys are TurnOver's own and the Mac's" }
+        if k == "escape", m.contains(.control), m.contains(.shift) { return "\(s) opens Force Quit" }
         if m.contains(.command) && m.contains(.option) && m.contains(.shift) { return "\(s) reaches the whole Mac" }
         if k.hasPrefix("f"), Int(k.dropFirst()) != nil, !m.isEmpty, !m.contains(.turnover) { return "\(s): function keys with modifiers reach the Mac" }
         // Control Option arrows are VoiceOver's keys, not the Spaces ones.
@@ -166,6 +167,12 @@ public enum PluginTry {
             guard onTarget() else {
                 Log.info("plugin try: \(name) is no longer in front; stopped after \(i) steps")
                 done(stopped: "stopped after \(i) of \(steps.count) steps: \(name) is no longer in front"); return
+            }
+            // TurnOver's own menus, choosers and navigators never take the front, so the app check passes while one is
+            // open, and the keys drove it: Force Quit, Quit TurnOver (a review, 14 Nov 2026). Stopped before each key.
+            if TurnOverMenu.shared.isOpen || FindPrompt.shared.isOpen || DesktopNavigator.active || MenuNavigationPlugin.heldBar != nil {
+                Log.info("plugin try: TurnOver's own menu or navigator opened; stopped after \(i) steps")
+                done(stopped: "stopped after \(i) of \(steps.count) steps: a key opened TurnOver's own menu or navigator, which keys from an AI may not drive"); return
             }
             lastOnTarget = Date()
             guard i < steps.count else {

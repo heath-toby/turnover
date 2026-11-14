@@ -61,9 +61,14 @@ public final class PanesView {
 
     /// Which part the user is in: the one holding the keyboard focus, or TurnOver's cursor.
     public func currentIndex() -> Int? {
-        // The focus moved since a part was missed (the sidebar shown and gone into): looked for again.
-        let focus = API.focusObject?.element
-        if let f = focus, !(missedFocus.map { CFEqual($0, f) } ?? false) { missed = [:]; missedFocus = f }
+        // The focus moved somewhere outside every part found (the sidebar shown and gone into): the missed parts are
+        // looked for again. Not on every move: Tab between parts moves the focus each time, and the hidden part was
+        // searched again at every Tab (a review, 14 Nov 2026).
+        if let f = API.focusObject?.element, !(missedFocus.map { CFEqual($0, f) } ?? false) {
+            missedFocus = f
+            let inKnown = found.values.contains { (e, _) in e.role != "?" && isInside(f, e) }
+            if !inKnown { missed = [:] }
+        }
         let nav = ObjectNavigator.shared
         for i in parts.indices {
             guard let e = element(of: i) else { continue }

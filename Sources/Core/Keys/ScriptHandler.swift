@@ -193,7 +193,9 @@ public enum ScriptHandler {
             if late {
                 let ms = Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1e6
                 Log.warning("keyboard: \(handled.logDescription()) answered after \(Int(ms)) ms: \(taken ? "its script runs now" : "sent on to the application now")")
-                if !taken { handled.send() }
+                // Posted, not sent at once: an earlier late key's script (Backspace) is queued on main ahead of it, and
+                // this key went to the app first ("teh" stayed "teh": a review, 14 Nov 2026).
+                if !taken { DispatchQueue.main.async { handled.send() } }
                 outstandingLate.lock.lock(); outstandingLate.unsafeValue -= 1; outstandingLate.lock.unlock()
             } else { done.signal() }
         } }

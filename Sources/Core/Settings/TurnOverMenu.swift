@@ -618,7 +618,7 @@ public final class TurnOverMenu {
             try FileManager.default.trashItem(at: folder, resultingItemURL: nil)
             Log.io("plugin removed to the Trash: \(folder.lastPathComponent)")
             ProfileStore.shared.reload(force: true, quiet: true)
-            shared.close()
+            if shared.isOpen { shared.close() }   // (an action item has closed it already: "closed" was said twice)
             Speech.speakMessage(String(localized: "\(name) removed. It is in the Trash.", comment: "A plugin removed: %@ is its name"))
         } catch {
             Log.warning("plugin remove failed: \(folder.lastPathComponent): \(error.localizedDescription)")
@@ -784,7 +784,7 @@ public final class TurnOverMenu {
             MenuItem("Cursor", .submenu { [
                 MenuItem("Show the cursor", .toggle(get: { config.braille.showCursor }, set: { config.braille.showCursor = $0; Braille.settingsChanged() })),
                 MenuItem("Blink", .toggle(get: { config.braille.blinkCursor }, set: { config.braille.blinkCursor = $0; Braille.settingsChanged() })),
-                MenuItem("Blink rate", .number(get: { Double(config.braille.blinkRateMs) }, set: { config.braille.blinkRateMs = Int($0) },
+                MenuItem("Blink rate", .number(get: { Double(config.braille.blinkRateMs) }, set: { config.braille.blinkRateMs = Int($0); Braille.settingsChanged() },
                     step: 100, min: 200, max: 2000, format: { String(localized: "\(String(Int($0.rounded()))) milliseconds", comment: "A time") })),
                 MenuItem("Shape", .cycle(options: [String(localized: "dots 7 and 8", comment: "A choice in the TurnOver menu"), String(localized: "dot 8", comment: "A choice in the TurnOver menu"), String(localized: "all dots", comment: "A choice in the TurnOver menu")],
                     get: { ["78", "8", "all"].firstIndex(of: config.braille.cursorShape) ?? 0 },

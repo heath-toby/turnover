@@ -511,19 +511,25 @@ public enum Braille {
             text = context.isEmpty ? own : context + " " + own
             cursor = nil; selection = nil
             if sameItem { windowOrigin = lastOrigin; layout() }
-            else if !context.isEmpty {
+            else {
                 // The origin needs the cells: laid out first, the windows counted again from where the focus starts.
                 layout()
-                let ownStart = (context as NSString).length + 1
-                let ownCell = cellMap.firstIndex { $0 >= ownStart } ?? 0
-                let n = display?.cellCount ?? 40
-                let fill = config.braille.focusContext == "always" || (config.braille.focusContext == "changes" && contextChanged)
-                windowOrigin = fill ? min(ownCell, max(0, cells.count - n)) : ownCell
-                windows = windowStarts()
-            } else { layout() }
+                let ownStart = context.isEmpty ? 0 : (context as NSString).length + 1
+                let ownCell = context.isEmpty ? 0 : (cellMap.firstIndex { $0 >= ownStart } ?? 0)
+                objectOwnCell = ownCell
+                if !context.isEmpty {
+                    let n = display?.cellCount ?? 40
+                    let fill = config.braille.focusContext == "always" || (config.braille.focusContext == "changes" && contextChanged)
+                    windowOrigin = fill ? min(ownCell, max(0, cells.count - n)) : ownCell
+                    windows = windowStarts()
+                }
+            }
             lastOrigin = windowOrigin
             // The same item again (its value changed, another event): the window stays where the reader panned to.
             windowStart = sameItem && windows.contains(objectWindowStart) ? objectWindowStart : windowOrigin
+            // A row panned back onto: its end, so a long row reads backwards too (a review, 14 Nov 2026).
+            if !sameItem, let t = objectEndWanted, Date().timeIntervalSince(t) < 1.5 { windowStart = windows.last ?? windowStart }
+            if !sameItem { objectEndWanted = nil }
         } else {
             source = nil; text = ""; cursor = nil; selection = nil; windowStart = 0; lastObject = nil
             layout()
@@ -534,6 +540,10 @@ public enum Braille {
     /// The context last shown before a focus, to tell when it changes.
     private static var lastContext = ""
     private static var lastOrigin = 0
+    /// The first cell of the item itself, after its focus context.
+    private static var objectOwnCell = 0
+    /// A row panned back onto: its end shown when it comes (as a text line's is).
+    private static var objectEndWanted: Date?
     /// The item last shown, and where its window was (panned to, or placed).
     private static var lastObject: AXUIElement?
     private static var objectWindowStart = 0
@@ -875,6 +885,13 @@ public enum Braille {
         Speech.speakMessage(String(localized: "\(String(format: "%.1f", config.braille.autoScrollSeconds)) seconds", comment: "Braille auto scroll's speed: %@ is seconds"))
     }
 
+    /// A list item laid out in rows of several (Finder's icon view, the desktop): Down goes to the icon below, not the
+    /// next, so panning doesn't press it.
+    private static func inGrid(_ o: TurnOverObject) -> Bool {
+        guard o.role == .listItem, let list = o.element.element(kAXParentAttribute) else { return false }
+        return (list.string("AXOrientation") ?? "AXVerticalOrientation") != "AXVerticalOrientation"
+    }
+
     private static func pan(forward: Bool, fromTimer: Bool = false) {
         if config.braille.interruptSpeechWhileScrolling { Speech.cancel() }
         if let next = forward ? windows.first(where: { $0 > windowStart }) : windows.last(where: { $0 < windowStart }) {
@@ -886,7 +903,9 @@ public enum Braille {
         // never on TurnOver's own cursor items (a Terminal review line, the menu bar), where Up and Down went to the
         // app: the shell's history, the menu opened (a review the same night). Anything else stays put.
         guard case .text = source else {
-            if !fromTimer, case .object(let o) = source, [.tableRow, .listItem, .treeViewItem, .cell, .tableCell].contains(o.role) {
+            if !fromTimer, case .object(let o) = source, [.tableRow, .listItem, .treeViewItem, .cell, .tableCell].contains(o.role),
+               !inGrid(o) {
+                if !forward { objectEndWanted = Date() }
                 press(forward ? "downArrow" : "upArrow")
                 // The list's end: nothing moved, so the edge sound, as before.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -894,6 +913,8 @@ public enum Braille {
                 }
                 return
             }
+            // Auto scroll at an item's end: stopped, not an edge sound every few seconds for ever.
+            if fromTimer { autoScroll?.invalidate(); autoScroll = nil; Speech.speakMessage(String(localized: "auto scroll off", comment: "Spoken message")); return }
             Tones.edge(); return
         }
         line(forward ? 1 : -1, toEnd: !forward)
@@ -1015,10 +1036,14 @@ public enum Braille {
                 s.handler(KeyboardGesture(keyCode: 36, modifiers: [], characters: "\r", timestamp: 0, isRepeat: false, flags: []))
             }
             refresh()
+        // Only over the item's own cells: a stray key over the blank cells after it, or over the focus context before
+        // it, pressed a Delete button (a review, 14 Nov 2026; NVDA does nothing there).
         case .object(let obj):
+            guard cell >= objectOwnCell, cell < cells.count else { Tones.edge(); return }
             _ = AXUIElementPerformAction(obj.element, kAXPressAction as CFString)
         case .item:
             // TurnOver's cursor item: a routing key opens or presses it, as Return does.
+            guard cell < cells.count else { Tones.edge(); return }
             press("enter")
         default:
             break
