@@ -335,7 +335,7 @@ public enum SettingsBridge {
 
     public struct ImportError: Error, Equatable { public let message: String }
     /// The sections an imported file may hold (Config's).
-    nonisolated static let portableSections: Set<String> = ["general", "speech", "keyboard", "editableText", "presentation", "virtualBuffers", "applications", "documentFormatting", "braille", "recognition", "games", "sounds", "mouse", "apps", "vision"]
+    nonisolated static let portableSections: Set<String> = ["general", "speech", "keyboard", "editableText", "presentation", "virtualBuffers", "applications", "documentFormatting", "braille", "recognition", "games", "sounds", "mouse", "apps", "vision", "signal"]
     /// The keys that would run something on this Mac: a file, a Shortcut or an app, by path or identifier.
     nonisolated static let localTargetPrefixes = ["file:", "shortcut:", "app:"]
 

@@ -104,6 +104,7 @@ Run `python3 Tools/build-app-index.py` after editing app records or documentatio
 - [Photos](Photos/STATUS.md) — Effort: Module; being worked on: Unclaimed.
 - [Podcasts](Podcasts/STATUS.md) — Effort: Module; being worked on: Unclaimed.
 - [Safari](Safari/STATUS.md) — Effort: Module; being worked on: Unclaimed.
+- [Signal](Signal/STATUS.md) — Effort: Module; being worked on: Unclaimed.
 - [Spotlight](Spotlight/STATUS.md) — Effort: Module; being worked on: Unclaimed.
 - [Stocks](Stocks/STATUS.md) — Effort: not assessed; being worked on: Unclaimed.
 - [Thunderbird](Thunderbird/STATUS.md) — Effort: not assessed; being worked on: Unclaimed.

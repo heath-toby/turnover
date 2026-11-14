@@ -18,6 +18,14 @@ The keyboard stays in the message box. Shift Tab goes up to the messages, newest
 shortcut menu (VO Shift M) lists a message's actions; Escape goes back to the box. **TurnOver Command 1 to 9** read the
 latest messages from anywhere, 1 the newest. New messages are read as they arrive.
 
+## Signal
+
+Signal is read like a web page. As in the Signal Filter add-ons for NVDA and Orca, TurnOver says "Message sent.", reads
+a message as it arrives ("Message received:" and the message, or the sender's name and the message in a group), and says
+when someone is typing and when they stop. Opening a conversation doesn't read out its unread messages. Messages are
+read even with Signal behind another app; sending and typing are said while Signal is in front. Each can be turned off:
+Settings, Other apps' speech, Signal.
+
 ## Music, Podcasts and TV
 
 Up and Down move through the page, shelf by shelf; Left and Right jump between shelves; Return plays; Space pauses
