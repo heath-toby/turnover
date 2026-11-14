@@ -376,6 +376,20 @@ nonisolated final class WindowsKeyLayer: @unchecked Sendable {   // its state be
             return Unmanaged.passUnretained(event)
         }
         loneCommand.cancel(); loneOption.cancel()
+        // A chord is being posted (post, on its own queue, 60 to 140 ms with its pauses): a real key let through now
+        // landed between its modifiers, H then Down became VO-Command-Down, and a held key's repeats queued chords
+        // that went on firing after it was let go (a review, 14 Nov 2026). Posting from here instead would hold up
+        // every key for as long, and the real keys still arrive in between. So a repeat is dropped (one chord at a
+        // time while a key is held), and any other key is sent again after the chord, on the same serial queue, to
+        // be handled here as if just typed: its press and release keep their order.
+        if (type == .keyDown || type == .keyUp), Self.postsInFlight.value > 0 {
+            if type == .keyDown, event.getIntegerValueField(.keyboardEventAutorepeat) != 0 { return nil }
+            if let copy = event.copy() {
+                let held = Handed(copy)
+                Self.posting.async { held.value.post(tap: .cghidEventTap) }
+                return nil
+            }
+        }
         if type == .keyUp {
             if swallowedUps.contains(code) { swallowedUps.remove(code); return nil }
             // The release becomes what its press became: translated again from its own modifiers, Control let go
@@ -505,10 +519,14 @@ nonisolated final class WindowsKeyLayer: @unchecked Sendable {   // its state be
     }
 
     private static let posting = DispatchQueue(label: "turnover.windowskeys.post")
+    /// Chords handed to `posting` and not yet finished: while any are, handle() holds real keys back (a review, 14 Nov 2026).
+    private static let postsInFlight = Locked(0)
     /// Posted as a hand presses it: each modifier down as its own event, the key, then the modifiers up. VoiceOver
     /// follows the modifier keys themselves; a key carrying the flags alone was not a chord to it (Windy, 17 Oct 2026).
     static func post(_ t: Target) {
+        postsInFlight.lock.lock(); postsInFlight.unsafeValue += 1; postsInFlight.lock.unlock()
         posting.async {
+            defer { postsInFlight.lock.lock(); postsInFlight.unsafeValue -= 1; postsInFlight.lock.unlock() }
             let src = CGEventSource(stateID: .hidSystemState)
             let fKeys: Set<Int64> = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111]
             let mods: [(CGEventFlags, Int64)] = [(.maskControl, 59), (.maskAlternate, 58), (.maskShift, 56), (.maskCommand, 55)]
