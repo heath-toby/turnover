@@ -111,6 +111,7 @@ public enum InputManager {
     /// cancels as before; a second cancel finds nothing playing.
     nonisolated public static func cancelSpeechEarly(for gesture: KeyboardGesture) {
         guard gesture.typedCharacter == nil, !isCapturing, !(passNextKey && !gesture.isRepeat), !SayAll.isRunning else { return }
+        Speech.cancels.value += 1   // (the buffers it lets go are no real starts: captions, capital tones)
         SpeechPlayer.current?.cancel()
     }
 

@@ -62,6 +62,9 @@ public enum LoadWatch {
     /// After Enter activates something (a link): the page may start loading a moment later.
     public static func checkSoon(_ doc: BrowseModeDocument) {
         guard config.virtualBuffers.loadingFeedback != "nothing" else { return }
+        // Enter on a link: Safari keeps the old address until the new page commits, so the announced page is let go
+        // here, or the loading would be silent until then (a review).
+        forgetAnnounced()
         for delay in [0.4, 1.2] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak doc] in if let doc { check(doc) } }
         }

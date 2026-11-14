@@ -69,7 +69,8 @@ final class Model: ObservableObject {
     private var exportURL: URL?
     func exportSettings(to url: URL) {
         // TurnOver not there (restarting): said at once, not silently nothing (a review).
-        guard let connection else { setSpecial("_settingsExported", ["name": url.lastPathComponent, "error": "TurnOver isn't running"]); return }
+        // (Shown in the window: with no connection nothing reaches TurnOver to say it: a review.)
+        guard let connection else { state["_portableMessage"] = String(localized: "Not exported: TurnOver isn't running. Start it and try again.", comment: "Settings window: export with TurnOver off"); return }
         exportURL = url
         connection.send(["op": "exportSettings"])
     }
@@ -85,6 +86,7 @@ final class Model: ObservableObject {
         }
     }
     func importSettings(from url: URL) {
+        guard connection != nil else { state["_portableMessage"] = String(localized: "Not imported: TurnOver isn't running. Start it and try again.", comment: "Settings window: import with TurnOver off"); return }
         // Well under the control channel's limit for one message (a megabyte), as the file is escaped twice on the way
         // (a review); a settings file is a few dozen kilobytes.
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0

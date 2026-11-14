@@ -322,11 +322,11 @@ public enum VisionAids {
         }
     }
 
+    /// The element each ring (focus, review, browse) was last asked about.
+    private static var ringElements: [AXUIElement?] = [nil, nil, nil]
     /// A hit test landed on one of TurnOver's own windows (a ring's strip, a panel). They hide from accessibility,
     /// but whether the system-wide hit test passes them by is not checked (a review, 14 Nov 2026): callers treat it
     /// as no answer rather than read or move to TurnOver's window.
-    /// The element each ring (focus, review, browse) was last asked about.
-    private static var ringElements: [AXUIElement?] = [nil, nil, nil]
     nonisolated static func isOwnWindow(_ e: AXUIElement) -> Bool {
         var pid: pid_t = 0
         return AXUIElementGetPid(e, &pid) == .success && pid == getpid()

@@ -1431,7 +1431,14 @@ public final class ObjectNavigator {
         // (A ring's strip or a panel lets clicks through; any other TurnOver window over the item does not: a review.)
         let primary = NSScreen.screens.first?.frame.height ?? 0
         let cocoa = CGPoint(x: p.x, y: primary - p.y)
-        let ownTakesClick = NSApp.windows.contains { $0.isVisible && !$0.ignoresMouseEvents && $0.frame.contains(cocoa) }
+        // The window on top at that point, in stacking order and on this Space (a review: one behind, or elsewhere, counted).
+        var below = 0, ownTakesClick = false
+        for _ in 0..<8 {
+            let number = NSWindow.windowNumber(at: cocoa, belowWindowWithWindowNumber: below)
+            guard number > 0, let own = NSApp.windows.first(where: { $0.windowNumber == number }) else { break }
+            if own.ignoresMouseEvents { below = number; continue }
+            ownTakesClick = true; break
+        }
         if ownTakesClick { Speech.speakMessage(String(localized: "something else is over it; not clicked", comment: "Spoken message")); return }
         if AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(p.x), Float(p.y), &hit) == .success, let h = hit, !VisionAids.isOwnWindow(h) {
             var x: AXUIElement? = h; var hops = 0; var inside = false

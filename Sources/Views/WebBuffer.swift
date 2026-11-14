@@ -596,7 +596,7 @@ public final class WebBuffer {
             // Kept whatever the setting on a page that is nothing but pictures (an image opened in Safari, an image-only
             // message), and as a heading's or a cell's only content: skipped, the page read as forever loading (a review).
             if linkDepth == 0, !Self.navigatesImage(described: !d.isEmpty, setting: config.virtualBuffers.navigateImages),
-               pageHasText, el.element(kAXParentAttribute)?.role != "AXHeading" { break }
+               pageHasText, !["AXHeading", "AXCell"].contains(el.element(kAXParentAttribute)?.role ?? "") { break }
             if d.isEmpty, config.virtualBuffers.imageFileNames { d = ImageNames.fromFile(el) }
             if !d.isEmpty || linkDepth == 0 { append(d.isEmpty ? Role.graphic.displayString : "\(Role.graphic.displayString) \(d)", el) }
         case "AXLink":

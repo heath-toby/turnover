@@ -375,6 +375,8 @@ public enum SettingsBridge {
         config.speech.outputDevice = base.speech.outputDevice
         config.applications.perAppReaders = base.applications.perAppReaders; config.applications.leadMode = base.applications.leadMode
         config.applications.swapWithVoiceOver = base.applications.swapWithVoiceOver; config.applications.automaticHandOver = base.applications.automaticHandOver
+        config.applications.leadBundles = base.applications.leadBundles; config.applications.voiceOverBundles = base.applications.voiceOverBundles
+        config.applications.leadEverywhereElse = base.applications.leadEverywhereElse; config.applications.directApps = base.applications.directApps
         return .success((config, dropped))
     }
 
