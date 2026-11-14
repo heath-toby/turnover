@@ -988,6 +988,9 @@ public struct Config: Codable {
         public var reportRole = false
         /// NVDA's "Play audio coordinates when mouse moves": a short beep, higher towards the top, panned left to right.
         public var audioCoordinates = false
+        /// NVDA's "Brightness controls audio coordinates volume": the beep louder over bright parts of the screen,
+        /// quieter over dark (needs screen recording, which TurnOver has for screen recognition).
+        public var brightnessVolume = false
         /// VoiceOver's "after delay": the pointer rests this long before what is under it is said; 0 says it at once.
         public var delayMs = 0
         /// VoiceOver's "Mouse pointer": "ignores" the cursor (as before), "follows" it, or "moves" it.
@@ -995,7 +998,7 @@ public struct Config: Codable {
         /// VoiceOver's "Announce when mouse cursor enters a window".
         public var announceWindow = false
         public init() {}
-        enum Keys: String, CodingKey { case tracking, textUnit, reportRole, audioCoordinates, delayMs, pointer, announceWindow }
+        enum Keys: String, CodingKey { case tracking, textUnit, reportRole, audioCoordinates, delayMs, pointer, announceWindow, brightnessVolume }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
             tracking = (try? c.decodeIfPresent(Bool.self, forKey: .tracking)) ?? false
@@ -1005,12 +1008,13 @@ public struct Config: Codable {
             delayMs = (try? c.decodeIfPresent(Int.self, forKey: .delayMs)) ?? 0
             pointer = (try? c.decodeIfPresent(String.self, forKey: .pointer)) ?? "ignores"
             announceWindow = (try? c.decodeIfPresent(Bool.self, forKey: .announceWindow)) ?? false
+            brightnessVolume = (try? c.decodeIfPresent(Bool.self, forKey: .brightnessVolume)) ?? false
         }
         public func encode(to encoder: Encoder) throws {
             var c = encoder.container(keyedBy: Keys.self)
             try c.encode(tracking, forKey: .tracking); try c.encode(textUnit, forKey: .textUnit); try c.encode(reportRole, forKey: .reportRole)
             try c.encode(audioCoordinates, forKey: .audioCoordinates); try c.encode(delayMs, forKey: .delayMs)
-            try c.encode(pointer, forKey: .pointer); try c.encode(announceWindow, forKey: .announceWindow)
+            try c.encode(pointer, forKey: .pointer); try c.encode(announceWindow, forKey: .announceWindow); try c.encode(brightnessVolume, forKey: .brightnessVolume)
         }
     }
     public var general = General()

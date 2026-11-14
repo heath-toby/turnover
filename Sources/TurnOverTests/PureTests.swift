@@ -714,6 +714,14 @@ func pureTests() {
         expect(Symbols.unicodeName("→"), "rightwards arrow", "an arrow the voice passes over: its Unicode name")
         expect(Symbols.unicodeName("😀"), nil, "an emoji: left to the voice, which names it")
         expect(Symbols.namedInText("→"), true, "an arrow is named inside text")
+        func solid(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> CGImage {
+            var px: [UInt8] = Array(repeating: 0, count: 4 * 4 * 4)
+            for i in stride(from: 0, to: px.count, by: 4) { px[i] = r; px[i + 1] = g; px[i + 2] = b; px[i + 3] = 255 }
+            let ctx = CGContext(data: &px, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 16, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            return ctx.makeImage()!
+        }
+        expect(ScreenBrightness.brightness(of: solid(255, 255, 255)) > 0.99, true, "white: full")
+        expect(ScreenBrightness.brightness(of: solid(0, 0, 0)) < 0.01, true, "black: silent")
         expect(ChatView.mediaButtonRank("Play audio attachment"), 0, "Signal's voice note: play first")
         expect(ChatView.mediaButtonRank("Start download"), 1, "not yet fetched: download")
         expect(ChatView.mediaButtonRank("More actions"), nil, "the menu button is not media")

@@ -139,8 +139,10 @@ Settings, Mouse, has NVDA's and VoiceOver's mouse choices. All are off until you
 - **Say the window's name when the pointer moves into another window.**
 - **Play audio coordinates as the mouse moves:** NVDA's short beep at each move, higher towards the top of the screen
   (880 Hz) and lower towards the bottom (220 Hz), from the left or the right speaker by where the pointer is across.
-  It works on its own, with speech off. NVDA's "brightness controls the volume" isn't there: it needs the Mac's
-  Screen Recording permission.
+  It works on its own, with speech off.
+- **Brightness controls the volume of the coordinates:** as NVDA's, the beep is louder over bright parts of the
+  screen and quieter over dark ones, silent over black. It uses the Screen Recording permission TurnOver has for
+  screen recognition; without it the beeps keep their usual volume.
 - **Mouse pointer and the cursor:** as VoiceOver's. The pointer ignores the cursor (as before); the pointer follows
   the cursor, going to each item it reaches; or moving the pointer moves the cursor to the item under it, which is
   read, so VO Space then presses it. The keyboard focus stays where it is. (Keyboard, Review cursor follows the

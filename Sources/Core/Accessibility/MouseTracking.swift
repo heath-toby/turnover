@@ -140,7 +140,13 @@ public enum MouseTracking {
         guard Date().timeIntervalSince(lastBeep) >= 0.04 else { return }
         lastBeep = Date()
         let c = MouseMath.audioCoordinates(p, desktop: desktop())
-        let v = MouseMath.volumeAndPan(left: c.left, right: c.right)
+        var v = MouseMath.volumeAndPan(left: c.left, right: c.right)
+        // NVDA's brightness: the beep's volume times how bright the screen is under the pointer (black silent, white
+        // full), read in the background; the reading nearest in time is used.
+        if config.mouse.brightnessVolume {
+            ScreenBrightness.update(at: p)
+            if let b = ScreenBrightness.latest { v.volume *= Float(max(0, min(1, b.value))) }
+        }
         Tones.nvdaBeep(c.frequency, 40, volume: v.volume, pan: v.pan)
     }
 

@@ -948,6 +948,8 @@ struct MouseView: View {
             Toggle("Say the kind of item, such as button, when the pointer reaches it", isOn: model.bool("mouse", "reportRole"))
             Toggle("Say the window's name when the pointer moves into another window", isOn: model.bool("mouse", "announceWindow"))
             Toggle("Play audio coordinates as the mouse moves", isOn: model.bool("mouse", "audioCoordinates"))
+            Toggle("Brightness controls the volume of the audio coordinates", isOn: model.bool("mouse", "brightnessVolume"))
+                .accessibilityHint("As NVDA's: louder over bright parts of the screen, quieter over dark, silent over black. Uses the Screen Recording permission.")
             Text("A short beep at each move: higher towards the top of the screen, lower towards the bottom, and from the left or right speaker by where the pointer is across, as in NVDA. It works on its own, without speaking what is under the pointer (NVDA's needs mouse tracking on).").font(.caption)
             Picker("Mouse pointer and the cursor", selection: model.string("mouse", "pointer", "ignores")) {
                 Text("The pointer ignores the cursor").tag("ignores"); Text("The pointer follows the cursor").tag("follows"); Text("Moving the pointer moves the cursor").tag("moves")
