@@ -1414,7 +1414,9 @@ public final class MediaView {
         guard let i = index[pane] else { g.send(); return }
         let title = Self.rowText(item.element).first ?? ""
         let heard = lastSpokenRow.flatMap { $0.index == i ? $0.text : nil }
-        if heard == nil || (!title.isEmpty && heard != title && !heard!.hasPrefix(title + ", ")) {
+        // An empty title is a mismatch too: a row with no words now can't be shown to be the song heard (a review,
+        // 14 Nov 2026: it skipped the check and the key was sent).
+        if heard == nil || title.isEmpty || (heard != title && !heard!.hasPrefix(title + ", ")) {
             Log.io("media: \(g.identifier) not sent; the row's words weren't the ones heard")
             rowLabels[i] = nil
             Tones.edge()

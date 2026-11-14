@@ -547,9 +547,12 @@ public final class ChatView {
     /// The lists change under us (a message arrives, the list scrolls): read them again, keeping the place by its words.
     /// False when the item under the cursor can't be found again (its place is lost): the caller says what is there
     /// now rather than acting on it unheard.
+    /// The place is kept by the words SPOKEN for it, not by the held element's words now: WhatsApp reuses its table
+    /// cells when a list reloads, so the element held could be showing another chat, and matching its current words
+    /// "found" the wrong item (a review, 14 Nov 2026, the third round on this).
     @discardableResult
     private func refreshItems() -> Bool {
-        let keep = currentItem().map(Self.words)
+        let keep = lastSpoken.flatMap { $0.pane == pane ? $0.words : nil }
         let fresh = pane == .transcript ? messages() : pane == .conversations ? conversations() : pane == .sections ? sections() : []
         items = fresh
         // The match nearest the old place: short replies ("ok") repeat, and the first of them pulled the cursor back,
@@ -562,17 +565,34 @@ public final class ChatView {
         // Not word for word: a message whose status changed (Delivered to Read), or a conversation moved to the top
         // with a new preview, is found by its words without the status, then by the conversation's name (a review,
         // 14 Nov 2026: the old place was clamped and Return acted on whatever was now there, unheard).
-        let name: (String) -> String = { $0.components(separatedBy: ", ").first ?? $0 }
+        let p = pane
         if let k = keep, let i = nearest({ $0 == k })
             ?? nearest({ Self.withoutStatus($0) == Self.withoutStatus(k) })
-            ?? (pane == .conversations && !name(k).isEmpty ? nearest({ name($0) == name(k) }) : nil) {
+            ?? (p == .conversations && !Self.chatName(k).isEmpty ? nearest({ Self.chatName($0) == Self.chatName(k) }) : nil) {
             // The list slid under us (rows dropped or added above): the numbers keep their place.
             if pane == .conversations, let j = index[pane] { listShift = max(0, listShift + j - i) }
             index[pane] = i
+            lastSpoken?.index = i   // the same item heard, at its new place
             return true
         }
         if let i = index[pane] { index[pane] = min(i, max(0, fresh.count - 1)) }
         return keep == nil
+    }
+
+    /// What was last spoken for an item, with its part and place: what Return and the shortcut menu may act on.
+    private var lastSpoken: (pane: Pane, index: Int, words: String)?
+
+    /// A conversation's name: the first of its words.
+    private static func chatName(_ w: String) -> String { w.components(separatedBy: ", ").first ?? w }
+
+    /// The words heard for the item now under the cursor, if the item there still has them (by the same tests as
+    /// refreshItems); nil when it doesn't, or nothing was heard there (a review, 14 Nov 2026).
+    private func heardHere() -> String? {
+        guard let h = lastSpoken, h.pane == pane, h.index == index[pane], let e = currentItem() else { return nil }
+        let w = Self.words(e)
+        if w == h.words || Self.withoutStatus(w) == Self.withoutStatus(h.words) { return h.words }
+        if pane == .conversations, !Self.chatName(h.words).isEmpty, Self.chatName(w) == Self.chatName(h.words) { return h.words }
+        return nil
     }
 
     /// Up at the oldest message held: scroll the conversation back and carry on from the message before.
@@ -656,6 +676,7 @@ public final class ChatView {
     private func announce() {
         guard let e = currentItem(), let i = index[pane] else { return }
         var parts = [Self.words(e)]
+        lastSpoken = (pane, i, parts[0])   // what Return and the menu may act on (a review, 14 Nov 2026)
         if parts[0].isEmpty { parts[0] = Phrases.blank }
         if pane == .conversations, (e.attr(kAXSelectedAttribute) as? Bool) == true { parts.append(State.selected.displayString) }
         // A list that drops rows as it scrolls (WhatsApp's Archived) keeps its numbering from before the load.
@@ -686,9 +707,9 @@ public final class ChatView {
 
     /// Return: open the conversation (and go to its box), or press the message (a link, a photo).
     public func activate() {
-        // The item heard is gone: say what is there now, and act on the next press (a review, 14 Nov 2026).
-        guard refreshItems() else { announce(); return }
-        guard let e = currentItem() else { return }
+        // The item heard is gone, or the item now at its place isn't the one heard (WhatsApp reuses its cells): say
+        // what is there now, and act on the next press (a review, 14 Nov 2026).
+        guard refreshItems(), let heard = heardHere(), let e = currentItem() else { announce(); return }
         // (A search result is a group with its pressable text inside.)
         var target = e
         var names: CFArray?
@@ -722,7 +743,8 @@ public final class ChatView {
             // 2026). So the open conversation's title is checked against the item pressed before the box is entered;
             // on a mismatch the row is selected instead, and if that fails too, TurnOver says which conversation is
             // open and stays in the list, never in a box that isn't the one chosen.
-            let wanted = Self.words(e).lowercased()
+            // By the words heard, not the element's now: a reused cell could show another chat (a review, 14 Nov 2026).
+            let wanted = heard.lowercased()
             var tries = 0
             func settle() {
                 let open = openTitle()
@@ -830,8 +852,8 @@ public final class ChatView {
     }
 
     public func actionsMenu() {
-        guard refreshItems() else { announce(); return }   // as activate (a review, 14 Nov 2026)
-        guard let e = currentItem() else { return }
+        // As activate: only on the item heard (a review, 14 Nov 2026).
+        guard refreshItems(), heardHere() != nil, let e = currentItem() else { announce(); return }
         // The item's own, and its parts' (Messages keeps a message's actions on the bubble inside its row), each once.
         var found: [(owner: AXUIElement, action: String, title: String)] = []
         func collect(_ x: AXUIElement, _ depth: Int) {
