@@ -281,10 +281,16 @@ public struct Config: Codable {
         /// NVDA's keypad commands in the Windows style (on, as NVDA with Num Lock off; Clear types numbers instead).
         public var numpadCommander = false
         public var keypadCommands = true
+        /// NVDA's review cursor settings (14 Nov 2026): the review cursor follows the focus (NVDA+7, VO-Shift-F3), the
+        /// caret (NVDA+6), the mouse (ObjectNavigator.mouseMoved), and simple review mode (layout skipped).
+        public var reviewFollowsFocus = true
+        public var reviewFollowsCaret = true
+        public var reviewFollowsMouse = false
+        public var simpleReviewMode = true
         public init() {}
         /// The user's own keys (UserGestures): key identifier → "script:<name>", "app:<bundle id>" or "none".
         public var userGestures: [String: String] = [:]
-        enum Keys: String, CodingKey { case speakTypedCharacters, speakTypedWords, speakCommandKeys, multiPressTimeoutMs, layout, speakNewLine, userGestures, optionCommander, numpadCommander, keypadCommands }
+        enum Keys: String, CodingKey { case speakTypedCharacters, speakTypedWords, speakCommandKeys, multiPressTimeoutMs, layout, speakNewLine, userGestures, optionCommander, numpadCommander, keypadCommands, reviewFollowsFocus, reviewFollowsCaret, reviewFollowsMouse, simpleReviewMode }
         // Each setting falls back on its own, so adding one never resets the others.
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
@@ -297,6 +303,10 @@ public struct Config: Codable {
             optionCommander = (try? c.decodeIfPresent(Bool.self, forKey: .optionCommander)) ?? true
             numpadCommander = (try? c.decodeIfPresent(Bool.self, forKey: .numpadCommander)) ?? false
             keypadCommands = (try? c.decodeIfPresent(Bool.self, forKey: .keypadCommands)) ?? true
+            reviewFollowsFocus = (try? c.decodeIfPresent(Bool.self, forKey: .reviewFollowsFocus)) ?? true
+            reviewFollowsCaret = (try? c.decodeIfPresent(Bool.self, forKey: .reviewFollowsCaret)) ?? true
+            reviewFollowsMouse = (try? c.decodeIfPresent(Bool.self, forKey: .reviewFollowsMouse)) ?? false
+            simpleReviewMode = (try? c.decodeIfPresent(Bool.self, forKey: .simpleReviewMode)) ?? true
             userGestures = (try? c.decodeIfPresent([String: String].self, forKey: .userGestures)) ?? [:]
             // Saved before the code name went (12 Oct 2026): "kb:bosun+n" is "kb:turnover+n"; "script:bosunMenu" is
             // "script:turnOverMenu".
@@ -311,6 +321,8 @@ public struct Config: Codable {
             try c.encode(layout, forKey: .layout); try c.encode(speakNewLine, forKey: .speakNewLine)
             try c.encode(userGestures, forKey: .userGestures); try c.encode(optionCommander, forKey: .optionCommander)
             try c.encode(numpadCommander, forKey: .numpadCommander); try c.encode(keypadCommands, forKey: .keypadCommands)
+            try c.encode(reviewFollowsFocus, forKey: .reviewFollowsFocus); try c.encode(reviewFollowsCaret, forKey: .reviewFollowsCaret)
+            try c.encode(reviewFollowsMouse, forKey: .reviewFollowsMouse); try c.encode(simpleReviewMode, forKey: .simpleReviewMode)
         }
     }
     public struct EditableText: Codable {
@@ -498,6 +510,20 @@ public struct Config: Codable {
         public init() {}
         public init(order: [String], off: [String]) { self.order = order; self.off = off; tidy() }
         public func says(_ piece: String) -> Bool { !off.contains(piece) }
+        /// Braille verbosity (VoiceOver: Verbosity, Braille), applied to this list for the display: "speech" keeps it as
+        /// it is; "low" shows the name and value only, "medium" adds the kind and states, "high" adds help text,
+        /// shortcut, position and level. The order stays the speech list's; speech itself is never changed (14 Nov 2026).
+        public static let brailleLevels = ["speech", "high", "medium", "low"]
+        public func forBraille(_ level: String) -> Verbosity {
+            let shown: [String]
+            switch level {
+            case "low": shown = ["name", "value"]
+            case "medium": shown = ["name", "value", "role", "state"]
+            case "high": shown = Self.pieces
+            default: return self
+            }
+            return Verbosity(order: order, off: Self.pieces.filter { !shown.contains($0) })
+        }
         public mutating func set(_ piece: String, said: Bool) { off.removeAll { $0 == piece }; if !said { off.append(piece) } }
         /// Unknown pieces dropped, missing ones appended in the standard order, no piece twice.
         public mutating func tidy() {
@@ -686,8 +712,16 @@ public struct Config: Codable {
         /// NVDA's focus context presentation: "changes" (what the focus is in, when that changes), "scrolling" (only on
         /// panning back), or "always".
         public var focusContext = "changes"
+        /// VoiceOver's braille verbosity (14 Nov 2026): "speech" (the speech list), "high", "medium" or "low" (Verbosity.forBraille).
+        public var verbosity = "speech"
+        /// VoiceOver's "Turn pages when panning": panning past a page's last line turns the page (an app module's
+        /// brailleTurnPage; Kindle). Off by default, as before.
+        public var turnPagesWhenPanning = false
+        /// VoiceOver's "Ignore chord duration": a chord is the keys held together, however long; no hold-to-repeat
+        /// on dot 7 and no "space came late, so it was typing" timing (BrailleInput.isLateSpace).
+        public var ignoreChordDuration = false
         public init() {}
-        enum Keys: String, CodingKey { case table, expandAtCursor, contractedInput, inputEcho, showMessages, messageSeconds, showCursor, blinkCursor, blinkRateMs, cursorShape, wordWrap, showSelection, interruptSpeechWhileScrolling, bluetooth, tether, mode, autoScrollSeconds, panMovesCaret, display, inputTable, formattingMarks, cursorShapeReview, readByParagraph, paragraphMarker, speakOnRouting, routingMovesCaret, focusContext, speakWhenPanning, autoLanguageSwitching, languages, languageTables }
+        enum Keys: String, CodingKey { case table, expandAtCursor, contractedInput, inputEcho, showMessages, messageSeconds, showCursor, blinkCursor, blinkRateMs, cursorShape, wordWrap, showSelection, interruptSpeechWhileScrolling, bluetooth, tether, mode, autoScrollSeconds, panMovesCaret, display, inputTable, formattingMarks, cursorShapeReview, readByParagraph, paragraphMarker, speakOnRouting, routingMovesCaret, focusContext, speakWhenPanning, autoLanguageSwitching, languages, languageTables, verbosity, turnPagesWhenPanning, ignoreChordDuration }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
             table = (try? c.decodeIfPresent(String.self, forKey: .table)) ?? ""
@@ -721,6 +755,9 @@ public struct Config: Codable {
             languageTables = (try? c.decodeIfPresent([String: String].self, forKey: .languageTables)) ?? [:]
             routingMovesCaret = (try? c.decodeIfPresent(String.self, forKey: .routingMovesCaret)) ?? "never"
             focusContext = (try? c.decodeIfPresent(String.self, forKey: .focusContext)) ?? "changes"
+            verbosity = (try? c.decodeIfPresent(String.self, forKey: .verbosity)).flatMap { Verbosity.brailleLevels.contains($0) ? $0 : nil } ?? "speech"
+            turnPagesWhenPanning = (try? c.decodeIfPresent(Bool.self, forKey: .turnPagesWhenPanning)) ?? false
+            ignoreChordDuration = (try? c.decodeIfPresent(Bool.self, forKey: .ignoreChordDuration)) ?? false
         }
         public func encode(to encoder: Encoder) throws {
             var c = encoder.container(keyedBy: Keys.self)
@@ -737,6 +774,8 @@ public struct Config: Codable {
             try c.encode(paragraphMarker, forKey: .paragraphMarker); try c.encode(speakOnRouting, forKey: .speakOnRouting); try c.encode(speakWhenPanning, forKey: .speakWhenPanning)
             try c.encode(autoLanguageSwitching, forKey: .autoLanguageSwitching); try c.encode(languages, forKey: .languages); try c.encode(languageTables, forKey: .languageTables)
             try c.encode(routingMovesCaret, forKey: .routingMovesCaret); try c.encode(focusContext, forKey: .focusContext)
+            try c.encode(verbosity, forKey: .verbosity); try c.encode(turnPagesWhenPanning, forKey: .turnPagesWhenPanning)
+            try c.encode(ignoreChordDuration, forKey: .ignoreChordDuration)
         }
     }
     /// Sounds one by one (SoundChoices.swift): which are off, your own files for some, and whether they are panned to

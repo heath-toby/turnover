@@ -54,6 +54,11 @@ public enum BrailleInput {
     /// Space this long after a chord's last dot (or after a dot was let go) is typing that ran into the space, not a
     /// command: "quite a few" typed fast gave space with dot 1, "previous item", and the cursor jumped (7 Oct 2026).
     static let lateSpaceSeconds = 0.12
+    /// Whether space in a chord was typing that ran into it. With "Ignore chord duration" on (VoiceOver's braille
+    /// setting, 14 Nov 2026) the timing is not looked at: only a dot let go before space makes it typing. Pure.
+    public static func isLateSpace(gap: TimeInterval, dotLetGo: Bool, ignoreDuration: Bool) -> Bool {
+        dotLetGo || (!ignoreDuration && gap > lateSpaceSeconds)
+    }
     /// The last letter typed, for "still typing".
     private static var lastTypedAt = Date.distantPast
 

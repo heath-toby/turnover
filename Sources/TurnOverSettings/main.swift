@@ -708,6 +708,7 @@ struct BrailleView: View {
                 Picker("Speak braille typing", selection: model.string("braille", "inputEcho", "words")) {
                     Text("Words").tag("words"); Text("Characters").tag("characters"); Text("Characters and words").tag("both"); Text("Off").tag("off")
                 }
+                Toggle("Ignore chord duration on the braille keyboard", isOn: model.bool("braille", "ignoreChordDuration"))
                 Picker("Show bold, italic and underline", selection: model.string("braille", "formattingMarks", "off")) {
                     Text("Off").tag("off"); Text("With the table's own signs").tag("table"); Text("With dots 7 and 8").tag("dots78")
                 }
@@ -722,6 +723,11 @@ struct BrailleView: View {
                 }
                 Picker("Focus context presentation", selection: model.string("braille", "focusContext", "changes")) {
                     Text("Fill display for context changes").tag("changes"); Text("Only when scrolling back").tag("scrolling"); Text("Always fill display").tag("always")
+                }
+                // VoiceOver's Verbosity, Braille (14 Nov 2026): the display's own level, speech unchanged.
+                Picker("Braille verbosity", selection: model.string("braille", "verbosity", "speech")) {
+                    Text("Same as speech").tag("speech"); Text("High: everything, with help text and position").tag("high")
+                    Text("Medium: name, value, kind and states").tag("medium"); Text("Low: name and value only").tag("low")
                 }
                 Toggle("Read by paragraph", isOn: model.bool("braille", "readByParagraph"))
                 Picker("Paragraph start marker", selection: model.string("braille", "paragraphMarker", "none")) {
@@ -747,6 +753,7 @@ struct BrailleView: View {
                 }
                 Text("Panning on to another line moves the caret there, so the arrows carry on from what was read. Tethered to review, panning moves only the review cursor.").font(.caption)
                 Toggle("Speak the line when panning to it", isOn: model.bool("braille", "speakWhenPanning"))
+                Toggle("Turn pages when panning (Kindle books)", isOn: model.bool("braille", "turnPagesWhenPanning"))
                 Toggle("Stop speech while panning", isOn: model.bool("braille", "interruptSpeechWhileScrolling"))
                 Toggle("Speak the character when routing the cursor in text", isOn: model.bool("braille", "speakOnRouting"))
                 Picker("Move the caret when routing the review cursor", selection: Binding(get: { model.get("braille", "routingMovesCaret") as? String == "always" ? "always" : "never" }, set: { model.set("braille", "routingMovesCaret", $0) })) {
@@ -791,6 +798,11 @@ struct KeyboardView: View {
                 Picker("Moving the cursor moves the keyboard focus", selection: model.string("general", "focusFollowsCursor", "auto")) {
                     Text("By style: VoiceOver keys only").tag("auto"); Text("Always").tag("on"); Text("Never").tag("off")
                 }
+                // NVDA's review cursor settings (14 Nov 2026).
+                Toggle("Review cursor follows the keyboard focus", isOn: model.bool("keyboard", "reviewFollowsFocus"))
+                Toggle("Review cursor follows the caret", isOn: model.bool("keyboard", "reviewFollowsCaret"))
+                Toggle("Review cursor follows the mouse", isOn: model.bool("keyboard", "reviewFollowsMouse"))
+                Toggle("Simple review mode: NVDA keys skip layout", isOn: model.bool("keyboard", "simpleReviewMode"))
             }
             Section("The keypad") {
                 Toggle("Keypad commands with VoiceOver keys (VO Clear switches)", isOn: model.bool("keyboard", "numpadCommander"))

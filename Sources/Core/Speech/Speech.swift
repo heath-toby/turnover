@@ -510,7 +510,8 @@ public enum Speech {
     /// When a menu bar item was last announced: its menu opening a moment later is not announced again.
     public static var lastMenuBarItemSpoken = Date.distantPast
 
-    public static func objectPropertiesSpeech(_ obj: TurnOverObject, reason: OutputReason) -> [String] {
+    /// `braille`: the display's verbosity level, filtering the pieces for braille only (Config.Verbosity.forBraille).
+    public static func objectPropertiesSpeech(_ obj: TurnOverObject, reason: OutputReason, braille: String? = nil) -> [String] {
         // A progress bar read is watched from now on, its climb said (ProgressWatch).
         if obj.role == .progressBar, Thread.isMainThread { MainActor.assumeIsolated { ProgressWatch.watch(obj) } }
         var parts: [String] = []
@@ -532,7 +533,7 @@ public enum Speech {
             // "View menu, 5 of 10" (not "View, subMenu"); the menu that opens under it then says nothing more.
             lastMenuBarItemSpoken = Date()
             var out = [name.isEmpty ? Role.menu.displayString : String(localized: "\(name) menu", comment: "A menu bar item: %@ is its name (View menu)")]
-            if config.presentation.reportObjectPositionInformation, let p = obj.positionInfo, let i = p.index, let n = p.count, i > 0, i <= n { out.append(Phrases.position(i, of: n)) }
+            if braille.map({ config.presentation.verbosity.forBraille($0).says("position") }) ?? config.presentation.reportObjectPositionInformation, let p = obj.positionInfo, let i = p.index, let n = p.count, i > 0, i <= n { out.append(Phrases.position(i, of: n)) }
             return out
         }
         // A web page (Safari, a Mail message) is not announced as "document": where you are in it says it (NVDA says
@@ -576,7 +577,8 @@ public enum Speech {
             if reason != .focusEntered, let l = p.level { pieces.append(("level", [Phrases.level(l)])) }
         }
         let bundle = obj.element.pid > 0 ? bundleIdentifier(of: obj.element.pid) : nil
-        parts = arranged(pieces, by: config.presentation.verbosity(for: bundle))
+        let list = config.presentation.verbosity(for: bundle)
+        parts = arranged(pieces, by: braille.map { list.forBraille($0) } ?? list)
         // A check box whose label is a paragraph (an agreement): what it is and whether it is checked first, so the
         // state is not lost at the end of a long sentence.
         if [.checkBox, .radioButton, .toggleButton, .switchControl].contains(role), name.count > 80, parts.first == name {
