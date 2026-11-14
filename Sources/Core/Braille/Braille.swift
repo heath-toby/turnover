@@ -866,7 +866,7 @@ public enum Braille {
     private static func startAutoScroll() {
         autoScroll?.invalidate()
         autoScroll = Timer.scheduledTimer(withTimeInterval: config.braille.autoScrollSeconds, repeats: true) { _ in
-            MainActor.assumeIsolated { if display != nil { pan(forward: true) } else { autoScroll?.invalidate(); autoScroll = nil } }
+            MainActor.assumeIsolated { if display != nil { pan(forward: true, fromTimer: true) } else { autoScroll?.invalidate(); autoScroll = nil } }
         }
     }
     public static func autoScrollRate(faster: Bool) {
@@ -875,18 +875,25 @@ public enum Braille {
         Speech.speakMessage(String(localized: "\(String(format: "%.1f", config.braille.autoScrollSeconds)) seconds", comment: "Braille auto scroll's speed: %@ is seconds"))
     }
 
-    private static func pan(forward: Bool) {
+    private static func pan(forward: Bool, fromTimer: Bool = false) {
         if config.braille.interruptSpeechWhileScrolling { Speech.cancel() }
         if let next = forward ? windows.first(where: { $0 > windowStart }) : windows.last(where: { $0 < windowStart }) {
             windowStart = next; show(); caretToWindow(); return
         }
-        // Off the end of the line: on to the next or previous line (NVDA's scrollForward and scrollBack). On a list's
-        // row or TurnOver's own cursor item (the menu bar, a chat): on to the next or previous one, as VoiceOver does; a
-        // display with only panning keys (the Mantis) had no way on from Mail's list (a review, 14 Nov 2026). Other
-        // items (a button, where Down could open its menu) stay put.
+        // Off the end of the line: on to the next or previous line (NVDA's scrollForward and scrollBack). On the
+        // focused list's row, pressed by hand: on to the next or previous row, as VoiceOver does; a display with only
+        // panning keys (the Mantis) had no way on from Mail's list (a review, 14 Nov 2026). Never from auto scroll, and
+        // never on TurnOver's own cursor items (a Terminal review line, the menu bar), where Up and Down went to the
+        // app: the shell's history, the menu opened (a review the same night). Anything else stays put.
         guard case .text = source else {
-            if case .object(let o) = source, [.tableRow, .listItem, .treeViewItem, .cell, .tableCell].contains(o.role) { press(forward ? "downArrow" : "upArrow"); return }
-            if case .item = source { press(forward ? "downArrow" : "upArrow"); return }
+            if !fromTimer, case .object(let o) = source, [.tableRow, .listItem, .treeViewItem, .cell, .tableCell].contains(o.role) {
+                press(forward ? "downArrow" : "upArrow")
+                // The list's end: nothing moved, so the edge sound, as before.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    if case .object(let now) = source, now.isSameElement(as: o) { Tones.edge() }
+                }
+                return
+            }
             Tones.edge(); return
         }
         line(forward ? 1 : -1, toEnd: !forward)
