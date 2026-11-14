@@ -309,7 +309,14 @@ final class TerminalText: TurnOverObject {
         // A password being typed: what appears on the cursor's line is its echo (sudo-rs and pwfeedback draw a star
         // per key; the line discipline echoes keys typed ahead of the prompt), never read.
         if rest.isEmpty, s.secret.isSecret(now: Date()) {
-            // nothing: the secret's echo
+            // The secret's echo, never read. But the prompt itself arriving on the line (ssh's "toby@host's
+            // password:", drawn after Return's newline was read on its own) is said: it was silenced as echo, and the
+            // user never heard that a password was asked for (a review, 13 Nov 2026). Typed-ahead echo and stars off.
+            if TerminalRules.isPasswordPrompt(first), !TerminalRules.isPasswordPrompt(s.anchorText) {
+                let line = TerminalRules.withoutTypedAhead(first, keys: s.secret.aheadKeys)
+                let words = line.trimmingCharacters(in: CharacterSet(charactersIn: " *•●"))
+                if !words.isEmpty { speech.append(words) }
+            }
         } else if rest.isEmpty {
             // The same line: typing echoed by the shell (silent), a completion or a recalled command (the new part).
             let common = first.commonPrefix(with: s.anchorText)
@@ -352,6 +359,9 @@ final class TerminalText: TurnOverObject {
         // land in the same batch as Return's newline, and ended the secret at once (a review, 13 Nov 2026).
         if TerminalRules.isPasswordPrompt(s.anchorText) { s.secret.sawPrompt() }
         else if !TerminalRules.allBlank(rest) { s.secret.outputArrived() }
+        // The shell's prompt drawn on the cursor's line on its own (sudo with its credentials kept, a slow prompt): the
+        // command is over, so typing is no password; the next command was said as "star" (a review, 13 Nov 2026).
+        else if isPrompt(s.anchorText) { s.secret.outputArrived() }
         s.review = nil
         var out = TerminalRules.withoutRules(speech.joined(separator: "\n")).trimmingCharacters(in: .whitespacesAndNewlines)
         // A full-screen program redrawing its input box as you type (Claude Code: the line typed so far and the box's

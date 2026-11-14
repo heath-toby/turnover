@@ -30,7 +30,9 @@ final class NotificationCentreNavigatorPlugin: GlobalPlugin {
             ("nc_clearApp", String(localized: "In Notification Centre: clears all of this app's notifications", comment: "A command, as the key list and keyboard help say it"), "command+backspace", { NotificationCentreNavigator.clearApp() }),
         ]
         for (name, desc, key, run) in keys {
-            script(name, desc, gestures: ["kb:\(key)"], category: cat) { _ in run() }.isAvailable = { NotificationCentreNavigator.active }
+            // (Delete and Command Delete held down close one each, not one per repeat: a review, 13 Nov 2026.)
+            let destructive = key.hasSuffix("backspace")
+            script(name, desc, gestures: ["kb:\(key)"], category: cat) { g in if destructive, g.isRepeat { return }; run() }.isAvailable = { NotificationCentreNavigator.active }
         }
         script("nc_leaveWidget", String(localized: "In a Notification Centre widget: back out of it", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:escape"], category: cat) { _ in
             NotificationCentreNavigator.leaveWidget()

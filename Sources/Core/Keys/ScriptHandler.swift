@@ -146,7 +146,11 @@ public enum ScriptHandler {
                 Log.io("key: TurnOver's focus is still an app's behind the front one; \(handled.logDescription()) goes to the front app")
                 resolved = .some(nil)
                 // (Tab then says why nothing is read yet, as the Tab trap does while an app comes up.)
-                if handled.keyName == "tab" { Speech.speakMessage(String(localized: "please wait", comment: "Spoken message"), remember: false) }
+                // (Only while the app may still be coming up, not for ever in an app that never answers: a review.)
+                let launched = NSRunningApplication(processIdentifier: AXHandler.shared.activePid)?.launchDate.map { Date().timeIntervalSince($0) }
+                if handled.keyName == "tab", !handled.isRepeat, SettingsPanePlugin.saysPleaseWait(launchedAgo: launched, hasWindow: false) {
+                    Speech.speakMessage(String(localized: "please wait", comment: "Spoken message"), remember: false)
+                }
             }
             let taken = InputManager.handleKeyDown(handled, script: resolved)
             var late = false

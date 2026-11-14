@@ -487,7 +487,20 @@ public final class BrowseModeDocument: ScriptableObject {
         // Placed as every arrival is: entered from below while empty (Mail's Shift Tab), at its last control, before the
         // key reads. The key says its own line, so no line-instead-of-say-all is kept (a review, 13 Nov 2026).
         placeOnArrival()
+        // Placed at its last control by the wish: that control is said, and the key that brought the page doesn't move
+        // on past it (Down went past it, Shift Tab to the one before: the last control was never heard, a review).
+        if noAutoRead { placedByArrival = Date() }
         noAutoRead = false
+    }
+    /// The key that brought the page found the reading placed for it (arrivedByKey): it says that line and stops.
+    /// (Only for that key: a moment, then it is gone, so a later key never stops on it.)
+    var placedByArrival: Date?
+    func takePlacedByArrival() -> Bool {
+        guard let at = placedByArrival else { return false }
+        placedByArrival = nil
+        guard Date().timeIntervalSince(at) < 1 else { return false }
+        speakUnit(.line)
+        return true
     }
 
     /// The page has content again at the same address: the reading back where it was before it emptied. True if so.
@@ -613,7 +626,7 @@ public final class BrowseModeDocument: ScriptableObject {
             // The copy of the page now, as the arrows have it: Tab just after a link was followed searched the copy of
             // the page left (a review, 13 Nov 2026).
             refreshIfNavigated()
-            if buffer.lines.isEmpty, buildIfEmpty() { arrivedByKey() }
+            if buffer.lines.isEmpty, buildIfEmpty() { arrivedByKey(); if takePlacedByArrival() { return } }
             rebuildIfCheap()
             // From a field of a Safari page in focus mode (tabIsTurnOversInField): on from the field. Another field
             // takes the focus; a check box, button or link can't in Safari, so the reading position goes there and
@@ -1032,6 +1045,7 @@ public final class BrowseModeDocument: ScriptableObject {
         refreshIfNavigated()
         clearSelection()
         guard ensureContent() else { return }
+        if takePlacedByArrival() { return }
         rebuildIfCheap()
         guard var info = caretInfo() else { return }
         // NVDA's _caretMovementScriptHelper: expand to the unit and collapse to its start before moving, so Up from
