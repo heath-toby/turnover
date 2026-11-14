@@ -4,6 +4,7 @@
 #import <IOBluetooth/IOBluetooth.h>
 #import <dlfcn.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 
 /// What a driver is handed for a Bluetooth display: its address and the transport, as VoiceOver's element gives them.
 @interface TOBluetoothElement : NSObject <NSCopying>
@@ -30,6 +31,14 @@
 @end
 
 static NSString *const kDrivers = @"/System/Library/ScreenReader/BrailleDrivers";
+static NSString *onlyDriverName;   // read on the braille thread, set on main: under @synchronized(kDrivers)
+
+/// The driver bundle at this path may be used (the chosen kind of display, or any).
+static BOOL driverAllowed(NSString *bundleFileName) {
+    NSString *only;
+    @synchronized (kDrivers) { only = onlyDriverName; }
+    return only.length == 0 || [[bundleFileName stringByDeletingPathExtension] isEqualToString:only];
+}
 
 @implementation TOAppleBrailleDisplay {
     id _driver;
@@ -71,6 +80,16 @@ static NSString *const kDrivers = @"/System/Library/ScreenReader/BrailleDrivers"
 - (void)runBlock:(dispatch_block_t)block { block(); }
 
 + (void)runBlock:(dispatch_block_t)block { block(); }
+
++ (NSString *)onlyDriver { @synchronized (kDrivers) { return onlyDriverName; } }
++ (void)setOnlyDriver:(NSString *)name { @synchronized (kDrivers) { onlyDriverName = [name copy]; } }
+
++ (NSArray<NSString *> *)driverNames {
+    NSMutableArray *out = [NSMutableArray array];
+    for (NSString *name in [[NSFileManager.defaultManager contentsOfDirectoryAtPath:kDrivers error:nil] sortedArrayUsingSelector:@selector(caseInsensitiveCompare:)])
+        if ([name hasSuffix:@".brailledriver"]) [out addObject:[name stringByDeletingPathExtension]];
+    return out;
+}
 
 + (void)detectBluetoothWithCompletion:(void (^)(TOAppleBrailleDisplay *))completion {
     dispatch_block_t work = ^{
@@ -140,7 +159,7 @@ static BOOL detectFoundUnopened;
     // HID matches first (they carry the keys), then plain USB; within each, matches naming a product before vendor-only ones.
     NSMutableArray *candidates = [NSMutableArray array];
     for (NSString *name in names) {
-        if (![name hasSuffix:@".brailledriver"]) continue;
+        if (![name hasSuffix:@".brailledriver"] || !driverAllowed(name)) continue;
         NSString *path = [kDrivers stringByAppendingPathComponent:name];
         NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:[path stringByAppendingPathComponent:@"Contents/Info.plist"]];
         for (NSDictionary *d in info[@"BrailleDriverAutoDetectDictionaries"] ?: @[]) {
@@ -202,7 +221,7 @@ static NSMutableString *btReport;
     if (paired.count == 0) return found;
     NSArray *names = [[NSFileManager.defaultManager contentsOfDirectoryAtPath:kDrivers error:nil] sortedArrayUsingSelector:@selector(compare:)];
     for (NSString *name in names) {
-        if (![name hasSuffix:@".brailledriver"]) continue;
+        if (![name hasSuffix:@".brailledriver"] || !driverAllowed(name)) continue;
         NSString *path = [kDrivers stringByAppendingPathComponent:name];
         NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:[path stringByAppendingPathComponent:@"Contents/Info.plist"]];
         NSArray *patterns = info[@"BrailleDriverBluetoothSearchDictionary"][@"BrailleDriverBluetoothDeviceNameRegexPatterns"];
@@ -508,6 +527,8 @@ static NSMutableString *btReport;
 - (id)translatorBundles;
 - (id)tablesForLocale:(id)locale inBundle:(id)bundle;
 - (id)localizedName;
+- (id)table;
+- (id)translator;
 - (BOOL)supportsTranslationModeContracted;
 - (id)initWithTable:(id)table;
 - (id)brailleForText:(id)text locations:(id *)locations;
@@ -587,6 +608,56 @@ static NSMutableString *btReport;
     id out = [_translator brailleForText:text locations:&loc];
     if (locations) *locations = [loc isKindOfClass:NSArray.class] ? loc : nil;
     return [out isKindOfClass:NSString.class] ? out : @"";
+}
+
+- (BOOL)isContracted {
+    id table = [_translator respondsToSelector:@selector(table)] ? [_translator performSelector:@selector(table)] : nil;
+    return [table respondsToSelector:@selector(supportsTranslationModeContracted)] && [table supportsTranslationModeContracted];
+}
+
+- (NSString *)brailleForText:(NSString *)text locations:(NSArray<NSNumber *> **)locations formatting:(NSArray<NSArray<NSNumber *> *> *)formatting {
+    if (formatting.count == 0) return [self brailleForText:text locations:locations];
+    // BRLTServiceTranslator hands the table's own translator (BRLTSTranslator) a BRLTTranslationParameters; the same
+    // call with BRLTTextFormattingRanges filled in is how VoiceOver's text styles reach the table (read from the
+    // framework's classes, macOS 27.2, 14 Nov 2026). Mode 1 is what the service passes for every table tried.
+    Class P = NSClassFromString(@"BRLTTranslationParameters"), R = NSClassFromString(@"BRLTTextFormattingRanges");
+    SEL init = NSSelectorFromString(@"initWithLanguage:mode:partial:useTechnicalTable:textPositionsRange:textFormattingRanges:");
+    SEL translate = NSSelectorFromString(@"brailleForText:parameters:locations:");
+    id inner = [_translator respondsToSelector:@selector(translator)] ? [_translator performSelector:@selector(translator)] : nil;
+    id table = [_translator respondsToSelector:@selector(table)] ? [_translator performSelector:@selector(table)] : nil;
+    SEL tableID = NSSelectorFromString(@"tableIdentifier");
+    if (!P || !R || ![P instancesRespondToSelector:init] || ![inner respondsToSelector:translate] || ![table respondsToSelector:tableID])
+        return [self brailleForText:text locations:locations];
+    id ranges = [R new];
+    SEL adds[3] = { NSSelectorFromString(@"addBoldRange:"), NSSelectorFromString(@"addItalicRange:"), NSSelectorFromString(@"addUnderlineRange:") };
+    NSUInteger length = text.length;
+    for (NSArray<NSNumber *> *f in formatting) {
+        if (f.count != 3) continue;
+        NSInteger kind = f[0].integerValue, loc = f[1].integerValue, len = f[2].integerValue;
+        if (kind < 0 || kind > 2 || loc < 0 || len <= 0 || (NSUInteger)loc >= length) continue;
+        NSRange r = NSMakeRange((NSUInteger)loc, MIN((NSUInteger)len, length - (NSUInteger)loc));
+        if (![ranges respondsToSelector:adds[kind]]) continue;
+        ((void (*)(id, SEL, NSRange))objc_msgSend)(ranges, adds[kind], r);
+    }
+    id language = ((id (*)(id, SEL))objc_msgSend)(table, tableID);
+    id params = ((id (*)(id, SEL, id, NSUInteger, BOOL, BOOL, NSRange, id))objc_msgSend)([P alloc], init, language, (NSUInteger)1, NO, NO, NSMakeRange(NSNotFound, 0), ranges);
+    if (!params) return [self brailleForText:text locations:locations];
+    id loc = nil;
+    id out = ((id (*)(id, SEL, id, id, id *))objc_msgSend)(inner, translate, text, params, &loc);
+    if (![out isKindOfClass:NSString.class]) return [self brailleForText:text locations:locations];
+    if (locations) {
+        // The table's own translator gives its map as 64-bit offsets in data (the service turns them into numbers).
+        if ([loc isKindOfClass:NSArray.class]) *locations = loc;
+        else if ([loc isKindOfClass:NSData.class]) {
+            NSData *d = loc;
+            NSUInteger n = d.length / sizeof(int64_t);
+            const int64_t *p = d.bytes;
+            NSMutableArray *a = [NSMutableArray arrayWithCapacity:n];
+            for (NSUInteger i = 0; i < n; i++) [a addObject:@(p[i])];
+            *locations = a;
+        } else *locations = nil;
+    }
+    return out;
 }
 
 - (NSString *)textForBraille:(NSString *)braille {

@@ -457,16 +457,103 @@ struct OtherLanguageRow: View {
     }
 }
 
-/// Braille: starts with the one setting that had no control once the menu lost its settings (#27, 22 Oct 2026); the
-/// rest of braille's settings, still in Tools, join it in their own change.
+/// Braille (NVDA's braille settings, with VoiceOver's formatting marks): the display, the tables, what the display
+/// shows, the cursor, and panning and routing. TurnOver drives the display through macOS's own drivers, so any
+/// display VoiceOver supports works; choosing one kind only looks for that kind (14 Nov 2026).
 struct BrailleView: View {
     @EnvironmentObject var model: Model
+    private var drivers: [[String: String]] { model.special("_brailleDrivers") as? [[String: String]] ?? [] }
+    private var tables: [(language: String, tables: [(id: String, name: String)])] {
+        (model.special("_brailleTables") as? [[String: Any]] ?? []).map { lang in
+            (lang["language"] as? String ?? "", (lang["tables"] as? [[String: String]] ?? []).map { ($0["id"] ?? "", $0["name"] ?? "") })
+        }
+    }
+    private var connected: String { model.special("_brailleDisplay") as? String ?? "" }
+    private var outputName: String {
+        let id = model.special("_brailleOutputTable") as? String ?? ""
+        return tables.lazy.flatMap(\.tables).first { $0.id == id }?.name ?? id
+    }
+    /// Seconds for auto scroll, kept to halves of a second (the file holds a decimal).
+    private var autoScroll: Binding<Double> {
+        Binding(get: { (model.get("braille", "autoScrollSeconds") as? NSNumber)?.doubleValue ?? 3 }, set: { model.set("braille", "autoScrollSeconds", ($0 * 2).rounded() / 2) })
+    }
+    @ViewBuilder private func tablePicker(_ title: String, key: String, automatic: String) -> some View {
+        Picker(title, selection: model.string("braille", key, "")) {
+            Text(automatic).tag("")
+            ForEach(tables, id: \.language) { lang in
+                Section(lang.language) { ForEach(lang.tables, id: \.id) { t in Text(t.name).tag(t.id) } }
+            }
+        }
+    }
+    private func shapes() -> some View {
+        Group { Text("Dots 7 and 8").tag("78"); Text("Dot 7").tag("7"); Text("Dot 8").tag("8"); Text("All dots").tag("all") }
+    }
     var body: some View {
         Form {
-            Picker("Panning moves the cursor", selection: model.string("braille", "panMovesCaret", "line")) {
-                Text("Line by line").tag("line"); Text("To the text shown").tag("window"); Text("Off").tag("off")
+            Section("Display") {
+                Picker("Braille display", selection: model.string("braille", "display", "auto")) {
+                    Text("Automatic").tag("auto")
+                    Text("No braille").tag("none")
+                    ForEach(drivers, id: \.self) { d in Text(d["name"] ?? "").tag(d["id"] ?? "") }
+                }
+                Text(connected.isEmpty ? String(localized: "No display connected. A display of the kind chosen is used as soon as it is connected.", comment: "Braille settings: no display") : String(localized: "Connected: \(connected)", comment: "Braille settings: the display in use"))
+                Toggle("Look for displays paired over Bluetooth", isOn: model.bool("braille", "bluetooth"))
+                Text("A display on USB is always preferred to the same display over Bluetooth.").font(.caption)
             }
-            Text("Panning on to another line moves the caret there, so the arrows carry on from what was read. Tethered to review, panning moves only the review cursor.").font(.caption)
+            Section("Tables") {
+                tablePicker("Output table", key: "table", automatic: String(localized: "Automatic, contracted for your language", comment: "Braille output table choice"))
+                tablePicker("Input table", key: "inputTable", automatic: String(localized: "Same as the output table", comment: "Braille input table choice"))
+                if !outputName.isEmpty { Text("In use: \(outputName)").font(.caption) }
+                Toggle("Show the word at the cursor uncontracted", isOn: model.bool("braille", "expandAtCursor"))
+                Toggle("Type in contracted braille, a word at a time", isOn: model.bool("braille", "contractedInput"))
+                Picker("Speak braille typing", selection: model.string("braille", "inputEcho", "words")) {
+                    Text("Words").tag("words"); Text("Characters").tag("characters"); Text("Characters and words").tag("both"); Text("Off").tag("off")
+                }
+                Picker("Show bold, italic and underline", selection: model.string("braille", "formattingMarks", "off")) {
+                    Text("Off").tag("off"); Text("With the table's own signs").tag("table"); Text("With dots 7 and 8").tag("dots78")
+                }
+                Text("The table's own signs are the ones braille books use (UEB, the US and UK codes have them; eight-dot tables don't).").font(.caption)
+            }
+            Section("What the display shows") {
+                Picker("Braille mode", selection: model.string("braille", "mode", "followCursors")) {
+                    Text("Follow cursors").tag("followCursors"); Text("Display speech output").tag("speechOutput")
+                }
+                Picker("Tether braille", selection: model.string("braille", "tether", "auto")) {
+                    Text("Automatically").tag("auto"); Text("To focus").tag("focus"); Text("To review").tag("review")
+                }
+                Picker("Focus context presentation", selection: model.string("braille", "focusContext", "changes")) {
+                    Text("Fill display for context changes").tag("changes"); Text("Only when scrolling back").tag("scrolling"); Text("Always fill display").tag("always")
+                }
+                Toggle("Read by paragraph", isOn: model.bool("braille", "readByParagraph"))
+                Picker("Paragraph start marker", selection: model.string("braille", "paragraphMarker", "none")) {
+                    Text("None").tag("none"); Text("Pilcrow (¶)").tag("pilcrow"); Text("Two blank cells").tag("spaces")
+                }
+                Toggle("Avoid splitting words", isOn: model.bool("braille", "wordWrap"))
+                Picker("Show messages", selection: model.string("braille", "showMessages", "timeout")) {
+                    Text("For a time").tag("timeout"); Text("Until a key is pressed").tag("indefinitely"); Text("Off").tag("off")
+                }
+                Stepper(value: model.int("braille", "messageSeconds"), in: 1...20) { Text("Message time: \(model.int("braille", "messageSeconds").wrappedValue) seconds for each display's width") }
+            }
+            Section("Cursor") {
+                Toggle("Show the cursor", isOn: model.bool("braille", "showCursor"))
+                Toggle("Blink the cursor", isOn: model.bool("braille", "blinkCursor"))
+                Stepper(value: model.int("braille", "blinkRateMs"), in: 100...2000, step: 50) { Text("Blink rate: \(model.int("braille", "blinkRateMs").wrappedValue) milliseconds") }
+                Picker("Cursor shape for focus", selection: model.string("braille", "cursorShape", "78")) { shapes() }
+                Picker("Cursor shape for review", selection: model.string("braille", "cursorShapeReview", "8")) { shapes() }
+                Toggle("Show selection with dots 7 and 8", isOn: model.bool("braille", "showSelection"))
+            }
+            Section("Panning and routing") {
+                Picker("Panning moves the cursor", selection: model.string("braille", "panMovesCaret", "line")) {
+                    Text("Line by line").tag("line"); Text("To the text shown").tag("window"); Text("Off").tag("off")
+                }
+                Text("Panning on to another line moves the caret there, so the arrows carry on from what was read. Tethered to review, panning moves only the review cursor.").font(.caption)
+                Toggle("Stop speech while panning", isOn: model.bool("braille", "interruptSpeechWhileScrolling"))
+                Toggle("Speak the character when routing the cursor in text", isOn: model.bool("braille", "speakOnRouting"))
+                Picker("Move the caret when routing the review cursor", selection: model.string("braille", "routingMovesCaret", "never")) {
+                    Text("Never").tag("never"); Text("Only when tethered automatically").tag("auto"); Text("Always").tag("always")
+                }
+                Stepper(value: autoScroll, in: 0.5...20, step: 0.5) { Text("Auto scroll: a display's width every \(String(format: "%.1f", autoScroll.wrappedValue)) seconds") }
+            }
         }.formStyle(.grouped).navigationTitle("Braille")
     }
 }

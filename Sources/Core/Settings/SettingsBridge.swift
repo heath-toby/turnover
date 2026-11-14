@@ -117,6 +117,11 @@ public enum SettingsBridge {
         dict["_speechPortApps"] = SpeechPort.shared.appDecisions.map { ["id": $0.id, "name": $0.name, "allowed": $0.allowed] }
         dict["_otherLanguages"] = otherLanguagesState()
         dict["_soundList"] = SoundChoices.all.map { ["id": $0.id, "name": $0.title] }
+        // Braille: the kinds of display macOS has drivers for, the one connected, and every table by language.
+        dict["_brailleDrivers"] = BrailleSettingsLists.drivers
+        dict["_brailleDisplay"] = Braille.display.map { "\($0.name), \($0.cellCount) cells" } ?? ""
+        dict["_brailleTables"] = BrailleSettingsLists.tables
+        dict["_brailleOutputTable"] = BrailleOutput.tableIdentifier ?? ""
         // The app the window's "For this app" means: the last ordinary app in front that isn't TurnOver's own.
         if let f = frontApp { dict["_frontApp"] = ["bundle": f.bundle, "name": f.name] }
         guard let out = try? JSONSerialization.data(withJSONObject: dict), let s = String(data: out, encoding: .utf8) else { return }
@@ -193,6 +198,8 @@ public enum SettingsBridge {
             }
             if before.general.keyboardStyle != next.general.keyboardStyle { GlobalCommands.setKeyboardStyle(next.general.style) }
             if before.braille.bluetooth != next.braille.bluetooth, next.braille.bluetooth { BrailleDisplays.shared.lookNow() }
+            if before.braille.display != next.braille.display { BrailleDisplays.shared.displayChoiceChanged() }
+            Braille.settingsChanged()
             if before.applications.perAppReaders != next.applications.perAppReaders { TurnOverMenu.shared.leadModeChanged?() }
             if before.applications.swapWithVoiceOver != next.applications.swapWithVoiceOver { onSwapChanged?(next.applications.swapWithVoiceOver) }
             // Steam's switches from the window do what the menu's do.

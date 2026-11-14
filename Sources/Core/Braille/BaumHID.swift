@@ -22,8 +22,13 @@ public final class BrailleDisplays {
     /// TurnOver leads: look for displays (and any that come later). Apple's drivers first; TurnOver's own BAUM
     /// driver only if none of them takes a display.
     public func start() {
+        wanted = true
         guard manager == nil, apple == nil, lookAgain == nil else { return }
-        if !useApple() { startOwn() }
+        // The display chosen in Settings (NVDA's braille display): none, any, or one kind only.
+        let choice = config.braille.display
+        guard choice != "none" else { Log.info("braille: no braille display, as chosen"); return }
+        TOAppleBrailleDisplay.onlyDriver = choice == "auto" ? nil : choice
+        if !useApple(), choice == "auto" { startOwn() }
         // A display plugged in, switched on or lost later; and USB taking over from Bluetooth. (Started even when a
         // display was found at once: with the early return, a display lost later was never looked for again.)
         scanStarted = Date()
@@ -44,6 +49,18 @@ public final class BrailleDisplays {
             self.lastFullScan = Date()
             if self.useApple() { self.stopOwn() }
         } }
+    }
+
+    /// TurnOver leads and would have a display (started, not stopped).
+    private var wanted = false
+
+    /// The braille display chosen in Settings changed: let go of the one there is and look again for the new choice.
+    public func displayChoiceChanged() {
+        guard wanted else { return }
+        stop()
+        lastBluetoothLook = .distantPast; lastFullScan = .distantPast; toldUnopened = false
+        start()
+        if config.braille.display == "none" { Speech.speakMessage(String(localized: "no braille", comment: "Spoken message: braille turned off in Settings")) }
     }
 
     private var lastBluetoothLook = Date.distantPast
@@ -187,6 +204,7 @@ public final class BrailleDisplays {
 
     /// TurnOver hands back: close every display, so VoiceOver can take it.
     public func stop() {
+        wanted = false
         lookAgain?.invalidate(); lookAgain = nil
         if let a = apple { Braille.detach(a); a.close(); apple = nil }
         stopOwn()

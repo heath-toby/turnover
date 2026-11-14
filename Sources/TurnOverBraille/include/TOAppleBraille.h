@@ -19,6 +19,11 @@ typedef NS_ENUM(NSInteger, TOBrailleReleaseState) {
 @interface TOAppleBrailleDisplay : NSObject
 /// Every display connected now that one of the drivers takes (USB and HID, including HID over Bluetooth).
 + (NSArray<TOAppleBrailleDisplay *> *)detect;
+/// The driver bundles in /System/Library/ScreenReader/BrailleDrivers, by name ("Alva", "GenericHID"), sorted.
++ (NSArray<NSString *> *)driverNames;
+/// Only this driver's displays are looked for (USB and Bluetooth), or every driver's when nil (the braille display
+/// chosen in Settings: automatic, or one kind of display).
+@property (class, nullable, copy) NSString *onlyDriver;
 /// What the last `detect` saw: each connected device a driver claims, and whether its driver loaded, for TurnOver's log.
 @property (class, readonly) NSString *lastDetectReport;
 /// The last `detect` found a device a driver claims, but no driver would load for it (another process, such as
@@ -75,6 +80,13 @@ NS_ASSUME_NONNULL_BEGIN
 @property (readonly) NSString *tableIdentifier;
 /// Unicode braille (U+2800 onwards), and for each cell the offset in `text` it came from.
 - (NSString *)brailleForText:(NSString *)text locations:(NSArray<NSNumber *> *_Nullable *_Nullable)locations;
+/// The same, with the text's bold, italic and underlined ranges given to the table, which marks them with its own
+/// indicators where it has them (UEB's, the US and UK codes'); a table without any shows the text plain. Each entry is
+/// @[kind, location, length]: kind 0 bold, 1 italic, 2 underline. Falls back to the plain translation if macOS's
+/// translator lacks the interface (checked on macOS 27.2, 14 Nov 2026).
+- (NSString *)brailleForText:(NSString *)text locations:(NSArray<NSNumber *> *_Nullable *_Nullable)locations formatting:(NSArray<NSArray<NSNumber *> *> *)formatting;
+/// Whether the table is a contracted one.
+@property (readonly) BOOL isContracted;
 /// Braille typed on a display, as text.
 - (NSString *)textForBraille:(NSString *)braille;
 @end

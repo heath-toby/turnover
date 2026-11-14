@@ -226,6 +226,11 @@ public final class WebTextInfo: TextInfo {
 
     public override func language(at offset: Int) -> String? { bridge.element(at: offset)?.string("AXLanguage") }
 
+    public override func emphasisRuns() -> [EmphasisRun] {
+        guard end > start, end - start <= 4000, let r = bridge.range(start, end), let a = bridge.attributedString(r) else { return [] }
+        return EmphasisRun.runs(in: a, format: AXTextInfo.format(from:))
+    }
+
     public override func formatField(at offset: Int) -> FormatField? {
         guard let r = bridge.range(offset, offset + 1), let a = bridge.attributedString(r), a.length > 0 else { return nil }
         let attrs = a.attributes(at: 0, effectiveRange: nil)

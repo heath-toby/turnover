@@ -22,6 +22,28 @@ public struct Bookmark: Equatable { public let start: Int; public let end: Int
 
 public struct TextInfoError: Error, CustomStringConvertible { public let description: String; public init(_ d: String) { description = d } }
 
+/// A stretch of bold, italic or underlined text, from the start of the range asked about.
+public struct EmphasisRun: Equatable {
+    public enum Kind: Int { case bold = 0, italic = 1, underline = 2 }
+    public var kind: Kind
+    public var range: NSRange
+    public init(_ kind: Kind, _ range: NSRange) { self.kind = kind; self.range = range }
+
+    /// The runs in an attributed string's attributes: one per kind per stretch, adjacent stretches joined (a word
+    /// half in one attribute run and half in the next is still one bold word to the table).
+    public static func runs(in a: NSAttributedString, format: ([NSAttributedString.Key: Any]) -> FormatField) -> [EmphasisRun] {
+        var out: [EmphasisRun] = []
+        a.enumerateAttributes(in: NSRange(location: 0, length: a.length)) { attrs, r, _ in
+            let f = format(attrs)
+            for (on, kind) in [(f.bold, Kind.bold), (f.italic, .italic), (f.underline, .underline)] where on {
+                if let i = out.lastIndex(where: { $0.kind == kind }), NSMaxRange(out[i].range) == r.location { out[i].range.length += r.length }
+                else { out.append(EmphasisRun(kind, r)) }
+            }
+        }
+        return out
+    }
+}
+
 /// Formatting at a position (NVDA: textInfos.FormatField).
 public struct FormatField {
     public var fontName: String?
@@ -196,6 +218,8 @@ open class TextInfo {
     /// The line containing an offset, if the control knows its lines; nil means "use paragraphs".
     open func lineOffsets(_ offset: Int) -> (Int, Int)? { nil }
     open func formatField(at offset: Int) -> FormatField? { nil }
+    /// The bold, italic and underlined stretches of this range, from its start (for braille's formatting marks).
+    open func emphasisRuns() -> [EmphasisRun] { [] }
     /// The words in this range the application marks as misspelled, in order (at most five).
     open func misspelledWords() -> [String] { [] }
     /// Highlights and comments in this range (AXAnnotation: Pages, 18 Oct 2026): each one's label and its words.
@@ -536,6 +560,12 @@ open class AXTextInfo: TextInfo {
         guard end > start, end - start < 5000, end <= storyLength(),
               let a = textElement.param(kAXAttributedStringForRangeParameterizedAttribute, axRangeValue(start, end - start)) as? NSAttributedString else { return [] }
         return TextInfo.misspelledRanges(in: a)
+    }
+
+    open override func emphasisRuns() -> [EmphasisRun] {
+        guard end > start, end - start <= 4000, end <= storyLength(),
+              let a = textElement.param(kAXAttributedStringForRangeParameterizedAttribute, axRangeValue(start, end - start)) as? NSAttributedString else { return [] }
+        return EmphasisRun.runs(in: a, format: Self.format(from:))
     }
 
     open override func formatField(at offset: Int) -> FormatField? {

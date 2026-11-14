@@ -53,14 +53,40 @@ public enum Braille {
     private static var selectedCells = Set<Int>()
     private static var selection: (Int, Int)?
 
+    /// The line's bold, italic and underlined stretches (offsets in `text`), when formatting is shown.
+    private static var emphasis: [EmphasisRun] = []
+    /// Cells under formatted text, given dots 7 and 8 (formatting shown that way).
+    private static var emphasisCells = Set<Int>()
+    /// Cells put before a paragraph (NVDA's paragraph start marker), read by paragraph.
+    private static var leadingCells: [UInt8] = []
+    /// Where the window starts are counted from (the focus's place, with context before it), and the cursor is
+    /// TurnOver's review cursor (its own shape).
+    private static var windowOrigin = 0
+    private static var cursorIsReview = false
+
+    /// Back to plain text: no formatting, marker, context or review cursor (each kind of thing shown sets its own).
+    private static func plain() { emphasis = []; leadingCells = []; windowOrigin = 0; cursorIsReview = false }
+
     private static func layout() {
-        (cells, cellMap) = BrailleOutput.translate(text, cursor: cursor)
+        (cells, cellMap) = BrailleOutput.translate(text, cursor: cursor, emphasis: emphasis)
         cursorCell = cursor.map { c in
             cellMap.firstIndex(of: c) ?? cellMap.firstIndex { $0 > c } ?? cells.count
         }
         selectedCells = []
         if config.braille.showSelection, let (a, b) = selection, b > a {
             for (i, o) in cellMap.enumerated() where o >= a && o < b { selectedCells.insert(i) }
+        }
+        emphasisCells = []
+        if config.braille.formattingMarks == "dots78", !emphasis.isEmpty {
+            for (i, o) in cellMap.enumerated() where emphasis.contains(where: { NSLocationInRange(o, $0.range) }) && cells[i] & 0x3F != 0 { emphasisCells.insert(i) }
+        }
+        // The paragraph marker: cells of its own before the text, standing for its start.
+        if !leadingCells.isEmpty {
+            let n = leadingCells.count
+            cells.insert(contentsOf: leadingCells, at: 0)
+            cellMap.insert(contentsOf: Array(repeating: 0, count: n), at: 0)
+            cursorCell = cursorCell.map { $0 + n }
+            selectedCells = Set(selectedCells.map { $0 + n }); emphasisCells = Set(emphasisCells.map { $0 + n })
         }
         // A contracted word being typed shows as its cells, at the cursor, until it is translated (as VoiceOver does).
         let typing = BrailleInput.pending
@@ -81,7 +107,11 @@ public enum Braille {
 
     private static func windowStarts() -> [Int] {
         let n = display?.cellCount ?? 40
-        var starts: [Int] = [], s = 0
+        // Context before the focus: windows of a display's width back from where the focus starts.
+        var before: [Int] = []
+        var b = min(windowOrigin, cells.count)
+        while b > 0 { b = max(0, b - n); before.insert(b, at: 0) }
+        var starts: [Int] = before, s = min(windowOrigin, max(cells.count - 1, 0))
         while s < max(cells.count, 1) {
             starts.append(s)
             var e = min(s + n, cells.count)
@@ -131,6 +161,13 @@ public enum Braille {
 
     // MARK: What is shown
 
+    /// A braille setting changed (in Settings or the menu): shown again with it, the cursor's blink restarted.
+    public static func settingsChanged() {
+        blinkTimer?.invalidate(); blinkTimer = nil; blinkOn = true
+        lastWritten = []
+        refreshSoon()
+    }
+
     /// After any script or event: look again, once things settle.
     public static func refreshSoon() {
         guard display != nil else { return }
@@ -164,6 +201,7 @@ public enum Braille {
         let wasPrivate = historyPrivate.indices.contains(i) ? historyPrivate[i] : false
         if wasPrivate { Speech.asPrivate { Speech.speakText(s) } } else { Speech.speakText(s) }
         source = .message
+        plain()
         messagePrivate = wasPrivate   // a two-factor code, a copied password: never in the log
         text = displayed(s); cursor = nil; windowStart = 0; selection = nil
         layout()
@@ -321,6 +359,7 @@ public enum Braille {
         guard historyIndex == nil else { return }
         guard let d = display, !s.isEmpty, config.braille.showMessages != "off" else { return }
         source = .message
+        plain()
         text = displayed(s); cursor = nil; windowStart = 0; selection = nil
         layout()
         let widths = Double((cells.count + d.cellCount - 1) / max(d.cellCount, 1))
@@ -343,6 +382,7 @@ public enum Braille {
         guard display != nil else { return }
         if let until = messageUntil, Date() < until { return }
         messageUntil = nil
+        plain()
         if let m = modalLine?() {
             let changed = !modalShowing || text != displayed(m.0)
             source = .message; modalShowing = true
@@ -386,9 +426,15 @@ public enum Braille {
             if reviewed == nil, let h = heldLine {
                 if h.caret == caret.start, h.info.obj.isSameElement(as: caret.obj) { shown = h.info.copy() } else { heldLine = nil }
             }
-            let line = shown.copy(); line.expand(.line)
+            let byParagraph = config.braille.readByParagraph
+            let line = shown.copy(); line.expand(byParagraph ? .paragraph : .line)
             source = .text(line, lineStart: line.start)
             text = displayed(line.text)
+            // Read by paragraph, a paragraph's start can be marked (NVDA's paragraph start marker).
+            if byParagraph { leadingCells = ["pilcrow": BrailleOutput.translate("¶", cursor: nil).cells + [0], "spaces": [0, 0]][config.braille.paragraphMarker] ?? [] }
+            // Bold, italic and underline, for the table's signs or dots 7 and 8 (asked of the app only when shown).
+            if config.braille.formattingMarks != "off" { emphasis = line.emphasisRuns() }
+            cursorIsReview = reviewed != nil
             let caretHere = caret.start >= line.start && caret.start <= line.end
             cursor = caretHere ? caret.start - line.start : nil
             selection = caretHere ? caret.selectionOffsets().map { ($0.0 - line.start, $0.1 - line.start) } : nil
@@ -404,17 +450,49 @@ public enum Braille {
         } else if let focus = API.focusObject {
             // A list, table or outline: its selected item, as speech reads it (Mail's list showed only "message
             // table", 6 Oct 2026).
-            let obj = selectedItem(in: focus) ?? focus
+            let row = selectedItem(in: focus)
+            let obj = row ?? focus
             source = .object(obj)
-            text = brailleText(Speech.objectPropertiesSpeech(obj, reason: .focus), role: obj.role)
+            let own = brailleText(Speech.objectPropertiesSpeech(obj, reason: .focus), role: obj.role)
+            // NVDA's focus context presentation: what the focus is in (window, list, group) before it, the display
+            // starting so the focus is in view; panning back reads the context.
+            let context = focusContext(row == nil ? API.focusAncestors : API.focusAncestors + [focus])
+            let contextChanged = context != lastContext
+            lastContext = context
+            text = context.isEmpty ? own : context + " " + own
             cursor = nil; selection = nil
-            windowStart = 0
             layout()
+            if !context.isEmpty {
+                let ownStart = (context as NSString).length + 1
+                let ownCell = cellMap.firstIndex { $0 >= ownStart } ?? 0
+                let n = display?.cellCount ?? 40
+                let fill = config.braille.focusContext == "always" || (config.braille.focusContext == "changes" && contextChanged)
+                windowOrigin = fill ? min(ownCell, max(0, cells.count - n)) : ownCell
+                windows = windowStarts()
+            }
+            windowStart = windowOrigin
         } else {
             source = nil; text = ""; cursor = nil; selection = nil; windowStart = 0
             layout()
         }
         show()
+    }
+
+    /// The context last shown before a focus, to tell when it changes.
+    private static var lastContext = ""
+
+    /// The focus's ancestors as the display shows them, outermost first: those with a name, or a role worth knowing
+    /// (a list, a table, a dialog), the four nearest the focus.
+    private static func focusContext(_ ancestors: [TurnOverObject]) -> String {
+        let worth: Set<Role> = [.list, .table, .treeView, .outline, .toolBar, .dialog, .menu, .menuBar, .tabControl, .groupBox, .window]
+        var parts: [String] = []
+        for a in ancestors where a.role != .application {
+            let name = a.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty || worth.contains(a.role) else { continue }
+            let s = brailleText([name, a.role.displayString], role: a.role).trimmingCharacters(in: .whitespaces)
+            if !s.isEmpty, parts.last != s { parts.append(s) }
+        }
+        return parts.suffix(4).joined(separator: " ")
     }
 
     private static func selectedItem(in obj: TurnOverObject) -> TurnOverObject? {
@@ -432,7 +510,7 @@ public enum Braille {
     }
 
     /// The cursor's dots (NVDA: cursor shape), and whether the blink has it showing now.
-    private static var cursorDots: UInt8 { ["8": 0x80, "all": 0xFF][config.braille.cursorShape] ?? 0xC0 }
+    private static var cursorDots: UInt8 { ["8": 0x80, "7": 0x40, "78": 0xC0, "all": 0xFF][cursorIsReview ? config.braille.cursorShapeReview : config.braille.cursorShape] ?? 0xC0 }
     private static var blinkOn = true
     private static var blinkTimer: Timer?
 
@@ -441,6 +519,7 @@ public enum Braille {
         let n = d.cellCount
         var cells = Self.cells
         for i in selectedCells where i < cells.count { cells[i] |= 0xC0 }
+        for i in emphasisCells where i < cells.count { cells[i] |= 0xC0 }
         if let c = cursorCell, config.braille.showCursor, blinkOn || !config.braille.blinkCursor {
             while cells.count <= c { cells.append(0) }
             cells[c] |= cursorDots
@@ -667,7 +746,8 @@ public enum Braille {
         guard case .text(let info, _) = source else { press(direction > 0 ? "downArrow" : "upArrow"); return }
         let r = info.copy()
         r.collapse()
-        guard r.move(.line, direction) != 0 else { Tones.edge(); return }
+        let unit: TextUnit = config.braille.readByParagraph ? .paragraph : .line
+        guard r.move(unit, direction) != 0 else { Tones.edge(); return }
         // The caret follows the display (Panning moves the cursor), so the arrows carry on from the line read on the
         // display, not from where reading began (VoiceOver left the caret behind: a tester, 21 Oct 2026).
         switch panFollow(setting: config.braille.panMovesCaret, tether: config.braille.tether) {
@@ -678,8 +758,8 @@ public enum Braille {
         // The line is spoken as well as shown, as VoiceOver does (the display moved on silently, 6 Oct 2026).
         SayAll.stop()
         Speech.cancel()
-        let spoken = r.copy(); spoken.expand(.line)
-        Speech.speakTextInfo(spoken, unit: .line, reason: .caret)
+        let spoken = r.copy(); spoken.expand(unit)
+        Speech.speakTextInfo(spoken, unit: unit, reason: .caret)
         refresh()
         if toEnd { windowStart = windows.last ?? 0; show(); caretToWindow() }
     }
@@ -734,7 +814,18 @@ public enum Braille {
             let r = info.copy()
             let offset = cell < cellMap.count ? cellMap[cell] : (text as NSString).length
             r.start = lineStart + offset; r.end = r.start
-            r.updateCaret()
+            // Tethered to review, the review cursor goes there; the caret too only if wanted (NVDA's "move system
+            // caret when routing review cursor", never by default).
+            if cursorIsReview {
+                TextReview.set(r)
+                if config.braille.routingMovesCaret == "always" { r.updateCaret() }
+            } else { r.updateCaret() }
+            // The character routed to is said (NVDA's "speak character when routing cursor in text").
+            if config.braille.speakOnRouting {
+                let c = r.copy(); c.expand(.character)
+                Speech.cancel()
+                Speech.speakTextInfo(c, unit: .character, reason: .caret)
+            }
             // Only on a link or button: plain text has nothing to press, and saying so at every routing key would wear.
             if let d = API.focusTreeInterceptor, !d.passThrough, let b = r as? BufferTextInfo, onActionable(b.element(at: r.start)),
                let s = ScriptHandler.findScript(named: "activatePosition") {

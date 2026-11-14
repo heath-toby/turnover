@@ -607,8 +607,29 @@ public struct Config: Codable {
         /// Panning on to another line moves the caret there ("line"), panning moves it to the start of each display's
         /// width ("window"), or panning leaves it where it was ("off").
         public var panMovesCaret = "line"
+        /// NVDA's braille display: "auto" (any display a driver takes), "none" (no braille), or one driver's name
+        /// ("Alva", "GenericHID"): only that kind of display is looked for, and only loaded once it is connected.
+        public var display = "auto"
+        /// NVDA's input table: what the braille keyboard types in; empty is the output table.
+        public var inputTable = ""
+        /// Bold, italic and underlined text on the display: "off", "table" (the output table's own signs, where it has
+        /// them: UEB's, the US and UK codes'), or "dots78" (dots 7 and 8 under formatted text, with any table).
+        public var formattingMarks = "off"
+        /// NVDA's cursor shape for review ("8" by default, as NVDA's dot 8), shown while tethered to review.
+        public var cursorShapeReview = "8"
+        /// NVDA's read by paragraph: the display shows the paragraph, not the line, and up and down move by paragraph.
+        public var readByParagraph = false
+        /// NVDA's paragraph start marker, read by paragraph: "none", "pilcrow" (¶) or "spaces" (two blank cells).
+        public var paragraphMarker = "none"
+        /// NVDA's speak character when routing the cursor in text.
+        public var speakOnRouting = true
+        /// NVDA's move system caret when routing review cursor: "never", "auto" (only tethered automatically) or "always".
+        public var routingMovesCaret = "never"
+        /// NVDA's focus context presentation: "changes" (what the focus is in, when that changes), "scrolling" (only on
+        /// panning back), or "always".
+        public var focusContext = "changes"
         public init() {}
-        enum Keys: String, CodingKey { case table, expandAtCursor, contractedInput, inputEcho, showMessages, messageSeconds, showCursor, blinkCursor, blinkRateMs, cursorShape, wordWrap, showSelection, interruptSpeechWhileScrolling, bluetooth, tether, mode, autoScrollSeconds, panMovesCaret }
+        enum Keys: String, CodingKey { case table, expandAtCursor, contractedInput, inputEcho, showMessages, messageSeconds, showCursor, blinkCursor, blinkRateMs, cursorShape, wordWrap, showSelection, interruptSpeechWhileScrolling, bluetooth, tether, mode, autoScrollSeconds, panMovesCaret, display, inputTable, formattingMarks, cursorShapeReview, readByParagraph, paragraphMarker, speakOnRouting, routingMovesCaret, focusContext }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
             table = (try? c.decodeIfPresent(String.self, forKey: .table)) ?? ""
@@ -629,6 +650,15 @@ public struct Config: Codable {
             mode = (try? c.decodeIfPresent(String.self, forKey: .mode)) ?? "followCursors"
             autoScrollSeconds = (try? c.decodeIfPresent(Double.self, forKey: .autoScrollSeconds)) ?? 3.0
             panMovesCaret = (try? c.decodeIfPresent(String.self, forKey: .panMovesCaret)) ?? "line"
+            display = (try? c.decodeIfPresent(String.self, forKey: .display)) ?? "auto"
+            inputTable = (try? c.decodeIfPresent(String.self, forKey: .inputTable)) ?? ""
+            formattingMarks = (try? c.decodeIfPresent(String.self, forKey: .formattingMarks)) ?? "off"
+            cursorShapeReview = (try? c.decodeIfPresent(String.self, forKey: .cursorShapeReview)) ?? "8"
+            readByParagraph = (try? c.decodeIfPresent(Bool.self, forKey: .readByParagraph)) ?? false
+            paragraphMarker = (try? c.decodeIfPresent(String.self, forKey: .paragraphMarker)) ?? "none"
+            speakOnRouting = (try? c.decodeIfPresent(Bool.self, forKey: .speakOnRouting)) ?? true
+            routingMovesCaret = (try? c.decodeIfPresent(String.self, forKey: .routingMovesCaret)) ?? "never"
+            focusContext = (try? c.decodeIfPresent(String.self, forKey: .focusContext)) ?? "changes"
         }
         public func encode(to encoder: Encoder) throws {
             var c = encoder.container(keyedBy: Keys.self)
@@ -640,6 +670,10 @@ public struct Config: Codable {
             try c.encode(interruptSpeechWhileScrolling, forKey: .interruptSpeechWhileScrolling); try c.encode(bluetooth, forKey: .bluetooth)
             try c.encode(tether, forKey: .tether); try c.encode(mode, forKey: .mode); try c.encode(autoScrollSeconds, forKey: .autoScrollSeconds)
             try c.encode(panMovesCaret, forKey: .panMovesCaret)
+            try c.encode(display, forKey: .display); try c.encode(inputTable, forKey: .inputTable); try c.encode(formattingMarks, forKey: .formattingMarks)
+            try c.encode(cursorShapeReview, forKey: .cursorShapeReview); try c.encode(readByParagraph, forKey: .readByParagraph)
+            try c.encode(paragraphMarker, forKey: .paragraphMarker); try c.encode(speakOnRouting, forKey: .speakOnRouting)
+            try c.encode(routingMovesCaret, forKey: .routingMovesCaret); try c.encode(focusContext, forKey: .focusContext)
         }
     }
     /// Sounds one by one (SoundChoices.swift): which are off, your own files for some, and whether they are panned to

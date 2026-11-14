@@ -14,9 +14,11 @@ public enum BrailleOutput {
     }
 
     /// Cells, and for each the offset in `text` it shows.
-    static func translate(_ text: String, cursor: Int?) -> (cells: [UInt8], map: [Int]) {
+    /// `emphasis`: the text's bold, italic and underlined stretches, given to the table when its own signs are wanted.
+    static func translate(_ text: String, cursor: Int?, emphasis: [EmphasisRun] = []) -> (cells: [UInt8], map: [Int]) {
         guard !text.isEmpty else { return ([], []) }
         guard let id = tableIdentifier, let tr = TOBrailleTranslator(forTable: id) else { return computer(text) }
+        let marks = config.braille.formattingMarks == "table" ? emphasis : []
         let ns = text as NSString
         // The word under the cursor, uncontracted, while there is a cursor (editing, browse mode's caret).
         if config.braille.expandAtCursor, let c = cursor, c <= ns.length, let word = wordRange(in: ns, at: c), word.length > 0,
@@ -24,17 +26,26 @@ public enum BrailleOutput {
             var cells: [UInt8] = [], map: [Int] = []
             for (part, translator) in [(NSRange(location: 0, length: word.location), tr), (word, plain),
                                        (NSRange(location: NSMaxRange(word), length: ns.length - NSMaxRange(word)), tr)] where part.length > 0 {
-                let (c2, m2) = run(translator, ns.substring(with: part))
+                let (c2, m2) = run(translator, ns.substring(with: part), emphasis: clip(marks, to: part))
                 cells += c2; map += m2.map { $0 + part.location }
             }
             return (cells, map)
         }
-        return run(tr, text)
+        return run(tr, text, emphasis: marks)
     }
 
-    private static func run(_ tr: TOBrailleTranslator, _ text: String) -> (cells: [UInt8], map: [Int]) {
+    /// The runs inside a part of the text, from the part's start.
+    static func clip(_ runs: [EmphasisRun], to part: NSRange) -> [EmphasisRun] {
+        runs.compactMap { r in
+            let i = NSIntersectionRange(r.range, part)
+            return i.length > 0 ? EmphasisRun(r.kind, NSRange(location: i.location - part.location, length: i.length)) : nil
+        }
+    }
+
+    private static func run(_ tr: TOBrailleTranslator, _ text: String, emphasis: [EmphasisRun] = []) -> (cells: [UInt8], map: [Int]) {
         var loc: NSArray?
-        let braille = tr.braille(forText: text, locations: &loc)
+        let braille = emphasis.isEmpty ? tr.braille(forText: text, locations: &loc)
+            : tr.braille(forText: text, locations: &loc, formatting: emphasis.map { [NSNumber(value: $0.kind.rawValue), NSNumber(value: $0.range.location), NSNumber(value: $0.range.length)] })
         let cells = braille.unicodeScalars.map { s -> UInt8 in (0x2800...0x28FF).contains(s.value) ? UInt8(s.value - 0x2800) : 0 }
         var map = (loc as? [NSNumber])?.map(\.intValue) ?? []
         if map.count != cells.count { map = (0..<cells.count).map { min($0, max(0, (text as NSString).length - 1)) } }
@@ -63,10 +74,13 @@ public enum BrailleOutput {
         return NSRange(location: a, length: b - a)
     }
 
-    /// Braille typed on the display's keyboard, as text: the output table, or its uncontracted form.
+    /// The table typing goes through (NVDA's input table): the one chosen for input, or else the output table.
+    public static var inputTableIdentifier: String? { config.braille.inputTable.isEmpty ? tableIdentifier : config.braille.inputTable }
+
+    /// Braille typed on the display's keyboard, as text: the input table, or its uncontracted form.
     public static func backTranslate(_ cells: [UInt8], contracted: Bool) -> String {
         let braille = String(String.UnicodeScalarView(cells.compactMap { UnicodeScalar(0x2800 + UInt32($0)) }))
-        guard let out = tableIdentifier else { return "" }
+        guard let out = inputTableIdentifier else { return "" }
         let id = contracted ? out : (uncontracted(out) ?? out)
         guard let tr = TOBrailleTranslator(forTable: id) else { return "" }
         return tr.text(forBraille: braille)
@@ -103,4 +117,35 @@ public enum TOBrailleTranslatorTables {
         }
         return out.sorted { $0.0 < $1.0 }
     }
+}
+
+/// The lists the Settings window offers for braille, read once: the drivers' folder and macOS's tables don't change
+/// while TurnOver runs, and reading every language's tables takes a moment.
+enum BrailleSettingsLists {
+    /// Each driver as an id (the bundle's name) and a name to read.
+    static let drivers: [[String: String]] = TOAppleBrailleDisplay.driverNames().map { ["id": $0, "name": displayName($0)] }
+
+    /// Driver bundles named for their maker, with the displays a reader would know them by.
+    static func displayName(_ driver: String) -> String {
+        let known: [String: String] = [
+            "GenericHID": "HID braille displays (APH Mantis, Chameleon, Brailliant BI X, Focus 6, Monarch)",
+            "FreedomScientific": "Freedom Scientific Focus", "HandyTech": "Handy Tech", "HIMS Driver": "HIMS (BrailleSense, Braille Edge, QBraille)",
+            "BrailleConnect": "BAUM and HumanWare (VarioUltra, Brailliant, BrailleConnect)", "DOT Driver": "Dot Pad", "KGS Driver": "KGS",
+            "Ecoplus Driver": "Ecoplus", "MDV": "MDV", "NinepointSystems": "Ninepoint Systems", "OrbitReader": "Orbit Reader",
+            "Alva": "Optelec ALVA", "Alva 6 Series": "Optelec ALVA 6 series", "Eurobraille": "Eurobraille (Esys, Iris)",
+        ]
+        return known[driver] ?? driver
+    }
+
+    /// Every table, by language: the user's language first, then the others by name. Each table as id and name.
+    static let tables: [[String: Any]] = {
+        var out: [[String: Any]] = []
+        let mine = TOBrailleTranslatorTables.forUser()
+        let myLanguage = Locale.current.localizedString(forLanguageCode: Locale.current.language.languageCode?.identifier ?? "en") ?? "English"
+        if !mine.isEmpty { out.append(["language": myLanguage, "tables": mine.map { ["id": $0.id, "name": $0.name] }]) }
+        for lang in TOBrailleTranslatorTables.otherLanguages() {
+            out.append(["language": lang.language, "tables": lang.tables.map { ["id": $0.id, "name": $0.name] }])
+        }
+        return out
+    }()
 }
