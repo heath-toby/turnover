@@ -202,6 +202,7 @@ public final class BrowseModeDocument: ScriptableObject {
         let wasPassThrough = passThrough
         let wasEmpty = buffer.lines.isEmpty
         lastURL = now
+        LoadWatch.check(self)   // VoiceOver's "While a webpage loads", if a setting asks (14 Nov 2026)
         // Back or Forward counts for this arrival only: true for 10 s, it made a link followed after Back resume
         // part way down too (a review, 13 Nov 2026). The page still arriving resumes by it (historyURL).
         let byHistory = BrowseModeHandler.cameBackByHistory
@@ -386,11 +387,19 @@ public final class BrowseModeDocument: ScriptableObject {
         position = buffer.find(from: buffer.text.length, forward: false, roles: Self.lastControlRoles)?.offset ?? position
     }
 
+    /// VoiceOver's webpage summary: the title, then how many headings, links, tables, forms and landmarks (`kinds`),
+    /// counted from the copy.
+    public func summary(kinds: [PageSummary.Kind] = PageSummary.loadKinds) -> String {
+        PageSummary.text(title: pageTitle(), counts: PageSummary.counts(buffer.pageKinds.values), kinds: kinds)
+    }
+
     /// NVDA: a page arriving says its title, then is read (automatic say all, on by default), or, with that off,
-    /// its first line (or the line it resumes at).
+    /// its first line (or the line it resumes at). VoiceOver's "When loading a new webpage" adds its summary instead
+    /// of either, or nothing at all (pageLoad, 14 Nov 2026).
     func announcePage() {
         placeOnArrival()
         announcedURL = url
+        LoadWatch.stop()
         if noAutoRead {
             // Placed by a module: its line, once, not the page from the top (Mail's Shift Tab, 13 Nov 2026).
             noAutoRead = false
@@ -407,9 +416,17 @@ public final class BrowseModeDocument: ScriptableObject {
             return
         }
         BrowseModeHandler.noteAnnounced(webArea, url: url)
+        let how = config.virtualBuffers.pageLoad
+        if how == "nothing" { return }
+        if how == "summary" {
+            let said = summary()
+            if !said.isEmpty { Speech.speakMessage(said) }
+            Hints.schedule(Hints.page)
+            return
+        }
         let title = pageTitle()
         if !title.isEmpty { Speech.speakMessage(title) }
-        if config.virtualBuffers.autoSayAllOnPageLoad {
+        if how != "line" {
             // Not a page the focus only passes through: Mail's message pane, on the way to the search field, had the
             // whole message read out (8 Oct 2026).
             // Nor over a key pressed in the moment before, or another page by then: the say all started over the key's
@@ -644,8 +661,8 @@ public final class BrowseModeDocument: ScriptableObject {
             .isAvailable = { config.general.windowsKeys }
         script("moveByParagraph_forward_nvda", String(localized: "Moves to the next paragraph (NVDA's Control Down)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:control+downArrow"], category: nav, resumesSayAll: true) { [weak self] _ in guard let self else { return }; move(.paragraph, 1) }
             .isAvailable = { config.general.windowsKeys }
-        script("moveByPage_back", String(localized: "Moves up a page", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:pageUp"], category: nav) { [weak self] _ in guard let self else { return }; move(.line, -20) }
-        script("moveByPage_forward", String(localized: "Moves down a page", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:pageDown"], category: nav) { [weak self] _ in guard let self else { return }; move(.line, 20) }
+        script("moveByPage_back", String(localized: "Moves up a page", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:pageUp"], category: nav) { [weak self] _ in guard let self else { return }; move(.line, -max(1, config.virtualBuffers.linesPerPage)) }
+        script("moveByPage_forward", String(localized: "Moves down a page", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:pageDown"], category: nav) { [weak self] _ in guard let self else { return }; move(.line, max(1, config.virtualBuffers.linesPerPage)) }
         script("startOfLine", String(localized: "Moves to the start of the line", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:home", "kb:command+leftArrow"], category: nav) { [weak self] _ in guard let self else { return }; edgeOfLine(start: true) }
         script("endOfLine", String(localized: "Moves to the end of the line", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:end", "kb:command+rightArrow"], category: nav) { [weak self] _ in guard let self else { return }; edgeOfLine(start: false) }
         let sel = "Selecting"
@@ -679,13 +696,19 @@ public final class BrowseModeDocument: ScriptableObject {
         }
         script("topOfDocument", String(localized: "Moves to the top of the document", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:command+upArrow", "kb:control+home"], category: nav, resumesSayAll: true) { [weak self] _ in guard let self else { return }; position = 0; speakUnit(.line) }
         script("bottomOfDocument", String(localized: "Moves to the bottom of the document", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:command+downArrow", "kb:control+end"], category: nav) { [weak self] _ in guard let self else { return }; toBottom() }
-        script("activatePosition", String(localized: "Activates the element at the caret", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:enter", "kb:numpadEnter", "kb:space"], category: nav) { [weak self] g in guard let self else { return }; activate(g) }
+        script("activatePosition", String(localized: "Activates the element at the caret", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:enter", "kb:numpadEnter", "kb:space"], category: nav) { [weak self] g in guard let self else { return }; activate(g); LoadWatch.checkSoon(self) }
         // NVDA+F7 in the Windows style (the parity audit, 13 Oct 2026: it did nothing on a page); in the Mac style
         // VO-F7 stays VoiceOver's, and VO-U and VO-I reach this list.
         let elements = script("elementsList", String(localized: "Elements list; lists the page's headings, links, form fields, buttons and landmarks; Enter goes there (NVDA+F7, VoiceOver's Item Chooser)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:turnover+f7"], category: nav) { [weak self] _ in
             self?.elementsList()
         }
         elements.isAvailable = { [weak self] in config.general.windowsKeys && self?.passThrough == false }
+        // The page's summary in the Windows style, where NVDA has no key for it (14 Nov 2026); the Mac style has
+        // VoiceOver's VO-Shift-Vertical Line (VoiceOverParity), with its table sort button.
+        let summaryKey = script("pageSummary", String(localized: "Page summary; says the page's title and how many headings, links, tables, forms and landmarks it has", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:turnover+shift+\\"], category: nav) { _ in
+            Speech.speakMessage(VoiceOverKeysPlugin.pageStatistics() ?? String(localized: "not on a page", comment: "Spoken message"))
+        }
+        summaryKey.isAvailable = { config.general.windowsKeys }
         script("tabFromCaret", String(localized: "Next link or control; moves to the next link or control after the reading position (Shift: before it)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab", "kb:shift+tab"], category: nav) { [weak self] g in
             guard let self else { return }
             BrowseModeDocument.lastTabFromCaretAt = Date()

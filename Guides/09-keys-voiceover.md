@@ -134,7 +134,7 @@ Switch styles with Command Control Comma, then K. TurnOver's own commands behind
 | TurnOver Shift 8 | Sets or removes hot spot 8 (VO-Shift-8) |
 | TurnOver Shift 9 | Sets or removes hot spot 9 (VO-Shift-9) |
 | TurnOver Shift A | Selects all the text in the VoiceOver cursor (VO-Shift-A) |
-| TurnOver Shift Backslash | On a page, how many headings, links, tables…; in a table, the column's sort button (VO-Shift-Vertical Line) |
+| TurnOver Shift Backslash | On a page, its title and how many headings, links, tables, forms…; in a table, the column's sort button (VO-Shift-Vertical Line) |
 | TurnOver Shift C | Copies the last thing spoken (VO-Shift-C) |
 | TurnOver Shift D | Moves to the desktop (VO-Shift-D) |
 | TurnOver Shift End | In text, the last word in view; elsewhere the last item in the group (VO-Shift-End) |

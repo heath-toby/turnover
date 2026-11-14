@@ -986,7 +986,25 @@ struct WebPagesView: View {
     var body: some View {
         Form {
             Toggle("Type into a field as soon as it has the focus", isOn: model.bool("virtualBuffers", "autoFocusMode"))
-            Toggle("Read a page through as it opens", isOn: model.bool("virtualBuffers", "autoSayAllOnPageLoad"))
+            // VoiceOver's Web category and NVDA's lines per page (14 Nov 2026).
+            Picker("When a new page opens", selection: model.string("virtualBuffers", "pageLoad", "read")) {
+                Text("Read the page through").tag("read")
+                Text("Say its title and how many headings, links and tables it has").tag("summary")
+                Text("Say its title and first line").tag("line")
+                Text("Say nothing").tag("nothing")
+            }
+            Picker("While a page loads", selection: model.string("virtualBuffers", "loadingFeedback", "nothing")) {
+                Text("Say nothing").tag("nothing")
+                Text("Say how far it has got").tag("progress")
+                Text("Play a soft tone").tag("tone")
+            }
+            Picker("Pictures on a page", selection: model.string("virtualBuffers", "navigateImages", "always")) {
+                Text("Always read").tag("always")
+                Text("Read only those with a description").tag("described")
+                Text("Skip").tag("never")
+            }
+            Slider(value: model.number("virtualBuffers", "linesPerPage"), in: 5...100, step: 5) { Text("Lines moved by Page Up and Page Down") }
+                .accessibilityValue("\(Int(model.number("virtualBuffers", "linesPerPage").wrappedValue)) lines")
             Toggle("Single-letter keys go round the page", isOn: model.bool("virtualBuffers", "wrapQuickNav"))
             Toggle("Links and buttons in the line, as on screen", isOn: model.bool("virtualBuffers", "screenLayout"))
             Toggle("Name undescribed pictures by their file name", isOn: model.bool("virtualBuffers", "imageFileNames"))
