@@ -39,7 +39,10 @@ public enum SettingsProfiles {
     nonisolated(unsafe) private static var normal: Sections?
 
     static var folder: URL { AppPaths.file("profiles") }
-    static func file(_ name: String) -> URL { folder.appendingPathComponent(name.replacingOccurrences(of: "/", with: "-") + ".json") }
+    /// The name as a file name: "/" can't be in one. Used for the profile's file, its removed copy and the duplicate
+    /// check, so two names that share a file can't both be made (a review, 14 Nov 2026).
+    static func fileName(_ name: String) -> String { name.replacingOccurrences(of: "/", with: "-") }
+    static func file(_ name: String) -> URL { folder.appendingPathComponent(fileName(name) + ".json") }
 
     static func all() -> [Profile] {
         let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
@@ -109,6 +112,9 @@ public enum SettingsProfiles {
 
     static func appCameToFront(_ bundle: String) {
         guard bundle != Bundle.main.bundleIdentifier else { return }   // TurnOver's own menu doesn't change profiles
+        // Nor does TurnOver Settings: opening it switched the app's profile off (a review, 14 Nov 2026; SettingsBridge
+        // skips the same prefix).
+        guard !bundle.hasPrefix("com.turnover.") else { return }
         if activeName != nil, !activeByApp { return }   // chosen by hand: stays
         if let p = all().first(where: { $0.apps.contains(bundle) }) {
             if activeName != p.name { if activeName != nil { deactivate() }; activate(p.name, byApp: true); Speech.speakMessage(String(localized: "\(p.name) profile", comment: "A settings profile switched on for an app: its name")) }
@@ -160,7 +166,7 @@ public enum SettingsProfiles {
     static func newProfile(for app: (bundle: String, name: String)?) {
         LineInput.ask(String(localized: "Profile name", comment: "Spoken message"), initial: app?.name ?? "") { typed in
             guard let raw = typed?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return }
-            guard !all().contains(where: { $0.name.lowercased() == raw.lowercased() }) else { Speech.speakMessage(String(localized: "There is a profile called \(raw) already", comment: "Spoken message: %@ is the name typed")); return }
+            guard !all().contains(where: { fileName($0.name).lowercased() == fileName(raw).lowercased() }) else { Speech.speakMessage(String(localized: "There is a profile called \(raw) already", comment: "Spoken message: %@ is the name typed")); return }
             write(Profile(name: raw, apps: app.map { [$0.bundle] } ?? [], settings: Sections(of: config)))
             if activeName != nil { deactivate() }
             activate(raw, byApp: app != nil)
@@ -174,7 +180,7 @@ public enum SettingsProfiles {
         let aside = AppPaths.file("profiles-removed")
         try? fm.createDirectory(at: aside, withIntermediateDirectories: true)
         let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        try? fm.moveItem(at: file(name), to: aside.appendingPathComponent("\(name) \(stamp).json"))
+        try? fm.moveItem(at: file(name), to: aside.appendingPathComponent("\(fileName(name)) \(stamp).json"))
         Speech.speakMessage(String(localized: "\(name) removed", comment: "A settings profile removed: its name"))
     }
 }

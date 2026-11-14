@@ -226,8 +226,19 @@ extension VoiceOverSettings {
         config.presentation.reportObjectDescriptions = before.presentation.reportObjectDescriptions
         config.keyboard.speakTypedCharacters = before.keyboard.speakTypedCharacters
         config.keyboard.speakTypedWords = before.keyboard.speakTypedWords
-        Speech.player.rate = config.speech.rate; Speech.player.pitch = config.speech.pitchMultiplier
-        Speech.player.volume = Float(config.speech.volume) / 100
+        // Everything else apply() writes goes back too: the symbol level, links, misspellings, text attributes, the
+        // Commanders and the keys they cloned; and the player takes the old voice, with the language voices
+        // forgotten, as apply() does (a review, 14 Nov 2026: undo left all of these as the copy set them, and the
+        // player kept the copied voice). The kept file is the whole Config, so every field is there to put back.
+        config.speech.symbolLevel = before.speech.symbolLevel
+        config.documentFormatting.links = before.documentFormatting.links
+        config.documentFormatting.spellingErrors = before.documentFormatting.spellingErrors
+        config.documentFormatting.reportFontAttributes = before.documentFormatting.reportFontAttributes
+        config.keyboard.optionCommander = before.keyboard.optionCommander
+        config.keyboard.numpadCommander = before.keyboard.numpadCommander
+        config.keyboard.userGestures = before.keyboard.userGestures
+        SettingsProfiles.applyLive()   // rate, pitch, volume and the voice identifier
+        Languages.forget()
         config.save()
         try? FileManager.default.removeItem(at: beforeURL)
         let voice = AVSpeechSynthesisVoice(identifier: config.speech.voice)?.name ?? String(localized: "its voice", comment: "TurnOver's voice, when it has no name")
