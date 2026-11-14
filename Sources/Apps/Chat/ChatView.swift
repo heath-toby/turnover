@@ -752,7 +752,8 @@ public final class ChatView {
         // mentions Mum: the wrong chat's box was entered, a review, 14 Nov 2026).
         let matches = open.map { t in
             let title = t.lowercased()
-            return title.isEmpty || wanted == title || wanted.hasPrefix(title + ", ") || wanted.hasPrefix(title + " ")
+            // The whole name, not a first word ("Ali" against "Ali Khan" went to Ali: a review, 14 Nov 2026).
+            return title.isEmpty || wanted == title || Self.chatName(wanted).lowercased() == title
         } ?? true   // no title: nothing to check against
                 if !matches, tries == 0 {
                     tries += 1

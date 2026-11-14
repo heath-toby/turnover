@@ -838,7 +838,10 @@ public final class WebBuffer {
         guard lo < segments.count, segments[lo].isLink, segments[lo].start <= offset else { return nil }
         var end = segments[lo].end
         var k = lo + 1
-        while k < segments.count, segments[k].isLink, segments[k].start == end { end = segments[k].end; k += 1 }
+        // Only pieces of the same link: "Privacy Terms Contact" in a footer touched, and counted as one (a review,
+        // 14 Nov 2026).
+        let key = segments[lo].link ?? segments[lo].element
+        while k < segments.count, segments[k].isLink, segments[k].start == end, (segments[k].link ?? segments[k].element).isSame(key) { end = segments[k].end; k += 1 }
         return end
     }
 
@@ -939,12 +942,17 @@ public final class WebBuffer {
                 var lo = 0, hi = segments.count
                 while lo < hi { let m = (lo + hi) / 2; if segments[m].end <= l.start { lo = m + 1 } else { hi = m } }
                 var prevLinkEnd = -2
+                var prevLink: AXUIElement?
                 var k = lo
                 while k < segments.count, segments[k].start < l.end {
                     let sg = segments[k]
-                    // A link that began on an earlier piece of a wrapped line was counted there.
-                    if sg.isLink, sg.start >= l.start, sg.start > prevLinkEnd + 1, visited.map({ Self.isVisited(sg.link ?? sg.element) == $0 }) ?? true { out.append((sg.start, sg.element)) }
+                    let key = sg.link ?? sg.element
+                    // A link that began on an earlier piece of a wrapped line was counted there; a touching piece of
+                    // another link is a link of its own (a review, 14 Nov 2026).
+                    let continues = sg.start <= prevLinkEnd + 1 && (prevLink.map { $0.isSame(key) } ?? false)
+                    if sg.isLink, sg.start >= l.start, !continues, visited.map({ Self.isVisited(key) == $0 }) ?? true { out.append((sg.start, sg.element)) }
                     prevLinkEnd = sg.isLink ? sg.end : -2
+                    prevLink = sg.isLink ? key : nil
                     k += 1
                 }
             }
@@ -1205,7 +1213,8 @@ public final class BufferTextInfo: TextInfo {
             lastLink = s.isLink ? linkKey : nil
             pieces.append(textRange(a, b))
             // VoiceOver's order: "About us, link", where the link ends (once, on the piece that ends it).
-            let lastPiece = i + 1 >= segs.count || !segs[i + 1].isLink || !(segs[i + 1].link ?? segs[i + 1].element).isSame(linkKey)
+            // (Also when the next piece lies beyond what is spoken: a link over two lines said "link" on neither.)
+            let lastPiece = i + 1 >= segs.count || segs[i + 1].start >= end || !segs[i + 1].isLink || !(segs[i + 1].link ?? segs[i + 1].element).isSame(linkKey)
             if after, s.isLink, lastPiece, linkMode == .speech, s.end <= end, !(s.start < start && start > line.start && s.end > end) {
                 pieces.append(", " + Speech.ui(Role.link.displayString) + " ")
             }
