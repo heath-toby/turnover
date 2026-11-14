@@ -102,7 +102,9 @@ public enum SayAll {
         lastChunkStart = chunk.start
         lastRunAt = Date()
         var blank = false
-        let text = Speech.textInfoSpeech(chunk, unit: .readingChunk, reason: .sayAll, onlyBlank: &blank)
+        // The language first: a chunk in another language's voice keeps its own punctuation and numbers (a review).
+        let language = chunk.language()
+        let text = Speech.textInfoSpeech(chunk, unit: .readingChunk, reason: .sayAll, onlyBlank: &blank, language: language)
         nonisolated(unsafe) let tones = Speech.takeSayAllTones()   // sounded as this chunk starts, below (run on main there)
         // By TurnOver's own mark for an empty range, not by the words: a paragraph that is just "blank" is read.
         if blank || Speech.cleaned(text).isEmpty {
@@ -116,7 +118,6 @@ public enum SayAll {
         buffered += 1
         Speech.readingNow = true
         defer { Speech.readingNow = false }
-        let language = chunk.language()
         // The natural voice's first words come sooner from a first sentence than from a whole paragraph: the opening
         // paragraph is read as its first sentence, then the rest (18 Oct 2026).
         var parts = [text]

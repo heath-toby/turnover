@@ -136,12 +136,16 @@ nonisolated public enum Symbols {
 
     /// Text for reading: symbols at or below `level` are replaced by their names.
     /// VoiceOver's "Read numbers as digits": a run of digits said one by one ("1234" → "1 2 3 4").
+    /// Every digit of a run of two or more stands apart, from punctuation too, so "12:30" is "1 2 : 3 0", never "2:3",
+    /// which a voice reads as a ratio (a review).
     nonisolated public static func digitsApart(_ text: String) -> String {
-        var out = "", prevDigit = false
-        for c in text {
-            let d = c.isASCII && c.isNumber
-            if d, prevDigit { out.append(" ") }
-            out.append(c); prevDigit = d
+        let chars = Array(text)
+        func isDigit(_ i: Int) -> Bool { chars.indices.contains(i) && chars[i].isASCII && chars[i].isNumber }
+        var out = ""
+        for (i, c) in chars.enumerated() {
+            let inRun = isDigit(i) && (isDigit(i - 1) || isDigit(i + 1))
+            if inRun { if let l = out.last, l != " " { out.append(" ") }; out.append(c); if i + 1 < chars.count, chars[i + 1] != " " { out.append(" ") } }
+            else { out.append(c) }
         }
         return out
     }
@@ -153,7 +157,7 @@ nonisolated public enum Symbols {
         // A dot between words is a separator, said as a pause, not "bullet": Byword's status line, "Markdown • 61
         // words • 356 characters" (Day 2, 10 Oct 2026). A bullet at the start of a line, or alone, keeps its name.
         if level != .all, text.contains(" • ") || text.contains(" · ") {
-            return process(text.replacingOccurrences(of: " • ", with: ", ").replacingOccurrences(of: " · ", with: ", "), level: level)
+            return process(text.replacingOccurrences(of: " • ", with: ", ").replacingOccurrences(of: " · ", with: ", "), level: level, countRepeats: countRepeats)
         }
         var out = ""
         out.reserveCapacity(text.count + 16)
@@ -206,7 +210,7 @@ nonisolated public enum Symbols {
         while i < chars.count {
             var run = 1
             while i + run < chars.count, chars[i + run] == chars[i] { run += 1 }
-            if run >= 4 { parts.append("\(run) \(name(of: chars[i], locale: locale))") }
+            if run >= 4, chars[i].isPunctuation || chars[i].isSymbol { parts.append("\(run) \(name(of: chars[i], locale: locale))") }
             else { for _ in 0..<run { parts.append(name(of: chars[i], locale: locale)) } }
             i += run
         }

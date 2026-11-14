@@ -158,6 +158,16 @@ public enum Languages {
         return best(for: code)?.identifier
     }
 
+    /// A lone mark as another language's voice will name it: the German voice says nothing for „ “ ” « » ‚ alone
+    /// (measured 14 Nov 2026) but names the plain quotes.
+    nonisolated public static func markForVoice(_ c: Character) -> String {
+        switch c {
+        case "„", "“", "”", "«", "»", "‟": return "\""
+        case "‚", "‘", "’", "‹", "›", "‛": return "'"
+        default: return String(c)
+        }
+    }
+
     /// Space, tab and a line break named in a language, for a character read in another language's voice: a voice
     /// says nothing for a lone space (a tester, 14 Nov 2026: "Leerzeichen in German"). Nil where none is known.
     nonisolated public static func whitespaceName(_ c: Character, language: String) -> String? {

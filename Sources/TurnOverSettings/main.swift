@@ -439,54 +439,75 @@ struct OtherLanguage {
 /// TurnOver's pronunciations.txt, which TurnOver reads again within a second of a change.
 struct PronunciationsEditor: View {
     @State private var entries: [(word: String, say: String)] = []
-    @State private var other: [String] = []   // comments and anything else in the file, kept as they are
     @State private var selected: Int?
     @State private var word = ""
     @State private var say = ""
+    @State private var unreadable = false
     private var url: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("TurnOver", isDirectory: true).appendingPathComponent("pronunciations.txt")
     }
+    /// The file's lines, or nil if it is there but can't be read (never then written over: a review).
+    private func lines() -> [String]? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return text.components(separatedBy: .newlines)
+    }
+    private static func entry(_ raw: String) -> (word: String, say: String)? {
+        let line = raw.trimmingCharacters(in: .whitespaces)
+        guard !line.hasPrefix("#"), let eq = line.range(of: "=") else { return nil }
+        let w = line[..<eq.lowerBound].trimmingCharacters(in: .whitespaces)
+        return w.isEmpty ? nil : (w, line[eq.upperBound...].trimmingCharacters(in: .whitespaces))
+    }
     private func load() {
-        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        entries = []; other = []
-        for raw in text.components(separatedBy: .newlines) {
-            let line = raw.trimmingCharacters(in: .whitespaces)
-            if !line.hasPrefix("#"), let eq = line.range(of: "="), !line[..<eq.lowerBound].trimmingCharacters(in: .whitespaces).isEmpty {
-                entries.append((line[..<eq.lowerBound].trimmingCharacters(in: .whitespaces), line[eq.upperBound...].trimmingCharacters(in: .whitespaces)))
-            } else if !line.isEmpty { other.append(raw) }
-        }
+        guard let l = lines() else { unreadable = true; return }
+        unreadable = false
+        entries = l.compactMap(Self.entry)
     }
-    private func save() {
-        let text = (other + entries.map { "\($0.word) = \($0.say)" }).joined(separator: "\n") + "\n"
+    /// Read the file afresh, change it line by line (comments and order kept), and write it back.
+    private func change(_ edit: (inout [String]) -> Void) {
+        guard var l = lines() else { unreadable = true; return }
+        edit(&l)
+        while l.last?.isEmpty == true { l.removeLast() }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? text.write(to: url, atomically: true, encoding: .utf8)
+        try? (l.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+        load()
     }
+    private func same(_ raw: String, _ w: String) -> Bool { Self.entry(raw)?.word.caseInsensitiveCompare(w) == .orderedSame }
     var body: some View {
-        if entries.isEmpty {
-            Text("No words yet. Type a word and how to say it, then Add.").font(.caption)
-        } else {
-            List(entries.indices, id: \.self, selection: $selected) { i in
-                Text(String(localized: "\(entries[i].word), said as \(entries[i].say)", comment: "A pronunciation in Speech settings")).tag(i)
+        Group {
+            if unreadable {
+                Text("The pronunciations file can't be read, so it isn't changed here.").font(.caption)
+            } else if entries.isEmpty {
+                Text("No words yet. Type a word and how to say it, then Add.").font(.caption)
+            } else {
+                List(entries.indices, id: \.self, selection: $selected) { i in
+                    Text(String(localized: "\(entries[i].word), said as \(entries[i].say)", comment: "A pronunciation in Speech settings")).tag(i)
+                }
+                .frame(minHeight: 80, maxHeight: 160)
+                .accessibilityLabel(String(localized: "Pronunciations", comment: "The list of pronunciations"))
+                .onChange(of: selected) { _, i in if let i, entries.indices.contains(i) { word = entries[i].word; say = entries[i].say } }
             }
-            .frame(minHeight: 80, maxHeight: 160)
-            .accessibilityLabel(String(localized: "Pronunciations", comment: "The list of pronunciations"))
-            .onChange(of: selected) { _, i in if let i, entries.indices.contains(i) { word = entries[i].word; say = entries[i].say } }
-        }
-        TextField(String(localized: "Word", comment: "A pronunciation's word"), text: $word)
-        TextField(String(localized: "Say it as", comment: "A pronunciation's replacement"), text: $say)
-        Button(String(localized: "Add or change", comment: "Adds a pronunciation, or changes the one for that word")) {
-            let w = word.trimmingCharacters(in: .whitespaces), sy = say.trimmingCharacters(in: .whitespaces)
-            guard !w.isEmpty, !w.contains("=") else { return }
-            if let i = entries.firstIndex(where: { $0.word.caseInsensitiveCompare(w) == .orderedSame }) { entries[i] = (w, sy) } else { entries.append((w, sy)) }
-            save(); word = ""; say = ""; selected = nil
-        }
-        Button(String(localized: "Remove", comment: "Removes the chosen pronunciation")) {
-            let w = word.trimmingCharacters(in: .whitespaces)
-            if let i = selected, entries.indices.contains(i) { entries.remove(at: i) }
-            else if let i = entries.firstIndex(where: { $0.word.caseInsensitiveCompare(w) == .orderedSame }) { entries.remove(at: i) }
-            else { return }
-            save(); word = ""; say = ""; selected = nil
+            TextField(String(localized: "Word", comment: "A pronunciation's word"), text: $word)
+            TextField(String(localized: "Say it as", comment: "A pronunciation's replacement"), text: $say)
+            Button(String(localized: "Add or change", comment: "Adds a pronunciation, or changes the one for that word")) {
+                let w = word.trimmingCharacters(in: .whitespaces), sy = say.trimmingCharacters(in: .whitespaces)
+                guard !w.isEmpty, !w.contains("="), !w.hasPrefix("#") else { return }
+                change { l in
+                    // The first line for the word changed where it is; any others for it go.
+                    if let i = l.firstIndex(where: { same($0, w) }) {
+                        l[i] = "\(w) = \(sy)"
+                        l = l.enumerated().filter { $0.offset == i || !same($0.element, w) }.map(\.element)
+                    } else { l.append("\(w) = \(sy)") }
+                }
+                word = ""; say = ""; selected = nil
+            }
+            Button(String(localized: "Remove", comment: "Removes the chosen pronunciation")) {
+                let w = selected.flatMap { entries.indices.contains($0) ? entries[$0].word : nil } ?? word.trimmingCharacters(in: .whitespaces)
+                guard !w.isEmpty else { return }
+                change { l in l.removeAll { same($0, w) } }
+                word = ""; say = ""; selected = nil
+            }
         }
         .onAppear { load() }
     }

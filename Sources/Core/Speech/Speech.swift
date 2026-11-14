@@ -105,8 +105,8 @@ public enum Speech {
             // Raised only when the capital is the whole utterance; inside longer speech ("word A") the mark just goes.
             let plain = text.replacingOccurrences(of: capitalMark, with: "")
             if text.hasPrefix(capitalMark), !plain.contains(capitalMark), cleaned(plain).count <= 6 {
-                if config.speech.capitalPitch > 0 { pitchNext = 1 + Float(config.speech.capitalPitch) / 100 }
-                if config.speech.capitalTone, mode == .talk { Tones.beep(1760, 25, volume: 0.15) }
+                if config.speech.capitalPitch > 0, pitchNext == nil { pitchNext = 1 + Float(config.speech.capitalPitch) / 100 }
+                if config.speech.capitalTone { toneNext = true }
             }
             return enqueue(plain, language: language, decided: decided, onStart: onStart, completion: completion)
         }
@@ -150,6 +150,7 @@ public enum Speech {
         // Taken here, before the mode, VoiceOver and empty-text returns: a capital spelt while VoiceOver was talking
         // raised the pitch of the next real utterance instead (code review, 16 Oct 2026).
         let pitch = pitchNext; pitchNext = nil
+        let tone = toneNext; toneNext = false
         sink?(cleaned(text))
         tabTick()
         switch mode {
@@ -195,9 +196,17 @@ public enum Speech {
         let langPitch = voice == nil ? nil : Languages.pitch(for: language).map { 0.5 * pow(4, min(1, max(0, $0))) }
         let langVolume = voice == nil ? nil : Languages.volume(for: language).map { Float($0) / 100 }
         player.speak(said, interrupt: false, voice: kokoro ?? voice, rate: voice == nil ? nil : Languages.rate(for: language), pitch: pitch,
-                     voicePitch: langPitch, voiceVolume: langVolume, onStart: onStart, completion: completion)
+                     voicePitch: langPitch, voiceVolume: langVolume,
+                     // The capital's tone as its letter starts, not as it is queued (a review: three at once for "ABC").
+                     onStart: tone ? Self.withCapitalTone(onStart) : onStart, completion: completion)
     }
     private static var pitchNext: Float?
+    /// `onStart` with the capital's tone first, played on the main thread.
+    nonisolated private static func withCapitalTone(_ onStart: (@Sendable () -> Void)?) -> @Sendable () -> Void {
+        { DispatchQueue.main.async { Tones.beep(1760, 25, volume: 0.15) }; onStart?() }
+    }
+    /// The next utterance is a capital to have a tone before it (capitalTone).
+    private static var toneNext = false
     /// The language of the text being made into speech, when another language's voice reads it: the text goes to
     /// that voice as written, so it names punctuation and says numbers in its own language, not TurnOver's English
     /// names for them ("Komma", not "comma").
@@ -268,16 +277,18 @@ public enum Speech {
 
     /// A message from the reader itself (NVDA: speakMessage / ui.message).
     public static func speakMessage(_ text: String) {
-        lastRaw = text; rawPending = true
+        // The capital mark is for the speech queue only: not the display, nor "copy last spoken" (a review).
+        let shown = text.replacingOccurrences(of: capitalMark, with: "")
+        lastRaw = shown; rawPending = true
         enqueue(text)
-        if Thread.isMainThread { Braille.message(text) } else { DispatchQueue.main.async { Braille.message(text) } }
+        if Thread.isMainThread { Braille.message(shown) } else { DispatchQueue.main.async { Braille.message(shown) } }
     }
 
     /// Words for the ear only: the display already shows what they are about ("new line" while it shows the new line,
     /// a window's name while it shows the focus, "messages" while it shows the message). As a braille message they
     /// hid the line for seconds on a 20-cell display (7 Oct 2026).
     public static func speakOnly(_ text: String, language: String? = nil) {
-        lastRaw = text; rawPending = true
+        lastRaw = text.replacingOccurrences(of: capitalMark, with: ""); rawPending = true
         enqueue(text, language: language, decided: language != nil)
     }
 
@@ -328,7 +339,7 @@ public enum Speech {
     public static func speakSpelling(_ text: String) {
         guard !text.isEmpty else { enqueue(Phrases.blank); return }
         // With capitals raised, each character is its own utterance, so each capital can have its pitch.
-        if config.speech.capitalPitch > 0, text.contains(where: \.isUppercase) {
+        if config.speech.capitalPitch > 0 || config.speech.capitalTone, text.contains(where: \.isUppercase) {
             for c in text.prefix(500) { enqueue(Symbols.name(of: c)) }
             return
         }
@@ -653,6 +664,13 @@ public enum Speech {
     /// `onlyBlank`: set when the words are TurnOver's own blank and nothing more (no heading, link or formatting
     /// before it): the range holds no text. Say all skips those by this, not by the words, so a paragraph that is
     /// just the word "blank" (or "boş") is read.
+    /// `language`: the text's language, when another language's voice will read it (say all works it out first).
+    public static func textInfoSpeech(_ info: TextInfo, unit: TextUnit?, reason: OutputReason, onlyBlank: inout Bool, language: String?) -> String {
+        let was = foreignLanguage
+        foreignLanguage = language.flatMap { Languages.voice(for: $0) != nil ? $0 : nil }
+        defer { foreignLanguage = was }
+        return textInfoSpeech(info, unit: unit, reason: reason, onlyBlank: &onlyBlank)
+    }
     public static func textInfoSpeech(_ info: TextInfo, unit: TextUnit?, reason: OutputReason, onlyBlank: inout Bool) -> String {
         onlyBlank = false
         let spellingError = String(localized: "spelling error", comment: "Said before a misspelled word")
@@ -673,14 +691,16 @@ public enum Speech {
             if reason == .sayAll { sayAllTones.append(contentsOf: tones) } else { tones.forEach { $0() } }
             info.pendingTones.removeAll()
         }
-        // Line indentation, as the caret moves by line, when it changes (NVDA). Not in say all.
+        // Line indentation, as the caret moves by line, when it changes (NVDA). Not in say all. Said first, whatever
+        // the order of the line's other words (a review).
+        var indentWords: String?
         if unit == .line, reason != .sayAll, config.documentFormatting.lineIndentation != "off" {
             let mode = config.documentFormatting.lineIndentation
             let element = info.obj.element
             if let ind = Indentation.leading(rawText) {
                 let sameDoc = lastIndent.map { CFEqual($0.element, element) } ?? false
                 if !sameDoc || lastIndent?.tabs != ind.tabs || lastIndent?.spaces != ind.spaces {
-                    if mode == "speech" || mode == "both" { prefix.insert(Indentation.words(tabs: ind.tabs, spaces: ind.spaces), at: 0) }
+                    if mode == "speech" || mode == "both" { indentWords = Indentation.words(tabs: ind.tabs, spaces: ind.spaces) }
                     if mode == "tones" || mode == "both" { Tones.beep(Indentation.frequency(columns: ind.columns), 40, volume: 0.15) }
                 }
                 lastIndent = (element, ind.tabs, ind.spaces)
@@ -707,6 +727,7 @@ public enum Speech {
             }
             if config.documentFormatting.reportFontName, let n = f.fontName { prefix.append(n) }
             if config.documentFormatting.reportFontSize, let s = f.fontSize { prefix.append(TextFormat.points(s)) }
+            if config.documentFormatting.reportColor, let c = f.colour { prefix.append(String(localized: "\(TextFormat.colour(c)) text", comment: "The text's colour: %@ is the colour (red text)")) }
             if config.documentFormatting.reportFontAttributes {
                 if f.bold { prefix.append(TextFormat.bold) }; if f.italic { prefix.append(TextFormat.italic) }; if f.underline { prefix.append(TextFormat.underlined) }
             }
@@ -724,7 +745,7 @@ public enum Speech {
             }
             if foreignLanguage != nil, let c = text.first, !c.isWhitespace {
                 let mark = c.isUppercase && (config.speech.capitalPitch > 0 || config.speech.capitalTone) ? capitalMark : ""
-                return (prefix.map(ui) + [mark + text]).joined(separator: " ")
+                return (prefix.map(ui) + [mark + (c.isLetter ? text : Languages.markForVoice(c))]).joined(separator: " ")
             }
             // A capital read by character: lowered in its line's language when the line says it clearly (an English
             // line under a Turkish TurnOver: I is i), else in TurnOver's (Oliver's review of PR 123, 30 Oct 2026: this
@@ -783,19 +804,21 @@ public enum Speech {
             return (prefix + [Phrases.blank]).joined(separator: " ")
         }
         let letterLocale = trimmed.count == 1 ? characterLocale(info, trimmed) : nil
+        func lead(_ said: String) -> String { indentWords.map { ui($0) + " " + said } ?? said }
         // In another language's voice: the words as written, its symbols and numbers said by that voice.
-        if foreignLanguage != nil, trimmed.count > 1 {
+        // (At punctuation level All, TurnOver's names, as the level asks every symbol to be said.)
+        if foreignLanguage != nil, trimmed.count > 1, config.speech.symbolLevel != .all {
             let words = config.speech.readNumbers == "digits" ? Symbols.digitsApart(trimmed) : trimmed
             if config.documentFormatting.rolesAfterText, !prefix.isEmpty {
-                return ([words] + [ui(prefix.reversed().joined(separator: ", "))]).filter { !$0.isEmpty }.joined(separator: ", ")
+                return lead(([words] + [ui(prefix.reversed().joined(separator: ", "))]).filter { !$0.isEmpty }.joined(separator: ", "))
             }
-            return ([ui(prefix.joined(separator: " "))] + [words]).filter { !$0.isEmpty }.joined(separator: " ")
+            return lead(([ui(prefix.joined(separator: " "))] + [words]).filter { !$0.isEmpty }.joined(separator: " "))
         }
         // VoiceOver's order: the words, then what they are, innermost first ("AppleVis, heading level 1").
         if config.documentFormatting.rolesAfterText, !prefix.isEmpty {
-            return ([processed(trimmed, locale: letterLocale)] + [ui(prefix.reversed().joined(separator: ", "))]).filter { !$0.isEmpty }.joined(separator: ", ")
+            return lead(([processed(trimmed, locale: letterLocale)] + [ui(prefix.reversed().joined(separator: ", "))]).filter { !$0.isEmpty }.joined(separator: ", "))
         }
-        return ([ui(prefix.joined(separator: " "))] + [processed(trimmed, locale: letterLocale)]).filter { !$0.isEmpty }.joined(separator: " ")
+        return lead(([ui(prefix.joined(separator: " "))] + [processed(trimmed, locale: letterLocale)]).filter { !$0.isEmpty }.joined(separator: " "))
     }
 
     /// Ranges in `raw` moved onto `text`, the same text with words put in (a web page's "link" before a link) or its

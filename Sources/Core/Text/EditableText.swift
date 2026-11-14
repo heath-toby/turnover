@@ -457,13 +457,16 @@ open class EditableText: TurnOverObject {
         }
         // The line's language (one word is too little to recognise; "Kino" in a German line), and in another language's
         // voice its punctuation said as written, so that voice names it ("Komma"), as the tester asked (14 Nov 2026).
-        let lineRange = type(of: n).init(obj: n.obj, start: at, end: at)
-        lineRange.expand(.line)
-        let language = stop.kind == .blank ? nil : lineRange.language()
+        var language: String?
+        if stop.kind != .blank, config.speech.autoLanguageSwitching {   // (no line asked for when switching is off: a review)
+            let lineRange = type(of: n).init(obj: n.obj, start: at, end: at)
+            lineRange.expand(.line)
+            language = lineRange.language()
+        }
         let foreign = language.map { Languages.voice(for: $0) != nil } ?? false
         // Each mark on its own: a voice names a lone "." ("Punkt") but takes one before more text for a sentence's end.
         func sayMarks(_ r: Range<Int>) {
-            if foreign { for c in String(utf16CodeUnits: Array(u[r]), count: r.count) { Speech.speakOnly(String(c), language: language) } }
+            if foreign { for c in String(utf16CodeUnits: Array(u[r]), count: r.count) { Speech.speakOnly(Languages.markForVoice(c), language: language) } }
             else { Speech.speakOnly(names(r)) }
         }
         switch stop.kind {
@@ -551,15 +554,12 @@ open class EditableText: TurnOverObject {
         // What was deleted is typed text: private, as the echo of typing is, so the speech history a feedback report
         // carries never holds it (a review, 13 Nov 2026).
         // VoiceOver's "When deleting text": spoken (the default), spoken lower, a tone, or nothing (the settings audit).
-        let feedback = config.speech.deletionFeedback
-        if !c.isEmpty, feedback == "tone" { Tones.beep(440, 40, volume: 0.2) }
-        if !c.isEmpty, feedback == "speak" || feedback == "pitch" { Speech.asPrivate {
-            if feedback == "pitch" { Speech.lowerNextPitch() }
+        if !c.isEmpty { Self.deletionFeedback { Speech.asPrivate {
             // A line break has nothing to spell: say what it was ("new line"), as for any character named on its own.
             if let only = c.first, c.count == 1, only.isNewline { Speech.speakMessage(Symbols.name(of: only)) }
             // A word or a line deleted says so ("deleted more"); a single character is just the character, as in NVDA.
             else if c.count > 1 { Speech.speakText(unit == .character ? c : Phrases.deleted(c.trimmingCharacters(in: .whitespaces))) } else { Speech.speakSpelling(c) }
-        } }
+        } } }
         let (moved, newInfo) = hasCaretMoved(from: bookmark)
         guard moved else { return }
         caretMoved(speak: nil, gesture: gesture, info: newInfo)
@@ -602,9 +602,20 @@ open class EditableText: TurnOverObject {
     /// "selection deleted". Private: it is typed text.
     func speakDeletedSelection(_ text: String) {
         let gone = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        Speech.asPrivate {
+        Self.deletionFeedback { Speech.asPrivate {
             Speech.speakMessage(gone.isEmpty || gone.count > 80 ? String(localized: "selection deleted", comment: "Selected text deleted")
                 : Phrases.deleted(gone.count == 1 ? Symbols.name(of: gone.first!) : gone))
+        } }
+    }
+
+    /// VoiceOver's "When deleting text", for every way text is deleted (a review: only Backspace followed it): the
+    /// speech, said lower, a tone instead, or nothing.
+    static func deletionFeedback(_ speak: () -> Void) {
+        switch config.speech.deletionFeedback {
+        case "nothing": return
+        case "tone": Tones.beep(440, 40, volume: 0.2)
+        case "pitch": Speech.lowerNextPitch(); speak()
+        default: speak()
         }
     }
 
@@ -641,12 +652,12 @@ open class EditableText: TurnOverObject {
         if !forward { Speech.noteBackspace() }   // the word being typed changed (as after Backspace)
         if let selected { speakDeletedSelection(selected); return }
         let gone = Self.deletedText(context: context, count: before - after, forward: forward)
-        Speech.asPrivate {
+        Self.deletionFeedback { Speech.asPrivate {
             guard let gone else { Speech.speakMessage(Phrases.deleted(Phrases.characters(before - after))); return }
             if gone.count == 1, let c = gone.first { if c.isNewline || c.isWhitespace { Speech.speakMessage(Symbols.name(of: c)) } else { Speech.speakSpelling(gone) }; return }
             let words = gone.trimmingCharacters(in: .whitespacesAndNewlines)
             Speech.speakMessage(Phrases.deleted(words.isEmpty ? Phrases.characters(gone.count) : words))
-        }
+        } }
     }
     /// What a deletion of `count` UTF-16 units took from `context` (the text after the caret, or before it): its start,
     /// or its end. Nil if more went than was kept.
