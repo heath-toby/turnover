@@ -91,6 +91,29 @@ func mailMessageReadingTests() {
         check(!ChatView.isTimeStamp(role: "AXGroup", description: "Ann, hello, 14:53", title: "", subrole: ""), "a Messages message")
         check(!ChatView.isTimeStamp(role: "AXStaticText", description: "", title: "", subrole: ""), "not a group")
     }
+    test("chat: the open conversation must be the pressed row's own name, whole (a review, 14 Nov 2026)") {
+        // WhatsApp: the row's own name recorded.
+        check(ChatView.isOpen(title: "Ali Khan", name: "Ali Khan", heard: "Ali Khan, see you", selected: nil), "the same name")
+        check(ChatView.isOpen(title: " ali khan\u{200E}", name: "Ali Khan", heard: "Ali Khan, x", selected: nil), "case, spaces and marks aside")
+        check(!ChatView.isOpen(title: "Ali", name: "Ali Khan", heard: "Ali Khan, see you", selected: nil), "Ali open, Ali Khan pressed")
+        check(!ChatView.isOpen(title: "Ali Khan", name: "Ali", heard: "Ali, hi", selected: nil), "Ali Khan open, Ali pressed")
+        check(ChatView.isOpen(title: "Mum, Dad and Ollie", name: "Mum, Dad and Ollie", heard: "Mum, Dad and Ollie, hi", selected: nil), "a group whose name holds commas")
+        check(!ChatView.isOpen(title: "Mum", name: "Mum, Dad and Ollie", heard: "Mum, Dad and Ollie, hi", selected: nil), "Mum open, the group pressed")
+        check(!ChatView.isOpen(title: "Mum, Dad and Ollie", name: "Mum", heard: "Mum, hello", selected: nil), "the group open, Mum pressed")
+        check(!ChatView.isOpen(title: "Ali", name: "Ali Khan", heard: "Ali Khan, x", selected: "Ali Khan, x"), "a name recorded: the title alone decides")
+        // Messages: no name of the row's own; only the whole words, never their first part.
+        check(!ChatView.isOpen(title: "Mum", name: nil, heard: "Mum, Dad and Ollie, hi, 10:00", selected: nil), "no first-part guess")
+        check(ChatView.isOpen(title: "Mum", name: nil, heard: "Mum", selected: nil), "the whole words")
+        check(ChatView.isOpen(title: "Mum", name: nil, heard: "Mum, hello, 10:00", selected: "Mum, hello, 10:00"), "the app's selected row carries the words heard")
+        check(!ChatView.isOpen(title: "Mum", name: nil, heard: "Mum, Dad and Ollie, hi, 10:00", selected: "Mum, hello, 9:00"), "another row selected")
+        check(ChatView.isOpen(title: nil, name: "Ali", heard: "Ali, hi", selected: nil), "no title: nothing to check against")
+    }
+    test("chat: names are compared whole") {
+        check(ChatView.sameName("Mum", "mum "), "case and spaces")
+        check(!ChatView.sameName("Mum", "Mum, Dad and Ollie"), "not a part")
+        check(!ChatView.sameName("Ali", "Ali Khan"), "not a prefix")
+        check(!ChatView.sameName("", ""), "nothing is no name")
+    }
     test("chat: the watcher backs off in a web page's chat while the user types") {
         check(ChatView.watcherLooks(web: false, sinceKey: 0.1, sinceLastLook: 1), "native chats every second, typing or not")
         check(!ChatView.watcherLooks(web: true, sinceKey: 0.1, sinceLastLook: 1), "Discord while typing: not every second")

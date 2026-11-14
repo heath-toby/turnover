@@ -552,23 +552,30 @@ public final class ChatView {
     /// "found" the wrong item (a review, 14 Nov 2026, the third round on this).
     @discardableResult
     private func refreshItems() -> Bool {
-        let keep = lastSpoken.flatMap { $0.pane == pane ? $0.words : nil }
+        let heard = lastSpoken.flatMap { $0.pane == pane ? $0 : nil }
+        let keep = heard?.words
         let fresh = pane == .transcript ? messages() : pane == .conversations ? conversations() : pane == .sections ? sections() : []
         items = fresh
         // The match nearest the old place: short replies ("ok") repeat, and the first of them pulled the cursor back,
         // so Down looped and actions went to an earlier message (a review, 14 Nov 2026).
         let old = index[pane] ?? 0
         let freshWords = fresh.map(Self.words)
-        func nearest(_ same: (String) -> Bool) -> Int? {
-            freshWords.indices.filter { same(freshWords[$0]) }.min(by: { abs($0 - old) < abs($1 - old) })
+        func nearest(_ same: (Int) -> Bool) -> Int? {
+            freshWords.indices.filter(same).min(by: { abs($0 - old) < abs($1 - old) })
         }
         // Not word for word: a message whose status changed (Delivered to Read), or a conversation moved to the top
-        // with a new preview, is found by its words without the status, then by the conversation's name (a review,
+        // with a new preview, is found by its words without the status, then by the conversation's own name (a review,
         // 14 Nov 2026: the old place was clamped and Return acted on whatever was now there, unheard).
+        // The name is the row's own (rowName), recorded when it was heard, compared whole: guessed from the joined
+        // words (the first ", " part) it matched "Mum" to "Mum, Dad and Ollie" and a message went to the wrong person
+        // (a review, 14 Nov 2026, after three rounds of patching the guess). A row with no name of its own: words only.
         let p = pane
-        if let k = keep, let i = nearest({ $0 == k })
-            ?? nearest({ Self.withoutStatus($0) == Self.withoutStatus(k) })
-            ?? (p == .conversations && !Self.chatName(k).isEmpty ? nearest({ Self.chatName($0) == Self.chatName(k) }) : nil) {
+        if let k = keep, let i = nearest({ freshWords[$0] == k })
+            ?? nearest({ Self.withoutStatus(freshWords[$0]) == Self.withoutStatus(k) })
+            ?? (p == .conversations ? heard?.name.flatMap { n in
+                    let names = fresh.map(Self.rowName)
+                    return nearest { names[$0].map { Self.sameName($0, n) } == true }
+                } : nil) {
             // The list slid under us (rows dropped or added above): the numbers keep their place.
             if pane == .conversations, let j = index[pane] { listShift = max(0, listShift + j - i) }
             index[pane] = i
@@ -580,10 +587,53 @@ public final class ChatView {
     }
 
     /// What was last spoken for an item, with its part and place: what Return and the shortcut menu may act on.
-    private var lastSpoken: (pane: Pane, index: Int, words: String)?
+    /// `name`: a conversation's own name (rowName) as it was when heard; nil for other parts, or a row without one.
+    private var lastSpoken: (pane: Pane, index: Int, words: String, name: String?)?
 
-    /// A conversation's name: the first of its words.
-    private static func chatName(_ w: String) -> String { w.components(separatedBy: ", ").first ?? w }
+    /// A conversation row's own name, from its structure rather than its joined words (a review, 14 Nov 2026: the
+    /// first ", " part of the words was "Mum" for the group "Mum, Dad and Ollie"). In order: the row's title; the
+    /// description of a row that is a control, not a text (WhatsApp's chats are buttons, description the name and
+    /// value the preview, measured 7 Oct 2026); else the first text inside it (a table row's cells, Signal). Messages'
+    /// rows are static texts whose one description is "name, preview, time" (7 Oct 2026): no name of their own, nil.
+    static func rowName(_ e: AXUIElement) -> String? {
+        if let t = cleanName(e.string(kAXTitleAttribute)) { return t }
+        if e.role != "AXStaticText", let d = cleanName(e.string(kAXDescriptionAttribute)) { return d }
+        var stack = Array(e.elements(kAXChildrenAttribute).reversed()), visited = 0
+        while let c = stack.popLast(), visited < 30 {
+            visited += 1
+            if ["AXStaticText", "AXHeading"].contains(c.role),
+               let t = cleanName(c.string(kAXValueAttribute)) ?? cleanName(c.string(kAXDescriptionAttribute)) ?? cleanName(c.string(kAXTitleAttribute)) {
+                return t
+            }
+            stack.append(contentsOf: c.elements(kAXChildrenAttribute).reversed())
+        }
+        return nil
+    }
+
+    /// A name without WhatsApp's direction marks and the spaces round it; nil when nothing is left.
+    public static func cleanName(_ s: String?) -> String? {
+        let t = (s ?? "").replacingOccurrences(of: "\u{200E}", with: "").replacingOccurrences(of: "\u{200F}", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+
+    /// Two names the same, whole: case, spaces round them and direction marks aside. Never a prefix or a part.
+    public static func sameName(_ a: String, _ b: String) -> Bool {
+        guard let x = cleanName(a), let y = cleanName(b) else { return false }
+        return x.compare(y, options: .caseInsensitive) == .orderedSame
+    }
+
+    /// Whether the open conversation is the one pressed (a review, 14 Nov 2026). Its title must be the pressed row's
+    /// own name, whole. A row with no name of its own (Messages) needs the title to be its whole heard words, or the
+    /// list's selected row to carry exactly those words (`selected`: given on the first look only, before TurnOver
+    /// selects the row itself). No title at all: nothing to check against, as before.
+    public static func isOpen(title: String?, name: String?, heard: String, selected: String?) -> Bool {
+        guard let title, cleanName(title) != nil else { return true }
+        if let name { return sameName(title, name) }
+        if sameName(title, heard) { return true }
+        guard let selected else { return false }
+        return selected == heard || withoutStatus(selected) == withoutStatus(heard)
+    }
 
     /// The words heard for the item now under the cursor, if the item there still has them (by the same tests as
     /// refreshItems); nil when it doesn't, or nothing was heard there (a review, 14 Nov 2026).
@@ -591,7 +641,8 @@ public final class ChatView {
         guard let h = lastSpoken, h.pane == pane, h.index == index[pane], let e = currentItem() else { return nil }
         let w = Self.words(e)
         if w == h.words || Self.withoutStatus(w) == Self.withoutStatus(h.words) { return h.words }
-        if pane == .conversations, !Self.chatName(h.words).isEmpty, Self.chatName(w) == Self.chatName(h.words) { return h.words }
+        // The row's own name now, whole, against the one recorded when heard (never a part of the words).
+        if pane == .conversations, let n = h.name, let now = Self.rowName(e), Self.sameName(now, n) { return h.words }
         return nil
     }
 
@@ -676,7 +727,8 @@ public final class ChatView {
     private func announce() {
         guard let e = currentItem(), let i = index[pane] else { return }
         var parts = [Self.words(e)]
-        lastSpoken = (pane, i, parts[0])   // what Return and the menu may act on (a review, 14 Nov 2026)
+        // What Return and the menu may act on, with a conversation's own name (a review, 14 Nov 2026).
+        lastSpoken = (pane, i, parts[0], pane == .conversations ? Self.rowName(e) : nil)
         if parts[0].isEmpty { parts[0] = Phrases.blank }
         if pane == .conversations, (e.attr(kAXSelectedAttribute) as? Bool) == true { parts.append(State.selected.displayString) }
         // A list that drops rows as it scrolls (WhatsApp's Archived) keeps its numbering from before the load.
@@ -710,6 +762,11 @@ public final class ChatView {
         // The item heard is gone, or the item now at its place isn't the one heard (WhatsApp reuses its cells): say
         // what is there now, and act on the next press (a review, 14 Nov 2026).
         guard refreshItems(), let heard = heardHere(), let e = currentItem() else { announce(); return }
+        // The steps after the press wait for the app; a key pressed meanwhile, or another app come to the front, is
+        // the user's next move, and they stand down (a review, 14 Nov 2026).
+        let keyAt = InputManager.lastKeyDownAt, pid = pid
+        let undisturbed = { InputManager.lastKeyDownAt == keyAt && AXHandler.shared.activePid == pid }
+        let heardName = lastSpoken?.name
         // (A search result is a group with its pressable text inside.)
         var target = e
         var names: CFArray?
@@ -724,7 +781,7 @@ public final class ChatView {
             // A section shows its own list (Archived, Starred): on to it.
             Tones.press()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                guard let self else { return }
+                guard let self, undisturbed() else { return }
                 if !conversations().isEmpty { enter(.conversations); return }
                 // A section with nothing TurnOver can list: the app's arrows are left to work, from its focus.
                 pane = .composer
@@ -743,18 +800,15 @@ public final class ChatView {
             // 2026). So the open conversation's title is checked against the item pressed before the box is entered;
             // on a mismatch the row is selected instead, and if that fails too, TurnOver says which conversation is
             // open and stays in the list, never in a box that isn't the one chosen.
-            // By the words heard, not the element's now: a reused cell could show another chat (a review, 14 Nov 2026).
-            let wanted = heard.lowercased()
+            // By the name and words heard, not the element's now: a reused cell could show another chat. The title
+            // must be the row's own name, whole (isOpen): guesses from the words' first part let "Ali" stand for
+            // "Ali Khan" and "Mum" for "Mum, Dad and Ollie" (a review, 14 Nov 2026).
             var tries = 0
             func settle() {
+                guard undisturbed() else { Log.io("chat: a key or another app since Return; not settling"); return }
                 let open = openTitle()
-                // The open chat's title must be what the heard words start with ("Ali" is not "Alison", nor a preview that
-        // mentions Mum: the wrong chat's box was entered, a review, 14 Nov 2026).
-        let matches = open.map { t in
-            let title = t.lowercased()
-            // The whole name, not a first word ("Ali" against "Ali Khan" went to Ali: a review, 14 Nov 2026).
-            return title.isEmpty || wanted == title || Self.chatName(wanted).lowercased() == title
-        } ?? true   // no title: nothing to check against
+                let selected = tries == 0 ? conversations().first { ($0.attr(kAXSelectedAttribute) as? Bool) == true }.map(Self.words) : nil
+                let matches = Self.isOpen(title: open, name: heardName, heard: heard, selected: selected)
                 if !matches, tries == 0 {
                     tries += 1
                     Log.io("chat: the open conversation is \(Log.words(open ?? "")), not the one pressed; selecting the row")
@@ -778,7 +832,7 @@ public final class ChatView {
                 // WhatsApp moves its focus to the chat's content a moment after opening it (7 Oct 2026): back to the
                 // box, quietly, once it has settled.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
-                    guard let self, pane == .composer, let c = composer, (c.attr(kAXFocusedAttribute) as? Bool) != true else { return }
+                    guard let self, undisturbed(), pane == .composer, let c = composer, (c.attr(kAXFocusedAttribute) as? Bool) != true else { return }
                     Log.io("chat: the app moved the focus off the message box; putting it back")
                     _ = c.set(kAXFocusedAttribute, kCFBooleanTrue)
                 }
