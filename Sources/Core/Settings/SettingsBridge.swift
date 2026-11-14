@@ -357,8 +357,9 @@ public enum SettingsBridge {
             for (id, target) in keys {
                 if let t = target as? String, localTargetPrefixes.contains(where: { t.hasPrefix($0) }) { dropped += 1 } else { kept[id] = target }
             }
-            // This Mac's own keys of that kind stay, unless the file gives the key something else.
-            for (id, target) in base.keyboard.userGestures where kept[id] == nil && localTargetPrefixes.contains(where: { target.hasPrefix($0) }) { kept[id] = target }
+            // This Mac's own keys all stay, unless the file gives a key something else (a review: the user's own
+            // remappings were replaced wholesale).
+            for (id, target) in base.keyboard.userGestures where kept[id] == nil { kept[id] = target }
             keyboard["userGestures"] = kept
             object["keyboard"] = keyboard
         }
@@ -366,6 +367,14 @@ public enum SettingsBridge {
             return .failure(ImportError(message: String(localized: "the file could not be read as TurnOver's settings", comment: "Why settings were not imported")))
         }
         config.speech.keepAudible()
+        // What belongs to this Mac, not to the reader's preferences, stays as it is: the braille display chosen and
+        // Bluetooth (a file from another Mac with "none" or another driver closed a braille-only user's display), the
+        // speech output device, and which reader leads where (an import could leave TurnOver quiet for a VoiceOver
+        // that isn't on). A review, 14 Nov 2026.
+        config.braille.display = base.braille.display; config.braille.bluetooth = base.braille.bluetooth
+        config.speech.outputDevice = base.speech.outputDevice
+        config.applications.perAppReaders = base.applications.perAppReaders; config.applications.leadMode = base.applications.leadMode
+        config.applications.swapWithVoiceOver = base.applications.swapWithVoiceOver; config.applications.automaticHandOver = base.applications.automaticHandOver
         return .success((config, dropped))
     }
 

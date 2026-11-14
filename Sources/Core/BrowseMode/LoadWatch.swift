@@ -21,7 +21,9 @@ public enum LoadWatch {
     private static var lastSaidAt = Date.distantPast
     /// The web area last announced: not followed again (its own news after the announcement restarted the watch over
     /// the say all: a review, 14 Nov 2026).
-    private static var announced: AXUIElement?
+    /// With its address: Safari keeps one web area from page to page, so any new address is a new page to follow
+    /// (a review: Back, Command-R and typed addresses went unfollowed).
+    private static var announced: (area: AXUIElement, url: String)?
 
     /// Whether a page that answers neither question is loading: nil, so it is not followed.
     package struct LoadState: Equatable { package let loaded: Bool; package let progress: Double? }
@@ -50,7 +52,7 @@ public enum LoadWatch {
         let how = config.virtualBuffers.loadingFeedback
         guard how == "progress" || how == "tone" else { return }
         if let w = watching, w.isSame(doc.webArea) { return }
-        if let a = announced, a.isSame(doc.webArea) { return }
+        if let a = announced, a.area.isSame(doc.webArea), a.url == doc.lastURL { return }
         guard Date().timeIntervalSince(lastCheck) > 0.3 else { return }
         lastCheck = Date()
         guard let s = state(of: doc.webArea), !s.loaded else { return }
@@ -60,7 +62,6 @@ public enum LoadWatch {
     /// After Enter activates something (a link): the page may start loading a moment later.
     public static func checkSoon(_ doc: BrowseModeDocument) {
         guard config.virtualBuffers.loadingFeedback != "nothing" else { return }
-        forgetAnnounced()
         for delay in [0.4, 1.2] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak doc] in if let doc { check(doc) } }
         }
@@ -71,7 +72,7 @@ public enum LoadWatch {
         generation += 1; watching = nil
     }
     /// The page has been announced: stop, and leave this web area alone from now on.
-    public static func pageAnnounced(_ doc: BrowseModeDocument) { announced = doc.webArea; stop() }
+    public static func pageAnnounced(_ doc: BrowseModeDocument) { announced = (doc.webArea, doc.lastURL); stop() }
     /// Enter followed a link: the page that comes may be in the same web area.
     public static func forgetAnnounced() { announced = nil }
 

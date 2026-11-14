@@ -271,10 +271,10 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
 
         // Mouse downs too, only to cancel a lone modifier: Command, Option or Shift held to click, let go quickly,
         // counted as pressed alone and opened the menus or the Dock (a review, 14 Nov 2026). They pass untouched.
-        // Scrolling likewise: Shift or Command held to scroll sideways or zoom was named as it came up (a review, 14 Nov 2026).
+        // (Not scrolling: a trackpad's momentum scrolling went on a second after the fingers lifted and cancelled
+        // Control's stop of speech, for everyone, and queued scrolling behind slow keys: a review, 14 Nov 2026.)
         let mask = CGEventMask(1 << CGEventType.flagsChanged.rawValue | 1 << CGEventType.keyDown.rawValue | 1 << CGEventType.keyUp.rawValue
-            | 1 << CGEventType.leftMouseDown.rawValue | 1 << CGEventType.rightMouseDown.rawValue | 1 << CGEventType.otherMouseDown.rawValue
-            | 1 << CGEventType.scrollWheel.rawValue)
+            | 1 << CGEventType.leftMouseDown.rawValue | 1 << CGEventType.rightMouseDown.rawValue | 1 << CGEventType.otherMouseDown.rawValue)
         // Coexisting with VoiceOver: at the head of the HID level, before VoiceOver sees a chord (TapProbe, 16 Oct 2026).
         guard let t = CGEvent.tapCreate(tap: Coexist.on ? .cghidEventTap : .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
                                         eventsOfInterest: mask, callback: { proxy, type, event, refcon in
@@ -449,7 +449,7 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
 
     private func tapEvent(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         // A click with a modifier held: that modifier is not pressed alone. The click itself goes on, untouched.
-        if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown || type == .scrollWheel {
+        if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
             loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel(); modifierTap.cancel()
             return Unmanaged.passUnretained(event)
         }

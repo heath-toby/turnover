@@ -151,7 +151,16 @@ public final class WebBuffer {
     public func newPage() { saidPartial = false; loggedPartial = false; readingAt = 0; samePage = false }
     /// The copy is of the page the web area shows (no new page since it was read): one read again may keep it.
     private var samePage = false
-    private var docText = "" as NSString
+    private var docText = "" as NSString { didSet { pageHasTextCache = nil } }
+    /// Whether the page has words, not only pictures: worked out once per page's text (a review: per picture it
+    /// copied the whole page's text).
+    private var pageHasTextCache: Bool?
+    private var pageHasText: Bool {
+        if let c = pageHasTextCache { return c }
+        let has = docText.length == 0 || docText.replacingOccurrences(of: "\u{FFFC}", with: "").contains(where: { !$0.isWhitespace })
+        pageHasTextCache = has
+        return has
+    }
     private var docCursor = 0
     private var lastTextEnd: Int?
 
@@ -537,7 +546,12 @@ public final class WebBuffer {
         seenRoles[ElementKey(el)] = (role, sub)
         if let k = PageSummary.kind(role: role, subrole: sub) { newPageKinds[ElementKey(el)] = k }
         // An unnamed form is a plain group WebKit describes as "form" (a review: the summary missed most forms).
-        else if role == "AXGroup", sub.isEmpty, el.string(kAXRoleDescriptionAttribute) == "form" { newPageKinds[ElementKey(el)] = .form }
+        else if role == "AXGroup", sub.isEmpty {
+            // (Kept for the line's kind too, so it isn't asked twice: a review.)
+            let description = el.string(kAXRoleDescriptionAttribute) ?? ""
+            if kinds[ElementKey(el)] == nil { kinds[ElementKey(el)] = ElementKind(role: role, subrole: sub, roleDescription: description) }
+            if description == "form" { newPageKinds[ElementKey(el)] = .form }
+        }
         switch role {
         case "AXStaticText":
             // An iOS app's text (Kindle's own screens, read as a document) carries its words as the description.
@@ -582,8 +596,7 @@ public final class WebBuffer {
             // Kept whatever the setting on a page that is nothing but pictures (an image opened in Safari, an image-only
             // message), and as a heading's or a cell's only content: skipped, the page read as forever loading (a review).
             if linkDepth == 0, !Self.navigatesImage(described: !d.isEmpty, setting: config.virtualBuffers.navigateImages),
-               docText.length == 0 || docText.replacingOccurrences(of: "\u{FFFC}", with: "").trimmingCharacters(in: .whitespacesAndNewlines).count > 0,
-               !["AXHeading", "AXCell"].contains(el.element(kAXParentAttribute)?.role ?? "") { break }
+               pageHasText, el.element(kAXParentAttribute)?.role != "AXHeading" { break }
             if d.isEmpty, config.virtualBuffers.imageFileNames { d = ImageNames.fromFile(el) }
             if !d.isEmpty || linkDepth == 0 { append(d.isEmpty ? Role.graphic.displayString : "\(Role.graphic.displayString) \(d)", el) }
         case "AXLink":

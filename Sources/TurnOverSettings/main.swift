@@ -68,8 +68,10 @@ final class Model: ObservableObject {
     // own for the window to write.
     private var exportURL: URL?
     func exportSettings(to url: URL) {
+        // TurnOver not there (restarting): said at once, not silently nothing (a review).
+        guard let connection else { setSpecial("_settingsExported", ["name": url.lastPathComponent, "error": "TurnOver isn't running"]); return }
         exportURL = url
-        connection?.send(["op": "exportSettings"])
+        connection.send(["op": "exportSettings"])
     }
     /// TurnOver's settings, for the file chosen to export to.
     private func writeExport(_ json: String) {
@@ -83,9 +85,10 @@ final class Model: ObservableObject {
         }
     }
     func importSettings(from url: URL) {
-        // Under the control channel's limit for one message (a megabyte); a settings file is a few dozen kilobytes.
+        // Well under the control channel's limit for one message (a megabyte), as the file is escaped twice on the way
+        // (a review); a settings file is a few dozen kilobytes.
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-        guard size <= 800_000, let data = try? Data(contentsOf: url), let json = String(data: data, encoding: .utf8) else {
+        guard size <= 300_000, let data = try? Data(contentsOf: url), let json = String(data: data, encoding: .utf8) else {
             setSpecial("_importSettings", ["name": url.lastPathComponent, "json": ""]); return
         }
         setSpecial("_importSettings", ["name": url.lastPathComponent, "json": json])
@@ -1148,6 +1151,8 @@ struct GreetingField: View {
     var body: some View {
         TextField("Speak the following greeting after login", text: $text)
             .onAppear { text = model.get("general", "loginGreeting") as? String ?? "" }
+            // Changed in TurnOver (an import) while the page is open: shown, unless being edited here (a review).
+            .onChange(of: model.get("general", "loginGreeting") as? String ?? "") { _, now in if !edited { text = now } }
             .onChange(of: text) { _, _ in
                 edited = true
                 pause?.cancel()

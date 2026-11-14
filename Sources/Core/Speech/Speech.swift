@@ -1006,7 +1006,7 @@ public enum Speech {
         if mode != .off { echo(typedWordSpeech(word, locale: Symbols.typingLocale)) }
         // Editable text only, as speakTypedCharacter's: Return or Tab after Finder's type-select letters sounded a
         // misspelling (a review, 14 Nov 2026).
-        if let f = API.focusObject, !(f is TerminalText), f.hasNavigableText, !f.states.contains(.readOnly) { Announcements.typedWord(word) }
+        if config.keyboard.spellingErrorSoundWhileTyping, let f = API.focusObject, !(f is TerminalText), f.hasNavigableText, !f.states.contains(.readOnly) { Announcements.typedWord(word) }
     }
 
     // MARK: - Selection
