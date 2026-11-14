@@ -356,6 +356,7 @@ struct SpeechView: View {
             Picker("Repeated punctuation", selection: model.string("speech", "repeatedSymbols", "always")) {
                 Text("Each one").tag("always"); Text("With a count, such as 5 dash").tag("count")
             }
+            Toggle("Say emoticons such as :-) by name", isOn: model.bool("speech", "nameEmoticons"))
             Picker("When deleting text", selection: model.string("speech", "deletionFeedback", "speak")) {
                 Text("Speak it").tag("speak"); Text("Speak it in a lower pitch").tag("pitch"); Text("Play a tone").tag("tone"); Text("Do nothing").tag("nothing")
             }

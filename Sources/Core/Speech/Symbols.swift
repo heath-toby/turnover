@@ -86,8 +86,52 @@ nonisolated public enum Symbols {
         case "\u{8}": return String(localized: "key.backspace", defaultValue: "backspace", comment: "A key's name")
         default:
             if c.isUppercase, sayCap { return String(localized: "cap \(lowered(c, locale: locale ?? interfaceLocale))", comment: "A capital letter: %@ is the letter") }
+            if let n = unicodeName(c) { return n }
             return String(c)
         }
+    }
+
+    /// A symbol's Unicode name ("→" is "rightwards arrow"), for the symbols a voice passes over in silence: arrows,
+    /// maths, shapes, box drawing and the like (NVDA's "Unicode Consortium data"; a tester asked, 14 Nov 2026). Not
+    /// for emoji, which the Mac's voices name themselves, in their own language ("grinning face"), nor letters,
+    /// digits or ordinary punctuation.
+    nonisolated public static func unicodeName(_ c: Character) -> String? {
+        guard let u = c.unicodeScalars.first else { return nil }
+        if c.unicodeScalars.count > 1 || u.properties.isEmojiPresentation || (u.properties.isEmoji && u.value > 0x2000 && c.unicodeScalars.contains { $0.value == 0xFE0F }) { return nil }
+        switch u.properties.generalCategory {
+        case .mathSymbol, .otherSymbol, .modifierSymbol: break
+        default: return nil
+        }
+        guard u.value > 0x7F, let raw = String(c).applyingTransform(.toUnicodeName, reverse: false),
+              raw.hasPrefix("\\N{"), raw.hasSuffix("}") else { return nil }
+        return String(raw.dropFirst(3).dropLast()).lowercased()
+    }
+
+    /// Emoticons said by name (":-)" is "smiley"), standing alone between spaces: off with Settings, Speech.
+    nonisolated static let emoticons: [(String, String)] = [
+        (":-)", "smiley"), (":)", "smiley"), ("(:", "smiley"), (";-)", "winking smiley"), (";)", "winking smiley"),
+        (":-(", "sad smiley"), (":(", "sad smiley"), (":-D", "laughing smiley"), (":D", "laughing smiley"), ("XD", "laughing smiley"),
+        (":-P", "smiley with tongue out"), (":P", "smiley with tongue out"), (":-p", "smiley with tongue out"), (":p", "smiley with tongue out"),
+        (":-O", "surprised smiley"), (":O", "surprised smiley"), (":'(", "crying smiley"), (":-|", "straight face"), (":|", "straight face"),
+        (":-/", "unsure smiley"), (":/", "unsure smiley"), ("<3", "heart"), ("</3", "broken heart"), ("^_^", "happy face"), ("o_O", "confused face"),
+        ("¯\\_(ツ)_/¯", "shrug"), (":-*", "kiss"), (":*", "kiss"), ("B-)", "cool smiley"), ("8-)", "cool smiley"),
+    ]
+    /// The text with its emoticons named. Only whole ones, with a space, the line's edge or punctuation either side:
+    /// "http://" and "(:x)" in code are left alone where they run into letters.
+    nonisolated public static func namingEmoticons(_ text: String) -> String {
+        guard text.contains(where: { ":;<^(¯8BXo".contains($0) }) else { return text }
+        var out = text
+        for (e, name) in emoticons.sorted(by: { $0.0.count > $1.0.count }) where out.contains(e) {
+            let pattern = "(?<![\\p{L}\\p{N}:/])" + NSRegularExpression.escapedPattern(for: e) + "(?![\\p{L}\\p{N}/])"
+            guard let re = try? NSRegularExpression(pattern: pattern) else { continue }
+            out = re.stringByReplacingMatches(in: out, range: NSRange(out.startIndex..., in: out), withTemplate: " " + NSRegularExpression.escapedTemplate(for: name) + " ")
+        }
+        guard out != text else { return text }
+        while out.contains("  ") { out = out.replacingOccurrences(of: "  ", with: " ") }
+        // Only the spaces this added at the edges go; the text's own are kept.
+        if !text.hasPrefix(" "), out.hasPrefix(" ") { out.removeFirst() }
+        if !text.hasSuffix(" "), out.hasSuffix(" ") { out.removeLast() }
+        return out
     }
 
     /// Text for reading: symbols at or below `level` are replaced by their names.
@@ -133,6 +177,11 @@ nonisolated public enum Symbols {
             if let s = table[c], effective.rawValue <= level.rawValue {
                 if !out.isEmpty, out.last != " " { out.append(" ") }
                 out.append(s.name)
+                lastWasName = true
+            } else if table[c] == nil, let n = unicodeName(c) {
+                // A symbol the voice would pass over ("→"): its Unicode name, at any level but none.
+                if !out.isEmpty, out.last != " " { out.append(" ") }
+                out.append(n)
                 lastWasName = true
             } else {
                 if lastWasName, c != " " { out.append(" ") }

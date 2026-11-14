@@ -320,6 +320,7 @@ public enum Speech {
         if Symbols.isAllSymbols(t) { return Symbols.spelled(t.filter { !$0.isWhitespace }) }
         var flat = t.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ")
         if config.speech.readNumbers == "digits" { flat = Symbols.digitsApart(flat) }
+        if config.speech.nameEmoticons { flat = Symbols.namingEmoticons(flat) }
         return Symbols.process(flat, level: symbolLevel ?? config.speech.symbolLevel, countRepeats: config.speech.repeatedSymbols == "count")
     }
 

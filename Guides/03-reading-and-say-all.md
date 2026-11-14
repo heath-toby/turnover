@@ -47,6 +47,9 @@ Settings has VoiceOver's and NVDA's choices for how text is read:
 - **Speech:** read numbers as words or digits; repeated punctuation, each one or with a count ("7 dash"); when
   deleting text, speak it, speak it lower, play a tone or do nothing; a tone before a capital, as well as or instead
   of "cap" and a raised pitch.
+- **Emoji and symbols:** emoji are named by the voice itself ("grinning face"), in the voice's language. Symbols a
+  voice would pass over in silence, such as arrows, maths and shapes, are said by their Unicode names ("rightwards
+  arrow"). Emoticons such as :-) and <3 are said by name ("smiley", "heart"), unless you turn that off in Speech.
 - **Pronunciations** (Speech): words said your way. Choose one in the list to change or remove it, or type a word and
   how to say it and Add. "LBRF" said as "L B R F", for instance. It changes speech only; braille shows the word as
   written.

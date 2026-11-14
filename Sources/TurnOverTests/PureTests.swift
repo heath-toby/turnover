@@ -492,6 +492,12 @@ func pureTests() {
         expect(Symbols.process("a, b", level: .some), "a, b")
         expect(Symbols.process("a, b", level: .all), "a comma b")
         // VoiceOver's text options (the settings audit, 14 Nov 2026).
+        expect(Symbols.unicodeName("→"), "rightwards arrow", "an arrow the voice passes over: its Unicode name")
+        expect(Symbols.unicodeName("😀"), nil, "an emoji: left to the voice, which names it")
+        expect(Symbols.unicodeName("a"), nil, "a letter: itself")
+        expect(Symbols.namingEmoticons("Great :-) see you"), "Great smiley see you", "an emoticon named")
+        expect(Symbols.namingEmoticons("http://example.com"), "http://example.com", "not inside an address")
+        expect(Symbols.namingEmoticons("I <3 it ;)"), "I heart it winking smiley", "two of them")
         expect(Indentation.leading("\t\t    x")?.columns, 12, "two tabs and four spaces: 12 columns")
         expect(Indentation.leading("   ") == nil, true, "a blank line: no indentation to report")
         expect(Indentation.words(tabs: 0, spaces: 4), "4 space", "spoken as NVDA")

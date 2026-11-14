@@ -170,6 +170,8 @@ public struct Config: Codable {
         /// VoiceOver's "When reading a capital letter: Play tone" (NVDA's "Beep for capitals"): a capital said on its
         /// own has a short high tone before it.
         public var capitalTone = false
+        /// Emoticons such as ":-)" said by name ("smiley"), as NVDA's emoticons add-on and screen readers on phones do.
+        public var nameEmoticons = true
         /// VoiceOver's "Repeated punctuation": "always" (each one said) or "count" (four or more alike as "7 dash").
         public var repeatedSymbols = "always"
         /// VoiceOver's "When deleting text": "speak", "pitch" (spoken lower), "tone" or "nothing".
@@ -216,7 +218,7 @@ public struct Config: Codable {
         }
         public init() {}
         // Each field falls back to its default, so a setting added later never resets the voice and rate.
-        enum Keys: String, CodingKey { case voice, rate, symbolLevel, sayCapForCapitals, volume, autoLanguageSwitching, languageVoices, languageRates, languagePitches, languageVolumes, detectLanguages, readNumbers, repeatedSymbols, deletionFeedback, capitalTone, outputDevice, capitalPitch, ducking, pitch, rotorVoices, bass, middle, treble, voiceTunings }
+        enum Keys: String, CodingKey { case voice, rate, symbolLevel, sayCapForCapitals, volume, autoLanguageSwitching, languageVoices, languageRates, languagePitches, languageVolumes, detectLanguages, readNumbers, repeatedSymbols, deletionFeedback, capitalTone, nameEmoticons, outputDevice, capitalPitch, ducking, pitch, rotorVoices, bass, middle, treble, voiceTunings }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
             voice = (try? c.decodeIfPresent(String.self, forKey: .voice)) ?? voice
@@ -232,6 +234,7 @@ public struct Config: Codable {
             detectLanguages = (try? c.decodeIfPresent([String].self, forKey: .detectLanguages)) ?? nil
             readNumbers = (try? c.decodeIfPresent(String.self, forKey: .readNumbers)) ?? readNumbers
             capitalTone = (try? c.decodeIfPresent(Bool.self, forKey: .capitalTone)) ?? false
+            nameEmoticons = (try? c.decodeIfPresent(Bool.self, forKey: .nameEmoticons)) ?? true
             repeatedSymbols = (try? c.decodeIfPresent(String.self, forKey: .repeatedSymbols)) ?? repeatedSymbols
             deletionFeedback = (try? c.decodeIfPresent(String.self, forKey: .deletionFeedback)) ?? deletionFeedback
             outputDevice = (try? c.decodeIfPresent(String.self, forKey: .outputDevice)) ?? outputDevice
@@ -252,7 +255,7 @@ public struct Config: Codable {
             try c.encode(languageRates, forKey: .languageRates); try c.encode(outputDevice, forKey: .outputDevice)
             try c.encode(languagePitches, forKey: .languagePitches); try c.encode(languageVolumes, forKey: .languageVolumes)
             try c.encodeIfPresent(detectLanguages, forKey: .detectLanguages)
-            try c.encode(readNumbers, forKey: .readNumbers); try c.encode(repeatedSymbols, forKey: .repeatedSymbols); try c.encode(deletionFeedback, forKey: .deletionFeedback); try c.encode(capitalTone, forKey: .capitalTone)
+            try c.encode(readNumbers, forKey: .readNumbers); try c.encode(repeatedSymbols, forKey: .repeatedSymbols); try c.encode(deletionFeedback, forKey: .deletionFeedback); try c.encode(capitalTone, forKey: .capitalTone); try c.encode(nameEmoticons, forKey: .nameEmoticons)
             try c.encode(capitalPitch, forKey: .capitalPitch); try c.encode(ducking, forKey: .ducking); try c.encode(pitch, forKey: .pitch)
             try c.encode(rotorVoices, forKey: .rotorVoices)
             try c.encode(bass, forKey: .bass); try c.encode(middle, forKey: .middle); try c.encode(treble, forKey: .treble)
