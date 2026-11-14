@@ -28,7 +28,8 @@ enum BrailleHelp {
         switch key {
         case .routing(let i): return String(localized: "Routing key \(String(i + 1)): moves the cursor to this character; on a link or button, presses it", comment: "Braille help: %@ is the key's number")
         case .key(let name):
-            let what = Braille.keyMap[name].flatMap { actions[$0] } ?? String(localized: "does nothing yet", comment: "Braille help: a key with no command")
+            let chord = Braille.voCommandChords[name].flatMap { d in BrailleCommands.table.first { $0.0 == BrailleCommands.dots(d) }?.1 }
+            let what = Braille.keyMap[name].flatMap { actions[$0] } ?? chord ?? (Braille.voCommandActions[name] != nil ? name.components(separatedBy: ".").last ?? name : String(localized: "does nothing yet", comment: "Braille help: a key with no command"))
             return "\(keyNames[name] ?? name): \(what)"
         }
     }

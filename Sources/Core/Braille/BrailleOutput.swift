@@ -119,6 +119,11 @@ public enum TOBrailleTranslatorTables {
     }
 }
 
+/// Whether macOS has a table by this identifier.
+enum TOBrailleTranslatorTablesCheck {
+    static func exists(_ id: String) -> Bool { TOBrailleTranslator(forTable: id) != nil }
+}
+
 /// The lists the Settings window offers for braille, read once: the drivers' folder and macOS's tables don't change
 /// while TurnOver runs, and reading every language's tables takes a moment.
 enum BrailleSettingsLists {

@@ -585,6 +585,9 @@ open class AXTextInfo: TextInfo {
                 if name.contains("bold") { f.bold = true }
                 if name.contains("italic") || name.contains("oblique") { f.italic = true }
             }
+            // WebKit puts its bold and italic flags inside the font (Safari, 14 Nov 2026).
+            if (font["AXFontBold"] as? NSNumber)?.boolValue == true { f.bold = true }
+            if (font["AXFontItalic"] as? NSNumber)?.boolValue == true { f.italic = true }
         }
         if let b = attrs[NSAttributedString.Key("AXFontBold")] as? NSNumber, b.boolValue { f.bold = true }
         if let i = attrs[NSAttributedString.Key("AXFontItalic")] as? NSNumber, i.boolValue { f.italic = true }

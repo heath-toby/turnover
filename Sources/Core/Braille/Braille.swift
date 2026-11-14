@@ -660,7 +660,12 @@ public enum Braille {
             case "previousLine": line(-1)
             case "nextLine": line(1)
             case "activate": activate()
-            default: Log.io("braille: no command for \(diagnosticKeyName(name))")
+            default:
+                // VoiceOver's other display commands (Escape, the Dock, first item…): as its space-with-dots chord for
+                // the same command does (BrailleCommands), so every key a display's table names does what it says.
+                if let dots = voCommandChords[name] { _ = BrailleCommands.run(BrailleCommands.dots(dots)) }
+                else if let run = voCommandActions[name] { run() }
+                else { Log.io("braille: no command for \(diagnosticKeyName(name))") }
             }
         }
     }
@@ -684,6 +689,57 @@ public enum Braille {
         "joystickLeft": "scrollBack", "joystickRight": "scrollForward", "joystickUp": "previousLine", "joystickDown": "nextLine",
         "joystickPress": "activate",
     ]
+
+    /// VoiceOver's display commands (from Apple's key tables for every model, read 14 Nov 2026) that one of its
+    /// space-with-dots chords also does, by the chord's dots.
+    static let voCommandChords: [String: String] = [
+        "Global.interactUpShift": "356", "Global.interactDownShift": "236",
+        "SCRWorkspace.escapeKey": "12", "SCRWorkspace.menubar": "234", "Global.contextualMenu": "25",
+        "Global.moveToFirstElement": "123", "Global.moveToLastElement": "456",
+        "Global.moveToFirstVisibleElement": "123", "Global.moveToLastVisibleElement": "456",
+        "Global.interactHomeCommand": "123", "Global.interactEndCommand": "456",
+        "Global.interactUpCommand": "123", "Global.interactDownCommand": "456",
+        "Global.interactUpCommandShift": "123", "Global.interactDownCommandShift": "456",
+        "SCRBraille.announcementsOn": "1345", "Braille.announcementsOn": "1345",
+        "Global.showRotor": "23", "Global.elementListMenu": "24", "Global.findText": "124",
+        "SCRWorkspace.tabKey": "2345", "SCRWorkspace.deleteKey": "145",
+        "SCRBraille.panPageUp": "3456", "SCRBraille.panPageDown": "1456",
+        "Global.scrollUpByPage": "3456", "Global.scrollDownByPage": "1456",
+        "VOTEventCommandScrollUpPage": "3456", "VOTEventCommandScrollDownPage": "1456",
+        "VOTEventCommandPreviousElement": "1", "VOTEventCommandNextElement": "4",
+        "Global.rightClickMouse": "25",
+    ]
+    /// The rest, done directly.
+    static let voCommandActions: [String: () -> Void] = [
+        "SCRWorkspace.cancelSpeaking": { Speech.cancel() },
+        "SCRWorkspace.dock": { runScript("focusDock") },
+        "SCRWorkspace.desktop": { runScript("desktop") },
+        "SCRApplication.focusedElementOverview": { runScript("reportCurrentFocus") },
+        "Global.synchToKeyboardFocus": { runScript("reviewToFocus") },
+        "Global.imageDescription": { runScript("describeImage") },
+        "Global.clickMouse": { activate() },
+        "SCRWorkspace.upArrowKey": { BrailleCommands.press("upArrow") }, "SCRWorkspace.downArrowKey": { BrailleCommands.press("downArrow") },
+        "SCRWorkspace.leftArrowKey": { BrailleCommands.press("leftArrow") }, "SCRWorkspace.rightArrowKey": { BrailleCommands.press("rightArrow") },
+        "SCRWorkspace.forwardDeleteKey": { BrailleCommands.press("forwardDelete") },
+        "SCRBraille.toggleContractions": { toggleContracted() },
+        "VOTEventCommandBraillePanLeft": { pan(forward: false) }, "VOTEventCommandBraillePanRight": { pan(forward: true) },
+    ]
+
+    /// One of TurnOver's commands by its script name, whatever the keyboard style.
+    private static func runScript(_ name: String) {
+        guard let s = ScriptHandler.findScript(named: name), let g = KeyboardGesture(identifier: "kb:turnover+f12") else { Tones.edge(); return }
+        s.handler(g)
+    }
+
+    /// VoiceOver's contracted braille key: the output table between its contracted and uncontracted forms.
+    public static func toggleContracted() {
+        guard let id = BrailleOutput.tableIdentifier else { Tones.edge(); return }
+        let other: String? = id.hasSuffix("_g2") ? String(id.dropLast(3)) + "_g1" : id.hasSuffix("_g1") ? String(id.dropLast(3)) + "_g2" : nil
+        guard let other, TOBrailleTranslatorTablesCheck.exists(other) else { Tones.edge(); Speech.speakMessage(String(localized: "this table has no contracted form", comment: "Spoken message")); return }
+        config.braille.table = other; config.save()
+        Speech.speakMessage(other.hasSuffix("_g2") ? String(localized: "contracted braille", comment: "Spoken message") : String(localized: "uncontracted braille", comment: "Spoken message"))
+        settingsChanged()
+    }
 
     // MARK: NVDA's braille keys (the parity audit, 13 Oct 2026)
 

@@ -355,7 +355,7 @@ public final class WebBuffer {
     private func publish() {
         text = out as NSString
         lines = newLines
-        segments = newSegments
+        segments = newSegments; emphasisCache = [:]
         containers = newContainers
         isPartial = stopped
     }
@@ -430,7 +430,7 @@ public final class WebBuffer {
              docText: docText, docCursor: docCursor, lastTextEnd: lastTextEnd)
     }
     private func restore(_ c: Copy) {
-        text = c.text; lines = c.lines; segments = c.segments; containers = c.containers
+        text = c.text; lines = c.lines; segments = c.segments; containers = c.containers; emphasisCache = [:]
         out = c.out; outLength = c.outLength
         newLines = c.lines; newSegments = c.segments; newContainers = c.containers
         resumeFrames = c.resumeFrames; stopped = c.stopped; isPartial = c.stopped
@@ -767,6 +767,47 @@ public final class WebBuffer {
         return lo
     }
 
+    /// Each piece's bold, italic and underline, by its start, read once per copy of the page.
+    private var emphasisCache: [Int: [EmphasisRun]] = [:]
+
+    /// The bold, italic and underlined pieces between two offsets, from `start` (braille's formatting marks): each
+    /// piece's text as WebKit gives it, its styles read along it (Safari keeps a paragraph's <strong> and <em> inside
+    /// the paragraph's one text element: measured 14 Nov 2026, Safari on macOS 27.2).
+    public func emphasis(start: Int, end: Int) -> [EmphasisRun] {
+        var out: [EmphasisRun] = []
+        var lo = 0, hi = segments.count
+        while lo < hi { let m = (lo + hi) / 2; if segments[m].end <= start { lo = m + 1 } else { hi = m } }
+        var asked = 0
+        for s in segments[lo...] where s.start < end {
+            let runs: [EmphasisRun]
+            if let k = emphasisCache[s.start] { runs = k }
+            else {
+                // At most forty pieces read from the page for one line; the rest show plain.
+                guard asked < 40 else { break }
+                asked += 1
+                runs = Self.emphasisRuns(of: s.element, in: webArea)
+                emphasisCache[s.start] = runs
+            }
+            // The piece's runs, from its start, placed in the line and cut to it.
+            for r in runs {
+                let a = max(s.start + r.range.location, start), b = min(s.start + NSMaxRange(r.range), s.end, end)
+                if b > a { out.append(EmphasisRun(r.kind, NSRange(location: a - start, length: b - a))) }
+            }
+        }
+        return out
+    }
+
+    static func emphasisRuns(of element: AXUIElement, in webArea: AXUIElement) -> [EmphasisRun] {
+        guard let r = webArea.param("AXTextMarkerRangeForUIElement", element), CFGetTypeID(r) == AXTextMarkerRangeGetTypeID(),
+              let a = webArea.param("AXAttributedStringForTextMarkerRange", r) as? NSAttributedString, a.length > 0 else { return [] }
+        return EmphasisRun.runs(in: a) { attrs in
+            var f = AXTextInfo.format(from: attrs)
+            // A heading is bold by its nature, not for emphasis: marked, every heading would start with a bold sign.
+            if attrs[NSAttributedString.Key("AXHeadingLevel")] != nil { f.bold = false }
+            return f
+        }
+    }
+
     public func segment(at offset: Int) -> Segment? {
         segments.first { offset >= $0.start && offset < $0.end }
     }
@@ -947,6 +988,7 @@ public final class BufferTextInfo: TextInfo {
     public var previousOffset: Int?
 
     public override func storyLength() -> Int { buffer.text.length }
+    public override func emphasisRuns() -> [EmphasisRun] { end > start ? buffer.emphasis(start: start, end: end) : [] }
 
     /// A table cell at an offset: its table and its row and column, from 0 (WebKit's AXRowIndexRange, AXColumnIndexRange).
     func cell(at offset: Int) -> (table: AXUIElement, row: Int, column: Int)? {
