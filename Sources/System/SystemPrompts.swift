@@ -204,9 +204,12 @@ public final class SystemPrompts {
         summaries.append((window, pid, texts.first.map { String($0.prefix(120)) } ?? "untitled"))
         // The same prompt again from the same agent, a new window for it while the first is open: not read out, nor given the keyboard, again.
         let key = "\(pid)|" + texts.joined(separator: "|")
-        readKeys.removeAll { e in e.window.isSame(window) || !shown.contains { $0.isSame(e.window) } }
-        let again = fromTimer && Self.readElsewhere(key, by: window, in: readKeys, open: { _ in true }, same: { $0.isSame($1) })
-        readKeys.append((window, key))
+        // Kept while its window lives: a window dropped from `shown` after two missed looks (an agent busy checking a
+        // password) and found again was read out and given the keyboard again (a review, 14 Nov 2026). Gone (dead)
+        // windows are forgotten, so the same prompt asked again after a cancel is read.
+        readKeys.removeAll { $0.window.role == "?" }
+        let again = fromTimer && Self.readElsewhere(key, by: window, in: readKeys, open: { $0.role != "?" }, same: { _, _ in false })
+        if !readKeys.contains(where: { $0.window.isSame(window) && $0.key == key }) { readKeys.append((window, key)) }
         if again { Log.io("system prompt from pid \(pid) again, the same; not read again"); return }
         Log.io("system prompt from pid \(pid): \(texts.count) lines")
         Speech.cancel()

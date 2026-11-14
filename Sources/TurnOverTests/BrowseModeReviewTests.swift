@@ -195,7 +195,9 @@ func browseModeReviewTests() {
     test("browse mode review: an address rewritten in place is told by its unchanged path (a review, 14 Nov 2026)") {
         check(BrowseModeDocument.isSameDocumentPath("https://en.wikipedia.org/wiki/Boson", "https://en.wikipedia.org/wiki/Boson?wprov=srpw1_0"), "Wikipedia's wprov stripped")
         check(BrowseModeDocument.isSameDocumentPath("https://example.com/a?id=1", "https://example.com/a?id=1&utm_source=x"), "utm_ stripped")
-        check(BrowseModeDocument.isSameDocumentPath("https://EXAMPLE.com/a?x=1#top", "https://example.com/a"), "a query and an anchor added")
+        check(!BrowseModeDocument.isSameDocumentPath("https://EXAMPLE.com/a?x=1#top", "https://example.com/a"), "a query added is another page")
+        check(!BrowseModeDocument.isSameDocumentPath("https://www.youtube.com/watch?v=B", "https://www.youtube.com/watch?v=A"), "a value changed is another page")
+        check(!BrowseModeDocument.isSameDocumentPath("https://example.com/list?page=2", "https://example.com/list?page=1"), "pagination is another page")
         check(!BrowseModeDocument.isSameDocumentPath("https://example.com/b", "https://example.com/a?x=1"), "another path")
         check(!BrowseModeDocument.isSameDocumentPath("https://other.example/a", "https://example.com/a?x=1"), "another host")
         check(!BrowseModeDocument.isSameDocumentPath("http://example.com/a", "https://example.com/a?x=1"), "another scheme")

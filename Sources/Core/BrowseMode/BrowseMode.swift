@@ -125,7 +125,7 @@ public final class BrowseModeDocument: ScriptableObject {
     /// and read it all out, long after the key had read its line (a review, 13 Nov 2026).
     /// `loadSeen`: the page's own AXLoadComplete came with this news (AXHandlerNotifications).
     @discardableResult
-    public func refreshIfNavigated(announce: Bool = false, byKey: Bool = true, loadSeen: Bool = false) -> Bool {
+    public func refreshIfNavigated(announce: Bool = false, byKey: Bool = true, loadSeen: Bool = false, fromPageNews: Bool = false) -> Bool {
         let now = url
         let loadSeen = loadSeen || AXHandler.shared.loadCompleteSeen
         var lateNewPage = false
@@ -247,7 +247,9 @@ public final class BrowseModeDocument: ScriptableObject {
         // Focus mode just ended for this page (Enter in Google's search box): the page's news found it with `announce`
         // false, as it was asked while focus mode was still on, and neither announced it nor read its line; with no
         // later focus from Safari, the new page was silent (a review, 14 Nov 2026).
-        let focusModeEnded = !first && !byKey && wasPassThrough && !keepFocusMode
+        // (Only from the page's own news: on the focus's path, a new page's first focus in a field (a login form)
+        // started the title and a say all that the field's own focus mode then cut across, a review, 14 Nov 2026.)
+        let focusModeEnded = fromPageNews && !first && !byKey && wasPassThrough && !keepFocusMode
         if announce || focusModeEnded, !buffer.lines.isEmpty { announcePage() }
         else if !first, byKey, !buffer.lines.isEmpty { arrivedByKey() }
         GoogleDocs.checkSoon(self)
@@ -272,6 +274,9 @@ public final class BrowseModeDocument: ScriptableObject {
               let a = URLComponents(string: now), let b = URLComponents(string: last), a.scheme != nil, a.host != nil else { return false }
         return a.scheme?.lowercased() == b.scheme?.lowercased() && a.host?.lowercased() == b.host?.lowercased()
             && a.port == b.port && a.path == b.path && a.query != b.query
+            // Only parameters taken away (utm_, wprov=): a value changed or added is another page of a web app
+            // (watch?v=A to watch?v=B, ?page=2), and was taken for a rewrite and never read (a review, 14 Nov 2026).
+            && Set(a.queryItems ?? []).isStrictSubset(of: Set(b.queryItems ?? []))
     }
     /// Whether `now` is another view of the web app at `last`: the same address before the "#", a route on either side.
     /// Pure.

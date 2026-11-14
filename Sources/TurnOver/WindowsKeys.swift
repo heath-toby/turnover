@@ -382,7 +382,10 @@ nonisolated final class WindowsKeyLayer: @unchecked Sendable {   // its state be
         // every key for as long, and the real keys still arrive in between. So a repeat is dropped (one chord at a
         // time while a key is held), and any other key is sent again after the chord, on the same serial queue, to
         // be handled here as if just typed: its press and release keep their order.
-        if (type == .keyDown || type == .keyUp), Self.postsInFlight.value > 0 {
+        // (Not while Caps Lock is held: the key sent again was handled with Caps as it was by then, and a Caps chord
+        // let go early became a plain key, typed into the document; a review, 14 Nov 2026. A key sent again isn't
+        // counted as in flight: it would be held back again by its own count, round and round.)
+        if (type == .keyDown || type == .keyUp), !capsDown, Self.postsInFlight.value > 0 {
             if type == .keyDown, event.getIntegerValueField(.keyboardEventAutorepeat) != 0 { return nil }
             if let copy = event.copy() {
                 let held = Handed(copy)
