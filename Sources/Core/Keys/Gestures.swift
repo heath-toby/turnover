@@ -176,7 +176,10 @@ nonisolated public enum KeyNames {
         96: "f5", 97: "f6", 98: "f7", 99: "f3", 100: "f8", 101: "f9", 103: "f11", 105: "f13", 106: "f16", 107: "f14", 109: "f10", 111: "f12", 113: "f15",
         114: "help", 115: "home", 116: "pageUp", 117: "delete", 118: "f4", 119: "end", 120: "f2", 121: "pageDown", 122: "f1", 123: "leftArrow", 124: "rightArrow", 125: "downArrow", 126: "upArrow",
     ]
-    static let codes: [String: Int64] = { var d: [String: Int64] = [:]; for (k, v) in table { d[v.lowercased()] = k }; return d }()
+    /// Names → codes. Code 52 (the old PowerBook Enter) shares the name "numpadEnter" with 76, the keypad's Enter: it
+    /// stays out of the reverse lookup, which otherwise answered 52 or 76 by dictionary order, so the name always
+    /// means the keypad's key (a review, 14 Nov 2026). Code 52 itself is still named numpadEnter.
+    static let codes: [String: Int64] = { var d: [String: Int64] = [:]; for (k, v) in table where k != 52 { d[v.lowercased()] = k }; return d }()
     static let special: Set<Int64> = [36, 48, 51, 52, 53, 63, 64, 71, 72, 73, 74, 76, 79, 80, 90, 96, 97, 98, 99, 100, 101, 103, 105, 106, 107, 109, 111, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126]
     /// The slash key's name in the TurnOver layer's list.
     public static var slashName: String { String(localized: "Slash", comment: "The / key") }
