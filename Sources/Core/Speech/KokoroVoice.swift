@@ -66,6 +66,15 @@ public enum KokoroVoice {
     public private(set) static var downloading = false
     /// Settings, Speech, Download natural voices (Oliver, 6 Nov 2026: "an option, like in windows, to download
     /// natural voices"): starts the helper, whose first start downloads them; it says when they're ready.
+    /// A download asked for that couldn't begin: said, and the button free again (it stayed "downloading" for ever
+    /// with nothing said: a review, 14 Nov 2026).
+    private static func downloadCouldNotStart() {
+        guard downloading else { return }
+        downloading = false
+        Speech.speakMessage(String(localized: "The natural voices couldn't be downloaded: their helper didn't start.", comment: "Spoken message"))
+        SettingsBridge.sendState()
+    }
+
     public static func download() {
         guard available, !downloaded, !downloading else { return }
         downloading = true
@@ -179,7 +188,8 @@ public enum KokoroVoice {
         let signed = trusted(phononHelper)
         helperTrusted.value = signed
         guard Edition.isDevBuild || signed else {
-            Log.warning("kokoro: \(phononHelper.lastPathComponent) isn't signed by TurnOver's developer; not started"); return
+            Log.warning("kokoro: \(phononHelper.lastPathComponent) isn't signed by TurnOver's developer; not started")
+            downloadCouldNotStart(); return
         }
         let path = phononHelper.path, args = [voice]   // the voice loaded before "ready", so the first words in it don't wait
         // A natural voice chosen with the voices not on this Mac (its cache cleared, or settings brought from another
@@ -220,7 +230,8 @@ public enum KokoroVoice {
         // The developer's folder exists only on a developer's Mac; the app's helper runs from TurnOver's own folder.
         let directory = bundledHelper != nil ? AppPaths.support.path : folder.path
         guard let (child, disclaimed) = DisclaimedSpawn.run(path, arguments: args, directory: directory, exited: ended) else {
-            Log.warning("kokoro: couldn't start the helper"); return
+            Log.warning("kokoro: couldn't start the helper")
+            downloadCouldNotStart(); return
         }
         started.value = child
         child.stdout.readabilityHandler = { h in

@@ -74,7 +74,10 @@ extension BrowseModeDocument {
         // The page rebuilt that part of itself after the buffer was read (AppleVis's Main Menu: its items are made
         // anew when it opens, so "Log out" in the buffer pointed at an element that no longer exists, 3 Oct 2026).
         // Find the live link or button with the line's text and press that.
-        let text = lineText(at: position).trimmingCharacters(in: .whitespacesAndNewlines)
+        // Only when the buffer's element really is gone: on plain text that simply can't be pressed, a big page's
+        // cut-short search said "the page changed" at every Enter (a review, 14 Nov 2026).
+        let gone = e.map { $0.role == "?" } ?? false
+        let text = gone ? lineText(at: position).trimmingCharacters(in: .whitespacesAndNewlines) : ""
         // Only a control the page has once by that name: rows each with their own "Delete" pressed the first row's
         // (a review, 14 Nov 2026). Several: the page is read again, and nothing is pressed until it is.
         if !text.isEmpty, Self.liveActionableCount(named: text, in: webArea) > 1 {
@@ -533,7 +536,7 @@ extension BrowseModeDocument {
     /// beyond it (a review, 14 Nov 2026).
     static func liveActionableCount(named name: String, in root: AXUIElement) -> Int {
         let r = liveActionables(named: name, in: root, limit: 2)
-        return r.complete ? r.found.count : 2
+        return r.complete || r.found.isEmpty ? r.found.count : 2
     }
 
     static func liveActionables(named name: String, in root: AXUIElement, limit: Int) -> (found: [AXUIElement], complete: Bool) {   // bounded: it runs only when the buffer failed

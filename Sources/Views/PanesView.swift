@@ -15,6 +15,7 @@ public final class PanesView {
     /// Elements found, kept for a moment: finding one walks the window.
     private var found: [Int: (AXUIElement, Date)] = [:]
     private var missed: [Int: Date] = [:]
+    private var missedFocus: AXUIElement?
 
     public init(pid: pid_t, panes: RecipeView.Panes) { self.pid = pid; parts = panes.parts }
 
@@ -60,6 +61,9 @@ public final class PanesView {
 
     /// Which part the user is in: the one holding the keyboard focus, or TurnOver's cursor.
     public func currentIndex() -> Int? {
+        // The focus moved since a part was missed (the sidebar shown and gone into): looked for again.
+        let focus = API.focusObject?.element
+        if let f = focus, !(missedFocus.map { CFEqual($0, f) } ?? false) { missed = [:]; missedFocus = f }
         let nav = ObjectNavigator.shared
         for i in parts.indices {
             guard let e = element(of: i) else { continue }

@@ -111,8 +111,9 @@ public enum ScriptHandler {
     nonisolated public static func askMain(_ gesture: KeyboardGesture, otherwise alternative: KeyboardGesture?) -> (decision: KeyDecision, usedAlternative: Bool) {
         keysArrived.lock.lock(); keysArrived.unsafeValue &+= 1; keysArrived.lock.unlock()
         if mainStuck?() ?? false {
-            hangEpoch.withLock { $0 &+= 1 }
             let d = stuckDecision(for: gesture, turnOverKeyLocked: InputManager.turnOverKeyLocked)
+            // Only a key that goes ahead of the owed ones (a dropped chord passes nothing ahead of them).
+            if case .passed = d { hangEpoch.withLock { $0 &+= 1 } }
             let what: String
             if case .passed = d { what = "goes through" } else { what = "dropped" }
             Log.warning("keyboard: the main thread is not beating; \(gesture.logDescription()) \(what)")
@@ -241,15 +242,16 @@ public enum ScriptHandler {
     /// NVDA: isScriptWaiting — another gesture's script is queued behind the running one.
     public static var isScriptWaiting: Bool { lock.lock(); defer { lock.unlock() }; return !queued.isEmpty }
 
+    /// One script per call, as each key posted one call after its own cancel: two keys queued behind a busy main
+    /// thread ran both scripts at the first call, and the second key's cancel then silenced them both (a review,
+    /// 14 Nov 2026). A call arriving while a script runs comes back after it.
     private static func runQueued() {
-        guard !_running else { return }
-        while true {
-            lock.lock()
-            guard !queued.isEmpty else { lock.unlock(); break }
-            let (script, gesture, wasInSayAll) = queued.removeFirst()
-            lock.unlock()
-            executeScript(script, gesture: gesture, wasInSayAll: wasInSayAll)
-        }
+        guard !_running else { DispatchQueue.main.async { runQueued() }; return }
+        lock.lock()
+        guard !queued.isEmpty else { lock.unlock(); EventHandler.drain(); return }
+        let (script, gesture, wasInSayAll) = queued.removeFirst()
+        lock.unlock()
+        executeScript(script, gesture: gesture, wasInSayAll: wasInSayAll)
         EventHandler.drain()
     }
 
