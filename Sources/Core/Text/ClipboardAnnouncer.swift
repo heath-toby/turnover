@@ -69,6 +69,9 @@ public enum ClipboardAnnouncer {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { Speech.speakMessage(Speech.secureCount(f), remember: false) }
             return spoken("pasted")
         }
+        // A page's password field the keys go to without being TurnOver's focus (browse mode's pass-through): the
+        // clipboard was said aloud into it (a review, 14 Nov 2026).
+        if Speech.typingIntoSecretField { return spoken("pasted") }
         if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.Terminal" { return spoken("pasted") }
         if isConcealed(NSPasteboard.general.types?.map(\.rawValue) ?? []) { return spoken("pasted") }
         guard let text = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return spoken("pasted") }
