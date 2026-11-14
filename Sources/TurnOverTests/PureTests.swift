@@ -1756,6 +1756,14 @@ func browseTextNavTests() {
         expect(place(group: "Gone", index: 1, words: "x"), [1, 0], "the app gone: the default app's first")
         expect(place(hit: (5, 0), group: nil, index: nil, words: nil), [1, 0], "a hit outside the groups is ignored")
     }
+    test("notification centre: Delete before the landing doesn't close the default app's first when the app is gone") {
+        let names = ["Notification Centre", "Messages"]
+        let words = [["Clear All"], ["Messages, Hi"]]
+        check(NotificationCentreNavigator.rememberedGroupGone(groupNames: names, itemWords: words, group: "Mail"), "the closed one's app gone")
+        check(NotificationCentreNavigator.rememberedGroupGone(groupNames: names + ["Mail"], itemWords: words + [[]], group: "Mail"), "its app empty")
+        check(!NotificationCentreNavigator.rememberedGroupGone(groupNames: names, itemWords: words, group: "Messages"), "its app still there")
+        check(!NotificationCentreNavigator.rememberedGroupGone(groupNames: names, itemWords: words, group: nil), "nothing remembered: the default")
+    }
     test("desktop: another key between the navigator's ends desktop mode") {
         check(DesktopNavigator.keysOnlyOwn(arrived: 5, own: 4), "the next key after the navigator's is asked about")
         check(DesktopNavigator.keysOnlyOwn(arrived: 4, own: 4), "the same key asked again")
