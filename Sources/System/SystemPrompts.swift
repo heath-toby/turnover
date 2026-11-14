@@ -215,9 +215,19 @@ public final class SystemPrompts {
         let now = Date()
         readKeys.removeAll { $0.window.role == "?" || ($0.droppedAt.map { now.timeIntervalSince($0) > 5 } ?? false) }
         let again = fromTimer && readKeys.contains { $0.key == key }
+        // No other window of it still shown (only a dropped one, put away and back within five seconds): not read
+        // again, but its field still gets the keyboard, or typing went to the app behind (a review, 14 Nov 2026).
+        let otherShown = readKeys.contains { $0.key == key && !$0.window.isSame(window) && $0.droppedAt == nil }
         if let i = readKeys.firstIndex(where: { $0.window.isSame(window) && $0.key == key }) { readKeys[i].droppedAt = nil }
         else { readKeys.append((window, key, nil)) }
-        if again { Log.io("system prompt from pid \(pid) again, the same; not read again"); return }
+        if again {
+            Log.io("system prompt from pid \(pid) again, the same; not read again")
+            if !otherShown, let f = AXUIElementCreateApplication(pid).element(kAXFocusedUIElementAttribute) ?? window.element(kAXDefaultButtonAttribute) {
+                giveKeyboard(to: f)
+                AXHandler.shared.focusChanged(f, pid: pid)
+            }
+            return
+        }
         Log.io("system prompt from pid \(pid): \(texts.count) lines")
         Speech.cancel()
         let words = ([Self.isProtected(pid) ? String(localized: "system dialog", comment: "A role: a macOS system dialog") : Role.dialog.displayString] + texts).joined(separator: ", ")

@@ -371,7 +371,9 @@ final class TerminalText: TurnOverObject {
         // output before sudo's prompt. In a retry window, only the very prompt latched before.)
         let cursorTrimmed = s.anchorText.trimmingCharacters(in: .whitespaces)
         let cursorIsLast = rest.last.map { $0.trimmingCharacters(in: .whitespaces) == cursorTrimmed } ?? true
-        let samePromptAgain = s.secret.retryWindow && s.secret.lastPrompt == cursorTrimmed && !cursorTrimmed.isEmpty
+        // (The typed-ahead echo off first: it starts the prompt's line, a review.)
+        let cursorPlain = TerminalRules.withoutTypedAhead(s.anchorText, keys: s.secret.aheadKeys).trimmingCharacters(in: .whitespaces)
+        let samePromptAgain = s.secret.retryWindow && !cursorPlain.isEmpty && (s.secret.lastPrompt == cursorTrimmed || s.secret.lastPrompt == cursorPlain)
         let inWindow = !s.secret.latched && s.secret.isSecret(now: Date()) && !isPrompt(s.anchorText)
             && (samePromptAgain || (!s.secret.retryWindow && (rest.count <= 1 || cursorIsLast)
                 && TerminalRules.isPromptInSecretWindow(s.anchorText, aheadKeys: rest.count <= 1 ? s.secret.aheadKeys : 0)))
