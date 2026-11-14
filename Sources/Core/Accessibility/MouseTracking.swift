@@ -201,6 +201,8 @@ public enum MouseTracking {
         let r = AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(p.x), Float(p.y), &e)
         if r == .cannotComplete { found.timedOut = true; return found }
         guard r == .success, let hit = e else { return found }
+        // TurnOver's own panel or ring under the pointer: nothing (asking it would wait on TurnOver's own main thread).
+        if VisionAids.isOwnWindow(hit) { return found }
         AXUIElementSetMessagingTimeout(hit, questionTimeout)
         found.hit = hit
         var timedOut = false
@@ -231,6 +233,7 @@ public enum MouseTracking {
         if found.timedOut, pid > 0 {
             resting[pid] = Date().addingTimeInterval(3)
             Log.info("mouse: \(pid) slow to answer under the pointer; left alone for 3 s")
+            lastProbePoint = nil   // asked again once the pointer moves or the rest is over (a review)
         }
         // A slow app is not asked again from here, on main, for the item's description.
         guard Core.active, anyOn, !Trackpad.controlOn, !found.timedOut else { return }

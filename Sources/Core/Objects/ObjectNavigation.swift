@@ -1428,7 +1428,12 @@ public final class ObjectNavigator {
         guard let cur = element, let f = TurnOverObject.frame(cur), f.width > 1, f.height > 1 else { Speech.speakMessage(String(localized: "nothing to click", comment: "Spoken message")); return }
         let p = CGPoint(x: f.midX, y: f.midY)
         var hit: AXUIElement?
-        if AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(p.x), Float(p.y), &hit) == .success, let h = hit, !VisionAids.isOwnWindow(h) {   // (a ring's strip lets clicks through)
+        // (A ring's strip or a panel lets clicks through; any other TurnOver window over the item does not: a review.)
+        let primary = NSScreen.screens.first?.frame.height ?? 0
+        let cocoa = CGPoint(x: p.x, y: primary - p.y)
+        let ownTakesClick = NSApp.windows.contains { $0.isVisible && !$0.ignoresMouseEvents && $0.frame.contains(cocoa) }
+        if ownTakesClick { Speech.speakMessage(String(localized: "something else is over it; not clicked", comment: "Spoken message")); return }
+        if AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(p.x), Float(p.y), &hit) == .success, let h = hit, !VisionAids.isOwnWindow(h) {
             var x: AXUIElement? = h; var hops = 0; var inside = false
             while let y = x, hops < 8 { if CFEqual(y, cur) { inside = true; break }; x = y.element(kAXParentAttribute); hops += 1 }
             if !inside { Speech.speakMessage(String(localized: "something else is over it; not clicked", comment: "Spoken message")); return }

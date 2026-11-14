@@ -55,7 +55,11 @@ public enum Speech {
     // MARK: - Primitives
 
     /// Stop now (NVDA: cancelSpeech). Every gesture does this before its script runs.
+    /// Counts cancels: a start that comes from a buffer let go by a cancel is not a real start (a review: the caption
+    /// showed say all's next part, never spoken, at every key).
+    nonisolated static let cancels = Locked<Int>(0)
     public static func cancel() {
+        cancels.value += 1
         // Focus words still unfinished are cut: the same words said again straight after are no repeat (see
         // speakObject's half-second check).
         if Date().timeIntervalSince(lastFocusWordsAt) < 0.5, focusWordsDone.value != focusWordsGeneration { lastFocusWordsCut = true }
@@ -175,7 +179,7 @@ public enum Speech {
         // Nothing left to say (zero-width marks, a bidi mark): it still "starts", or say all's count of queued
         // chunks never came down and three such lines stopped it for good (a code review, 14 Oct 2026).
         guard !s.isEmpty else { onStart?(); completion?(true); return }
-        lastSpoken = s; lastSpokenPrivate = privateNext
+        lastSpoken = s; lastSpokenPrivate = privateNext || redactNext   // (redacted, as the display's messages are: a review)
         // Speech that came with its text as written (a message, text from the screen) keeps it for "copy last
         // spoken"; anything else (an object: "alert, dialog") is copied as spoken.
         if rawPending { rawPending = false } else { lastRaw = "" }
@@ -210,11 +214,13 @@ public enum Speech {
     private static var pitchNext: Float?
     /// `onStart` with the capital's tone first, played on the main thread.
     nonisolated private static func withCapitalTone(_ onStart: (@Sendable () -> Void)?) -> @Sendable () -> Void {
-        { DispatchQueue.main.async { Tones.beep(1760, 25, volume: 0.15) }; onStart?() }
+        let at = cancels.value
+        return { if cancels.value == at { DispatchQueue.main.async { Tones.beep(1760, 25, volume: 0.15) } }; onStart?() }
     }
     /// `onStart` with the caption panel shown first, on the main thread.
     nonisolated private static func withCaption(_ text: String, _ onStart: (@Sendable () -> Void)?) -> @Sendable () -> Void {
-        { onMain { VisionAids.spoke(text) }; onStart?() }
+        let at = cancels.value
+        return { if cancels.value == at { onMain { VisionAids.spoke(text) } }; onStart?() }
     }
     /// The next utterance is a capital to have a tone before it (capitalTone).
     private static var toneNext = false

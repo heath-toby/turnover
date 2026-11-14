@@ -288,14 +288,17 @@ public enum VisionAids {
         let primary = NSScreen.screens.first?.frame.height ?? 0
         // A hung app is not asked (a review, 14 Nov 2026: every half second a frame read waited out the 1 s messaging
         // timeout on the main thread): .keep leaves its ring where it was.
-        func rect(_ e: AXUIElement?) -> Look {
+        // (Kept only round the item it was already round: moved to another item of a resting app, it goes: a review.)
+        func rect(_ e: AXUIElement?, _ slot: Int) -> Look {
             guard let e else { return .hidden }
+            let same = ringElements[slot].map { CFEqual($0, e) } ?? false
+            ringElements[slot] = e
             var pid: pid_t = 0
             AXUIElementGetPid(e, &pid)
-            if let q = quietUntil[pid], Date() < q { return .keep }
-            if AXHealth.backoff(for: pid) != nil { return .keep }
+            if let q = quietUntil[pid], Date() < q { return same ? .keep : .hidden }
+            if AXHealth.backoff(for: pid) != nil { return same ? .keep : .hidden }
             switch quickFrame(e, pid: pid) {
-            case .timedOut: quietUntil[pid] = Date().addingTimeInterval(3); return .keep
+            case .timedOut: quietUntil[pid] = Date().addingTimeInterval(3); return same ? .keep : .hidden
             case .none: return .hidden
             case .frame(let r): return r.width >= 1 && r.height >= 1 ? .at(VisionGeometry.cocoa(r, primaryHeight: primary)) : .hidden
             }
@@ -303,11 +306,11 @@ public enum VisionAids {
         let doc: BrowseModeDocument? = { if let d = API.focusTreeInterceptor, !d.passThrough { return d }; return nil }()
         let focusElement = API.focusObject?.element
         // In browse mode the focus is often the page itself: a ring round the whole page says nothing.
-        let focus = v.highlightFocus && !(doc.map { d in focusElement.map { CFEqual($0, d.webArea) } ?? false } ?? false) ? rect(focusElement) : .hidden
+        let focus = v.highlightFocus && !(doc.map { d in focusElement.map { CFEqual($0, d.webArea) } ?? false } ?? false) ? rect(focusElement, 0) : .hidden
         // The review cursor only once it has left the focus (nil: it follows the focus).
         let reviewElement = ObjectNavigator.shared.reviewElement
-        let review = v.highlightReview && !(reviewElement != nil && focusElement != nil && CFEqual(reviewElement!, focusElement!)) ? rect(reviewElement) : .hidden
-        let browse = v.highlightBrowse ? rect(doc?.elementAtPosition()) : .hidden
+        let review = v.highlightReview && !(reviewElement != nil && focusElement != nil && CFEqual(reviewElement!, focusElement!)) ? rect(reviewElement, 1) : .hidden
+        let browse = v.highlightBrowse ? rect(doc?.elementAtPosition(), 2) : .hidden
         // Rings round the same item nest, each a step further out, so every colour shows.
         var placed: [CGRect] = []
         for (ring, look) in [(focusRing, focus), (reviewRing, review), (browseRing, browse)] {
@@ -322,6 +325,8 @@ public enum VisionAids {
     /// A hit test landed on one of TurnOver's own windows (a ring's strip, a panel). They hide from accessibility,
     /// but whether the system-wide hit test passes them by is not checked (a review, 14 Nov 2026): callers treat it
     /// as no answer rather than read or move to TurnOver's window.
+    /// The element each ring (focus, review, browse) was last asked about.
+    private static var ringElements: [AXUIElement?] = [nil, nil, nil]
     nonisolated static func isOwnWindow(_ e: AXUIElement) -> Bool {
         var pid: pid_t = 0
         return AXUIElementGetPid(e, &pid) == .success && pid == getpid()
