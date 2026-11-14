@@ -199,6 +199,13 @@ public final class SystemPrompts {
     private var emptyLooks: [(window: AXUIElement, count: Int)] = []
 
     private func announce(_ window: AXUIElement, pid: pid_t, fromTimer: Bool = false) {
+        // A window found empty six times is looked into every fourth look after (two seconds), for half a minute:
+        // a slow prompt is still read, without walking an empty helper twice a second (a review, 14 Nov 2026).
+        if let i = emptyLooks.firstIndex(where: { $0.window.isSame(window) }), emptyLooks[i].count >= 6 {
+            emptyLooks[i].count += 1
+            let n = emptyLooks[i].count
+            guard n % 4 == 0 else { if n < 60 { shown.removeAll { $0.isSame(window) } }; return }
+        }
         lastAnnounced = Date()
         var texts: [String] = []
         var stack = [window]; var visited = 0
@@ -216,16 +223,20 @@ public final class SystemPrompts {
         let hasFocusHere: Bool = {
             let app = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(app, 0.25)
-            guard let f = app.element(kAXFocusedUIElementAttribute), let w = f.element(kAXWindowAttribute) else { return false }
+            guard let f = app.element(kAXFocusedUIElementAttribute) else { return false }
+            AXUIElementSetMessagingTimeout(f, 0.25)
+            guard let w = f.element(kAXWindowAttribute) else { return false }
             return w.isSame(window)
         }()
         guard !texts.isEmpty || hasFocusHere else {
             emptyLooks.removeAll { $0.window.role == "?" }
             let n = (emptyLooks.first { $0.window.isSame(window) }?.count ?? 0) + 1
             emptyLooks.removeAll { $0.window.isSame(window) }
-            if n < 6 { emptyLooks.append((window, n)); shown.removeAll { $0.isSame(window) } }
+            emptyLooks.append((window, n))
+            if n < 60 { shown.removeAll { $0.isSame(window) } }
             return
         }
+        emptyLooks.removeAll { $0.window.isSame(window) }
         summaries.removeAll { $0.window.isSame(window) }
         summaries.append((window, pid, texts.first.map { String($0.prefix(120)) } ?? "untitled"))
         // The same prompt again from the same agent, a new window for it while the first is open: not read out, nor given the keyboard, again.

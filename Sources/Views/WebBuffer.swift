@@ -797,7 +797,16 @@ public final class WebBuffer {
                 if b > a { out.append(EmphasisRun(r.kind, NSRange(location: a - start, length: b - a))) }
             }
         }
-        return out
+        // Runs of a kind with only blanks between them are one (a bold phrase across two pieces): two would put a close
+        // and an open sign around the space.
+        var merged: [EmphasisRun] = []
+        for r in out.sorted(by: { ($0.kind.rawValue, $0.range.location) < ($1.kind.rawValue, $1.range.location) }) {
+            if let i = merged.indices.last, merged[i].kind == r.kind, NSMaxRange(merged[i].range) <= r.range.location,
+               text.substring(with: NSRange(location: start + NSMaxRange(merged[i].range), length: r.range.location - NSMaxRange(merged[i].range))).allSatisfy(\.isWhitespace) {
+                merged[i].range.length = NSMaxRange(r.range) - merged[i].range.location
+            } else { merged.append(r) }
+        }
+        return merged
     }
 
     static func emphasisRuns(of element: AXUIElement, in webArea: AXUIElement) -> [EmphasisRun] {

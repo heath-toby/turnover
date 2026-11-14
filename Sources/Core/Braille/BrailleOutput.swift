@@ -50,12 +50,24 @@ public enum BrailleOutput {
         // Every offset kept inside the text: a sign the table adds (a bold indicator) may come back as -1 or NSNotFound,
         // and a routing key or the cursor would use it as is (a review, 14 Nov 2026).
         let length = (text as NSString).length
-        var map = (loc as? [NSNumber])?.map { min(max($0.intValue, 0), max(0, length - 1)) } ?? []
+        var map = fillInvalid((loc as? [NSNumber])?.map(\.intValue) ?? [], length: length)
         if map.count != cells.count {
             if !map.isEmpty { Log.info("braille: the table gave \(map.count) places for \(cells.count) cells; spread evenly") }
             map = (0..<cells.count).map { min($0, max(0, length - 1)) }
         }
         return (cells, map)
+    }
+
+    /// Offsets outside the text (a sign the table added) take the next valid one, or the one before at the end, so
+    /// the cursor never lands on the sign and routing to it goes to the word it marks.
+    package static func fillInvalid(_ raw: [Int], length: Int) -> [Int] {
+        guard length > 0 else { return raw.map { _ in 0 } }
+        var out = raw.map { $0 >= 0 && $0 < length ? $0 : -1 }
+        var next = -1
+        for i in out.indices.reversed() { if out[i] >= 0 { next = out[i] } else if next >= 0 { out[i] = next } }
+        var prev = 0
+        for i in out.indices { if out[i] >= 0 { prev = out[i] } else { out[i] = prev } }
+        return out
     }
 
     private static func computer(_ text: String) -> (cells: [UInt8], map: [Int]) {

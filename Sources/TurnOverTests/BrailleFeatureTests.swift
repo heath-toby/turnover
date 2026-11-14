@@ -34,3 +34,11 @@ func brailleFeatureTests() {
         expect((loc as? [NSNumber])?.count ?? -1, marked.unicodeScalars.count, "one location per cell")
     }
 }
+
+func brailleMapTests() {
+    test("braille formatting: a sign's place outside the text takes the next character's") {
+        expect(BrailleOutput.fillInvalid([0, -1, -1, 1, 2, Int.max], length: 3), [0, 1, 1, 1, 2, 2])
+        expect(BrailleOutput.fillInvalid([-1, 0], length: 1), [0, 0])
+        expect(BrailleOutput.fillInvalid([], length: 0), [])
+    }
+}

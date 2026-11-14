@@ -556,7 +556,7 @@ struct BrailleView: View {
                 Text("Panning on to another line moves the caret there, so the arrows carry on from what was read. Tethered to review, panning moves only the review cursor.").font(.caption)
                 Toggle("Stop speech while panning", isOn: model.bool("braille", "interruptSpeechWhileScrolling"))
                 Toggle("Speak the character when routing the cursor in text", isOn: model.bool("braille", "speakOnRouting"))
-                Picker("Move the caret when routing the review cursor", selection: model.string("braille", "routingMovesCaret", "never")) {
+                Picker("Move the caret when routing the review cursor", selection: Binding(get: { model.get("braille", "routingMovesCaret") as? String == "always" ? "always" : "never" }, set: { model.set("braille", "routingMovesCaret", $0) })) {
                     Text("Never").tag("never"); Text("Always").tag("always")
                 }
                 Stepper(value: autoScroll, in: 0.5...20, step: 0.5) { Text("Auto scroll: a display's width every \(String(format: "%.1f", autoScroll.wrappedValue)) seconds") }

@@ -146,6 +146,7 @@ public enum Braille {
         display?.close()
         display = driver
         lastWritten = []
+        lastObject = nil   // another display's width: the context placed again
         Log.info("braille: \(driver.name), \(driver.cellCount) cells")
         // Every time TurnOver takes the display, including back from VoiceOver at an app switch: over Bluetooth that
         // takes a few seconds, and the sound says when it is ready (6 Oct 2026).
@@ -349,6 +350,7 @@ public enum Braille {
 
     /// The focus or the caret moved (NVDA dismisses a message then): a message up for a moment already gives way.
     public static func focusOrCaretMoved() {
+        lastObject = nil   // a real move: the next item's context is read afresh (a window's new title with it)
         if let shownAt = messageShownAt, Date().timeIntervalSince(shownAt) > 0.5, messageUntil != nil, historyIndex == nil {
             messageUntil = nil
         }
@@ -433,7 +435,7 @@ public enum Braille {
             }
             let byParagraph = config.braille.readByParagraph
             let line = shown.copy(); line.expand(byParagraph ? .paragraph : .line)
-            source = .text(line, lineStart: line.start)
+            source = .text(line, lineStart: line.start); lastObject = nil
             text = displayed(line.text)
             // Read by paragraph, a paragraph's start can be marked (NVDA's paragraph start marker).
             if byParagraph { leadingCells = ["pilcrow": BrailleOutput.translate("¶", cursor: nil).cells + [0], "spaces": [0, 0]][config.braille.paragraphMarker] ?? [] }
@@ -475,22 +477,22 @@ public enum Braille {
             }
             text = context.isEmpty ? own : context + " " + own
             cursor = nil; selection = nil
-            if sameItem { windowOrigin = lastOrigin }
+            if sameItem { windowOrigin = lastOrigin; layout() }
             else if !context.isEmpty {
-                // The origin needs the cells: laid out once to find where the focus starts in them.
+                // The origin needs the cells: laid out first, the windows counted again from where the focus starts.
                 layout()
                 let ownStart = (context as NSString).length + 1
                 let ownCell = cellMap.firstIndex { $0 >= ownStart } ?? 0
                 let n = display?.cellCount ?? 40
                 let fill = config.braille.focusContext == "always" || (config.braille.focusContext == "changes" && contextChanged)
                 windowOrigin = fill ? min(ownCell, max(0, cells.count - n)) : ownCell
-            }
+                windows = windowStarts()
+            } else { layout() }
             lastOrigin = windowOrigin
-            layout()
             // The same item again (its value changed, another event): the window stays where the reader panned to.
             windowStart = sameItem && windows.contains(objectWindowStart) ? objectWindowStart : windowOrigin
         } else {
-            source = nil; text = ""; cursor = nil; selection = nil; windowStart = 0
+            source = nil; text = ""; cursor = nil; selection = nil; windowStart = 0; lastObject = nil
             layout()
         }
         show()
@@ -553,6 +555,8 @@ public enum Braille {
         var window = Array(cells[min(start, cells.count)..<min(end, cells.count)])
         while window.count < n { window.append(0) }
         updateBlink()
+        // Before the early return: an item whose first window matches the one before still has its own place.
+        if case .object = source { objectWindowStart = start }
         guard window != lastWritten else { return }
         // What the display shows, for testing: the kind, and the text of this window of the line.
         if lastLoggedText != text || lastLoggedStart != start {
@@ -571,7 +575,6 @@ public enum Braille {
             }
             else { Log.io("braille shows (\(kind)\(messageUntil != nil ? ", held" : "")): [\(shown.count) cells]") }
         }
-        if case .object = source { objectWindowStart = start }
         lastWritten = window
         d.write(window)
     }

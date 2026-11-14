@@ -1404,7 +1404,7 @@ public final class MediaView {
         // The row's words now are the ones spoken: Music can reuse a row's element for another song after a delete,
         // and the cached words would name the old one (a review, 14 Nov 2026).
         // By the title, the first column: others (the play count) change with the song still the same one.
-        if let i = index[pane], let spoken = rowLabels[i], let title = Self.rowText(item.element).first, !spoken.hasPrefix(title) {
+        if let i = index[pane], let spoken = rowLabels[i], let title = Self.rowText(item.element).first, !title.isEmpty, spoken != title, !spoken.hasPrefix(title + ", ") {
             Log.io("media: \(g.identifier) not sent; the row now holds another song")
             rowLabels = [:]; builtAt = .distantPast
             Tones.edge()
