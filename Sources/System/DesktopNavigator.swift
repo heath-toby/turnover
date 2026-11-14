@@ -32,6 +32,13 @@ final class DesktopNavigatorPlugin: GlobalPlugin {
         for (name, desc, gestures, run) in keys {
             script(name, desc, gestures: gestures.map { "kb:" + $0 }, category: cat) { _ in DesktopNavigator.ownKey(); run() }.isAvailable = { DesktopNavigator.stillActive }
         }
+        // Keys Finder applies to its selection: the arrows moved only TurnOver's cursor, and Finder's selection was the
+        // one from before, so Command-Delete put another file in the Bin (a review, 14 Nov 2026). land selects the
+        // icon read; these are sent only once Finder's selection is that icon, and not at all on a widget.
+        script("desktop_selectionKey", String(localized: "On the desktop: Command Delete, Command C, D, I or O on the icon being read", comment: "A command, as the key list and keyboard help say it"),
+               gestures: ["kb:command+backspace", "kb:option+command+backspace", "kb:command+c", "kb:command+d", "kb:command+i", "kb:command+o", "kb:command+downArrow"],
+               category: cat) { g in DesktopNavigator.ownKey(); DesktopNavigator.sendForIcon(g) }
+            .isAvailable = { DesktopNavigator.stillActive && NSWorkspace.shared.frontmostApplication?.processIdentifier == DesktopNavigator.finder?.processIdentifier }
     }
 }
 
@@ -286,10 +293,45 @@ package enum DesktopNavigator {
         Speech.speakItem(words + ", " + Phrases.position(index + 1, of: count))
     }
 
+    /// Finder's desktop selection made the item TurnOver reads: the icon, or nothing on a widget, so a key Finder
+    /// applies to its selection can't act on the one selected before (a review, 14 Nov 2026). True when it took.
+    @discardableResult
+    static func selectInFinder(_ item: Item) -> Bool {
+        guard let desk = desktopGroup() else { return false }
+        let want: [AXUIElement] = item.isWidget ? [] : [item.element]
+        let r = desk.set(kAXSelectedChildrenAttribute, want as CFArray)
+        let now = desk.elements(kAXSelectedChildrenAttribute)
+        let took = now.count == want.count && zip(now, want).allSatisfy { $0.isSame($1) }
+        if !took { Log.io("desktop: Finder's selection not set (\(describeError(r)))") }
+        return took
+    }
+
+    /// A key Finder applies to its selection: sent only when that selection is the icon read; otherwise not at all.
+    static func sendForIcon(_ g: KeyboardGesture) {
+        guard lines == nil, let c = current, let item = items().first(where: { $0.element.isSame(c) }), !item.isWidget,
+              let desk = desktopGroup() else {
+            Log.io("desktop: \(g.identifier) not sent; not on an icon")
+            Tones.edge(); return
+        }
+        func readIsSelected() -> Bool {
+            let sel = desk.elements(kAXSelectedChildrenAttribute)
+            return sel.count == 1 && sel[0].isSame(c)
+        }
+        if !readIsSelected() { selectInFinder(item) }
+        guard readIsSelected() else {
+            Log.io("desktop: \(g.identifier) not sent; the icon read isn't Finder's selection")
+            Tones.edge()
+            Speech.speakMessage(String(localized: "could not select that icon", comment: "Spoken message: a key that acts on the selected desktop icon was not sent"))
+            return
+        }
+        g.send()
+    }
+
     /// On an item: TurnOver's cursor there (the context menu key opens its menu), said with its kind and place.
     private static func land(_ all: [Item], _ i: Int, interrupt: Bool = true) {
         let item = all[i]
         current = item.element
+        selectInFinder(item)
         ObjectNavigator.shared.place(item.element)
         Tones.focusTick()
         if interrupt { Speech.cancel() }
