@@ -20,6 +20,9 @@ public final class AXHandler {
     var observers: [pid_t: AXObserver] = [:]
     var workspaceTokens: [NSObjectProtocol] = []
     public var activePid: pid_t = 0   // (settable: the tests play an application)
+    /// An app module's look at its own process's notifications, by pid, given only the name: Signal's events
+    /// (SignalFilter, 14 Nov 2026) use the observer TurnOver already has rather than a second one. Keep it cheap.
+    public var notificationTaps: [pid_t: (String) -> Void] = [:]
     var focusWindow: AXUIElement?
     var lastForegroundTitle = ""
     var lastSelectionReport: (AXUIElement, Date)?

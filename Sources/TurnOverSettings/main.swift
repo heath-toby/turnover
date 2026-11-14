@@ -1138,6 +1138,14 @@ struct OtherAppsView: View {
                 Text("Big Picture makes Steam open a debugging port on this Mac while it runs, which other programs here could use too. Off removes it. Steam needs restarting after this is turned on.").font(.caption)
                 Button("Restart Steam") { model.setSpecial("_restartSteam", true) }
             }
+            // Signal's announcements, the tester's VoiceOver Signal Filter's switches (14 Nov 2026).
+            Section("Signal") {
+                Toggle("Say when a message is sent", isOn: model.bool("signal", "announceSent"))
+                Toggle("Read messages as they arrive", isOn: model.bool("signal", "announceReceived"))
+                Toggle("Say when someone is typing", isOn: model.bool("signal", "announceTyping"))
+                Toggle("Say when someone stops typing", isOn: model.bool("signal", "announceTypingStopped"))
+                Text("In Signal and Signal Beta. Messages are read in the open conversation, even with Signal behind another app; sending and typing are said while Signal is in front.").font(.caption)
+            }
             if apps.isEmpty {
                 Text("No app has asked to speak through TurnOver yet. A game or another program can ask; it appears here, and you choose whether it may.").font(.caption)
             } else {

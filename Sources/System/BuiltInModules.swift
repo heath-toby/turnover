@@ -34,6 +34,8 @@ public enum BuiltInModules {
         h.register(CalculatorAppModule.self, for: CalculatorAppModule.bundleID)
         h.register(LaunchBarAppModule.self, for: LaunchBarAppModule.bundleID)
         h.register(SpotifyAppModule.self, for: SpotifyAppModule.bundleID)
+        // Signal: the tester's Signal Filter announcements over general web reading (14 Nov 2026).
+        for b in SignalAppModule.bundleIDs { h.register(SignalAppModule.self, for: b) }
         h.register(MapsAppModule.self, for: MapsAppModule.bundleID)
         h.register(FaceTimeAppModule.self, for: FaceTimeAppModule.bundleID)
         h.register(FreeformAppModule.self, for: FreeformAppModule.bundleID)

@@ -515,6 +515,28 @@ public struct Config: Codable {
             try c.encode(panelFontSize, forKey: .panelFontSize)
         }
     }
+    /// Signal's announcements (SignalFilter, 14 Nov 2026): the tester's VoiceOver Signal Filter's switches, all on by
+    /// default as there.
+    public struct Signal: Codable, Equatable {
+        public var announceSent = true
+        public var announceReceived = true
+        public var announceTyping = true
+        public var announceTypingStopped = true
+        public init() {}
+        enum Keys: String, CodingKey { case announceSent, announceReceived, announceTyping, announceTypingStopped }
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: Keys.self)
+            announceSent = (try? c.decodeIfPresent(Bool.self, forKey: .announceSent)) ?? true
+            announceReceived = (try? c.decodeIfPresent(Bool.self, forKey: .announceReceived)) ?? true
+            announceTyping = (try? c.decodeIfPresent(Bool.self, forKey: .announceTyping)) ?? true
+            announceTypingStopped = (try? c.decodeIfPresent(Bool.self, forKey: .announceTypingStopped)) ?? true
+        }
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encode(announceSent, forKey: .announceSent); try c.encode(announceReceived, forKey: .announceReceived)
+            try c.encode(announceTyping, forKey: .announceTyping); try c.encode(announceTypingStopped, forKey: .announceTypingStopped)
+        }
+    }
     /// The rising tide: which applications TurnOver leads in; VoiceOver has the rest (NVDA: sleep mode, inverted).
     public struct Applications: Codable {
         // Word is a preview in the 1.0 beta, off until the user turns it on (TurnOver menu, Applications).
@@ -1002,6 +1024,8 @@ public struct Config: Codable {
     public var games = Games()
     public var sounds = Sounds()
     public var mouse = Mouse()
+    /// Signal's announcements (SignalFilter).
+    public var signal = Signal()
     /// Per-application settings, by bundle identifier, as the app module defines them.
     public var apps: [String: [String: String]] = [:]
 
@@ -1013,7 +1037,7 @@ public struct Config: Codable {
     /// A settings file written by an older TurnOver lacks the sections added since; each one falls back
     /// to its defaults instead of the whole file being thrown away (which lost the owner's rate once). Keys it has
     /// that are gone ("addons", the add-on loader's list) are ignored.
-    enum Keys: String, CodingKey { case general, speech, keyboard, editableText, presentation, virtualBuffers, applications, documentFormatting, braille, recognition, games, sounds, mouse, apps, vision }
+    enum Keys: String, CodingKey { case general, speech, keyboard, editableText, presentation, virtualBuffers, applications, documentFormatting, braille, recognition, games, sounds, mouse, apps, vision, signal }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
         general = (try? c.decodeIfPresent(General.self, forKey: .general)) ?? General()
@@ -1031,6 +1055,7 @@ public struct Config: Codable {
         mouse = (try? c.decodeIfPresent(Mouse.self, forKey: .mouse)) ?? Mouse()
         apps = (try? c.decodeIfPresent([String: [String: String]].self, forKey: .apps)) ?? [:]
         vision = (try? c.decodeIfPresent(Vision.self, forKey: .vision)) ?? Vision()
+        signal = (try? c.decodeIfPresent(Signal.self, forKey: .signal)) ?? Signal()
     }
 
     public static var url: URL {

@@ -36,6 +36,7 @@ extension AXHandler {
         }
         guard running else { return }
         let pid = element.pid
+        notificationTaps[pid]?(name)
         // A banner from Notification Centre (a message, a calendar alert): read as it appears, as VoiceOver and NVDA do
         // (a tester, 6 Oct 2026). The banner is a group of subrole AXNotificationCenterAlert, with title, subtitle and
         // body texts, in a "Notification Center" window (measured 8 Oct 2026).
