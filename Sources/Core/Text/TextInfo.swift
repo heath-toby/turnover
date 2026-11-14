@@ -560,12 +560,41 @@ open class AXTextInfo: TextInfo {
         // are drawn on different rows, the row the caret is on is found from where the text is drawn, as for Word.
         // Two questions for a long line, none for a short one.
         let a = r.location, b = r.location + r.length
+        // Chromium (Signal's message box, measured 14 Nov 2026) gives every character the same bounds, so the drawn-row
+        // check can't see the rows; its text-marker lines are the real rows: walked from the start, summing lengths.
+        if r.length > 40, let row = Self.markerRow(containing: probe, in: textElement, within: (a, b)) { return row }
         if r.length > 40, let first = Self.drawnRow(of: a, in: textElement), let last = Self.drawnRow(of: max(a, b - 2), in: textElement),
            abs(first.mid - last.mid) >= max(first.height, last.height) / 2,
            let row = DrawnRows.drawnRow(probe: probe, guess: (a, b), length: n, text: { [self] x, y in offsetText(x, y) }, row: { Self.drawnRow(of: $0, in: self.textElement) }) {
             return row
         }
         return (a, b)
+    }
+
+    /// The row holding `offset` from the element's text-marker lines (Chromium), inside the app's line `within`; nil
+    /// when the element has no text markers or its rows don't add up to its text. At most 300 rows walked.
+    static func markerRow(containing offset: Int, in e: AXUIElement, within: (Int, Int)) -> (Int, Int)? {
+        func p(_ name: String, _ arg: AnyObject) -> AnyObject? {
+            var v: CFTypeRef?
+            return AXUIElementCopyParameterizedAttributeValue(e, name as CFString, arg, &v) == .success ? v as AnyObject : nil
+        }
+        // WebKit maps an index to a marker, and its lines are right already: only Chromium, which can't, is walked.
+        if p("AXTextMarkerForIndex", offset as NSNumber) != nil { return nil }
+        guard let whole = p("AXTextMarkerRangeForUIElement", e), CFGetTypeID(whole) == AXTextMarkerRangeGetTypeID() else { return nil }
+        var marker: AnyObject = AXTextMarkerRangeCopyStartMarker(whole as! AXTextMarkerRange)
+        var at = 0
+        for _ in 0..<300 {
+            guard let line = p("AXLineTextMarkerRangeForTextMarker", marker), let len = (p("AXLengthForTextMarkerRange", line) as? NSNumber)?.intValue, len > 0 else { return nil }
+            let end = at + len
+            if offset < end || end >= within.1 {
+                // Only rows inside the app's line count: anything else means the two ways of counting disagree.
+                guard at >= within.0, end <= within.1 + 1, at < end else { return nil }
+                return (at, min(end, within.1))
+            }
+            guard let lineEnd = p("AXNextLineEndTextMarkerForTextMarker", marker), let next = p("AXNextTextMarkerForTextMarker", lineEnd), !CFEqual(next, marker) else { return nil }
+            marker = next; at = end
+        }
+        return nil
     }
 
     /// Where a character is drawn: the middle of its row and the row's height, or nil if the app won't say.

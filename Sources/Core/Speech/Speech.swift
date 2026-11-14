@@ -900,8 +900,22 @@ public enum Speech {
             enqueue(text, language: lang)
             return
         }
+        // The line's language, as reading would use (the tester, 14 Nov 2026): worked out from the caret's line as each
+        // word ends, and kept for the letters typed after it in the same field.
+        if config.speech.autoLanguageSwitching, let field = API.focusObject?.element {
+            if letters.count >= 2, let caret = API.caretObject.flatMap({ try? $0.makeTextInfo(.caret) }) {
+                caret.expand(.line)
+                typingLanguage = (field, caret.language())
+            }
+            if let t = typingLanguage, CFEqual(t.field, field), let lang = t.language, Languages.voice(for: lang) != nil {
+                enqueue(text, language: lang, decided: true)
+                return
+            }
+        }
         enqueue(text)
     }
+    /// The language of the line being typed in, and its field (echoSpeech).
+    private static var typingLanguage: (field: AXUIElement, language: String?)?
 
     /// `wordBefore`: the word before the caret as the field now holds it. After Backspace the letters typed no longer
     /// match the field ("cat", Backspace, space said nothing, 4 Oct 2026); the field's own text is the truth.
