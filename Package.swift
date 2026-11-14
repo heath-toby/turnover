@@ -143,7 +143,8 @@ let package = Package(
             path: "Sources/TurnOverControl",
             linkerSettings: [.linkedFramework("Security")]
         ),
-        // The voice list's order and names (VoiceOrder.swift): Foundation only, so Settings can link it as TurnOver does.
+        // The voice list's order and names (VoiceOrder.swift) and the speech dictionaries' files and System Settings'
+        // pronunciations (SpeechDictionaries.swift): Foundation only, so Settings can link it as TurnOver does.
         .target(name: "TurnOverVoices", path: "Sources/TurnOverVoices"),
         // macOS's own braille display drivers, reached from Objective-C (docs/BRAILLE-PLAN.md).
         .target(

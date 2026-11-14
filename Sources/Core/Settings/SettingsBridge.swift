@@ -27,9 +27,16 @@ public enum SettingsBridge {
         case "Documents": return String(localized: "Documents", comment: "A section of the Settings window")
         case "Braille": return String(localized: "Braille", comment: "A section of the Settings window")
         case "Vision": return String(localized: "Vision", comment: "A section of the Settings window")
+        case "General": return String(localized: "General", comment: "A section of the Settings window")
+        case "Screen recognition": return String(localized: "Screen recognition", comment: "A section of the Settings window")
+        case "Other apps' speech": return String(localized: "Other apps' speech", comment: "A section of the Settings window")
+        case "Screen reader behaviour": return String(localized: "Screen reader behaviour", comment: "A section of the Settings window")
+        case dictionariesSection: return String(localized: "Speech dictionaries", comment: "A section of the Settings window")
         default: return section
         }
     }
+    /// The Speech dictionaries section; "Speech dictionaries|voice-…" opens it on one dictionary (SpeechDictionaries.Scope.id).
+    nonisolated public static let dictionariesSection = "Speech dictionaries"
     /// An EQ slider's name, as a change announces it: from a list in the window, so the catalog has the three
     /// spelled out (a tester heard "Treble" under a Russian interface, 8 Nov 2026).
     nonisolated public static func eqName(_ name: String) -> String {
@@ -324,7 +331,7 @@ public enum SettingsBridge {
             var message = String(localized: "Settings imported from \(name)", comment: "Settings imported: %@ is the file's name")
             if imported.droppedKeys > 0 {
                 Log.info("settings: \(imported.droppedKeys) imported keys that open apps, scripts or Shortcuts left out")
-                message += ". " + String(localized: "Keys that open an app, a script or a Shortcut were left out: give them again in the TurnOver menu, Keys, My own keys.", comment: "Settings imported without the keys that run things on this Mac")
+                message += ". " + String(localized: "Keys that open an app, a script or a Shortcut were left out: give them again in the TurnOver menu, Settings, Keyboard shortcuts, My own keys.", comment: "Settings imported without the keys that run things on this Mac")
             }
             tell(message)
         case .failure(let why):

@@ -202,7 +202,13 @@ public enum Speech {
         // No player (the plugin tool and the tests start no speech): nothing to say it with (a plugin list crashed
         // here, 13 Oct 2026).
         guard player != nil else { completion?(false); return }
-        let (said, ipa) = PronunciationDictionary.phonemes(in: PronunciationDictionary.apply(s))
+        // The dictionaries of the voice that will say it and its language (NVDA's order: voice, language, default),
+        // then System Settings' (14 Nov 2026).
+        let dictionaryVoice = kokoro ?? voice ?? config.speech.voice
+        let dictionaryLanguage = voice != nil ? language : Languages.mainLanguage
+        let (said, ipa) = PronunciationDictionary.phonemes(in: PronunciationDictionary.apply(
+            s, voice: dictionaryVoice, language: dictionaryLanguage, system: config.speech.systemPronunciations,
+            app: NSWorkspace.shared.frontmostApplication?.bundleIdentifier))
         if said != s, Self.logsWords, !privateNext, !redactNext { Log.io("say, as pronounced: \(said.prefix(160))") }
         // Another language's own pitch and volume, from the languages table (a tester, 14 Nov 2026).
         let langPitch = voice == nil ? nil : Languages.pitch(for: language).map { 0.5 * pow(4, min(1, max(0, $0))) }

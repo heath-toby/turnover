@@ -7,6 +7,7 @@ import Foundation
 import AVFoundation
 import AppKit
 import TurnOverSpeech
+import TurnOverVoices
 
 public struct MenuItem {
     public enum Kind {
@@ -315,13 +316,12 @@ public final class TurnOverMenu {
     // MARK: The tree
 
     /// The menu (docs/MENU-PLAN.md, 12 Oct 2026: "This app" first), in NVDA's shape since 21 Oct 2026: no settings in
-    /// the menu, every setting in the Settings window; the menu is This app, Settings, Keys, Tools, Help, Support and
+    /// the menu, every setting in the Settings window; the menu is This app, Settings, Tools, Help, Support and
     /// Quit ("way too busy", Oliver; "should all settings be moved there and the menu cleaned up", a contributor).
     private func rootItems() -> [MenuItem] {
         var items: [MenuItem] = []
         if let app = thisAppItem() { items.append(app) }
-        items.append(MenuItem("Settings", .action { SettingsBridge.open() }, hint: "Every setting, in a window with sections down the side"))
-        items.append(MenuItem("Keys", .submenu { self.keysItems() }, hint: "Every shortcut here, keyboard help, and your own keys"))
+        items.append(MenuItem("Settings", .submenu { self.settingsItems() }, hint: "The Settings window's sections, speech dictionaries and keyboard shortcuts"))
         items.append(MenuItem("Tools", .submenu { self.toolItems() }, hint: "The apps TurnOver reads, the VoiceOver settings copy, feedback, force quit, plugins"))
         items.append(MenuItem("Help", .submenu { self.helpItems() }, hint: "The guide, about TurnOver, updates and previous builds"))
         items.append(Self.supportItem)
@@ -454,6 +454,41 @@ public final class TurnOverMenu {
                                   hint: "Tell the project what's wrong, build \(name)'s module with your AI or by hand, or ask for something TurnOver needs"))
             return items
         })
+    }
+
+    /// Settings (14 Nov 2026, Oliver: "in NVDA's style"): NVDA's Preferences submenu. Each section of the Settings
+    /// window opens it there; then the speech dictionaries, and the keys (NVDA keeps Input Gestures under
+    /// Preferences), which were a "Keys" item of their own at the top until then.
+    private func settingsItems() -> [MenuItem] {
+        // The window's sidebar, in its order (Sources/TurnOverSettings/main.swift, Pane), without Speech dictionaries:
+        // that one has its own submenu below.
+        let sections = ["General", "Speech", "Sounds", "Braille", "Vision", "Keyboard", "Mouse", "Item details", "Web pages", "Documents",
+                        "Screen recognition", "Other apps' speech", "Screen reader behaviour"]
+        var items = sections.map { section in
+            MenuItem(verbatim: SettingsBridge.sectionName(section), .action { SettingsBridge.open(section: section) })
+        }
+        items.append(MenuItem("Speech dictionaries", .submenu { self.dictionaryItems() }, hint: "Words said your way: for every voice, for this language, or for this voice"))
+        items.append(MenuItem("Keyboard shortcuts", .submenu { self.keysItems() }, hint: "Every shortcut here, keyboard help, and your own keys"))
+        return items
+    }
+
+    /// The three speech dictionaries of the voice in use, each opening the Settings window on it.
+    private func dictionaryItems() -> [MenuItem] {
+        let voice = AVSpeechSynthesisVoice(identifier: config.speech.voice)
+        let languageCode = voice.map { Languages.base($0.language) } ?? ""
+        let languageName = Locale.current.localizedString(forLanguageCode: languageCode) ?? languageCode
+        func open(_ scope: SpeechDictionaries.Scope) { SettingsBridge.open(section: SettingsBridge.dictionariesSection + "|" + scope.id) }
+        var items = [MenuItem("Default dictionary", .action { open(.standard) }, hint: "For all voices and languages")]
+        if !languageCode.isEmpty {
+            items.append(MenuItem("This language's dictionary (\(languageName))", .action { open(.language(languageCode)) },
+                                  hint: "For every voice speaking this language"))
+        }
+        // The voice that speaks: a natural voice chosen for everything, else the Mac voice (as Speech picks the dictionary).
+        let natural = KokoroVoice.mode == "everything" ? KokoroVoice.voiceEntries.first { $0.id == "external:" + KokoroVoice.voice } : nil
+        let voiceID = natural?.id ?? config.speech.voice
+        items.append(MenuItem("This voice's dictionary (\(natural?.name ?? voice?.name ?? config.speech.voice))", .action { open(.voice(voiceID)) },
+                              hint: "For this voice only"))
+        return items
     }
 
     private func keysItems() -> [MenuItem] {

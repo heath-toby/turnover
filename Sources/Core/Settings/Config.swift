@@ -225,6 +225,9 @@ public struct Config: Codable {
         /// voice): kept as the voice is left and put back as it is chosen again (Oliver, 2 Nov 2026: "rate, volume,
         /// and the eq should be specific to each voice"). `rate`, `volume` and the EQ above are the voice in use's.
         public var voiceTunings: [String: VoiceTuning] = [:]
+        /// The pronunciations of System Settings (Accessibility, Read & Speak, Pronunciation) used too, after
+        /// TurnOver's own dictionaries (14 Nov 2026: "learn" the ones already made there).
+        public var systemPronunciations = true
         public struct VoiceTuning: Codable, Equatable {
             public var rate: Float, volume: Int, bass: Double, middle: Double, treble: Double
         }
@@ -238,7 +241,7 @@ public struct Config: Codable {
         }
         public init() {}
         // Each field falls back to its default, so a setting added later never resets the voice and rate.
-        enum Keys: String, CodingKey { case voice, rate, symbolLevel, sayCapForCapitals, volume, autoLanguageSwitching, languageVoices, languageRates, languagePitches, languageVolumes, detectLanguages, readNumbers, repeatedSymbols, deletionFeedback, capitalTone, nameEmoticons, outputDevice, capitalPitch, ducking, pitch, rotorVoices, bass, middle, treble, voiceTunings }
+        enum Keys: String, CodingKey { case voice, rate, symbolLevel, sayCapForCapitals, volume, autoLanguageSwitching, languageVoices, languageRates, languagePitches, languageVolumes, detectLanguages, readNumbers, repeatedSymbols, deletionFeedback, capitalTone, nameEmoticons, outputDevice, capitalPitch, ducking, pitch, rotorVoices, bass, middle, treble, voiceTunings, systemPronunciations }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
             voice = (try? c.decodeIfPresent(String.self, forKey: .voice)) ?? voice
@@ -266,6 +269,7 @@ public struct Config: Codable {
             middle = (try? c.decodeIfPresent(Double.self, forKey: .middle)) ?? middle
             treble = (try? c.decodeIfPresent(Double.self, forKey: .treble)) ?? treble
             voiceTunings = (try? c.decodeIfPresent([String: VoiceTuning].self, forKey: .voiceTunings)) ?? voiceTunings
+            systemPronunciations = (try? c.decodeIfPresent(Bool.self, forKey: .systemPronunciations)) ?? systemPronunciations
         }
         public func encode(to encoder: Encoder) throws {
             var c = encoder.container(keyedBy: Keys.self)
@@ -279,7 +283,7 @@ public struct Config: Codable {
             try c.encode(capitalPitch, forKey: .capitalPitch); try c.encode(ducking, forKey: .ducking); try c.encode(pitch, forKey: .pitch)
             try c.encode(rotorVoices, forKey: .rotorVoices)
             try c.encode(bass, forKey: .bass); try c.encode(middle, forKey: .middle); try c.encode(treble, forKey: .treble)
-            try c.encode(voiceTunings, forKey: .voiceTunings)
+            try c.encode(voiceTunings, forKey: .voiceTunings); try c.encode(systemPronunciations, forKey: .systemPronunciations)
         }
         /// The EQ as the speech player takes it.
         public var eq: [Float] { [Float(bass), Float(middle), Float(treble)] }

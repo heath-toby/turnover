@@ -33,12 +33,14 @@ TurnOver Key, listens for it from login.
 
 - **This app:** who reads the app in front, and that app's own commands. Apps whose support is new say
   "experimental support".
-- **Settings:** speech (with the say all voice), keyboard, braille, documents, web pages, sounds, and Experimental.
+- **Settings:** each section of the Settings window, opening it there: speech (with the say all voice), keyboard,
+  braille, documents, web pages, sounds and the rest. Then **Speech dictionaries** (the default dictionary, this
+  language's and this voice's) and **Keyboard shortcuts** (every shortcut, keyboard help, and your own keys), as
+  NVDA keeps them under Preferences.
   In Sounds, "Where sounds come from" places each sound where its item is on the screen: in the middle, across the
   screen in stereo, or in 3D, across and up or down it, as VoiceOver's positional audio does (best with headphones).
   "A touch of reverb" adds a small room behind the sounds; speech is never changed.
 - **Apps:** which apps TurnOver reads.
-- **Keys:** every shortcut, keyboard help, and your own keys.
 - **Send feedback, About and updates, Quit.**
 
 In the menu, Right or Return opens a submenu or changes a setting; on a number (rate, volume) Left turns it down.

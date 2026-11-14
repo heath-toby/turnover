@@ -366,7 +366,7 @@ if let dir = opt("--keys-reference") {
         }
         var md = "# \(title)\n\n"
         md += "This page is made from TurnOver's own command tables (`turnover-coretest --keys-reference`, \(df.string(from: Date()))), so it matches the build it came with. Don't edit it by hand.\n\n"
-        md += intro[style]! + " Keyboard help (the TurnOver menu, Keys) says what any key does without doing it; Command Control Comma, then Slash, lists the keys that work where you are.\n\n"
+        md += intro[style]! + " Keyboard help (the TurnOver menu, Settings, Keyboard shortcuts) says what any key does without doing it; Command Control Comma, then Slash, lists the keys that work where you are.\n\n"
         md += "Switch styles with Command Control Comma, then K. TurnOver's own commands behind Command Control Comma are the same in every style: see [The TurnOver layer](the-turnover-layer.html).\n"
         for category in sections.keys.sorted(by: { (rank($0), $0) < (rank($1), $1) }) {
             md += "\n## \(category)\n\n| Key | What it does |\n|---|---|\n"

@@ -17,7 +17,7 @@ VoiceOver Utility's Commanders and Navigation choices are in Settings, Keyboard:
 
 - **Keyboard Commander** and **Commander key**: right Option and a letter runs that letter's command (the switch, or
   VO Shift K, turns it on and off). It can be left Option, right or left Command, or right Control instead. Give a
-  letter its command in the TurnOver menu, Keys, My own keys, Give a key to a command, then press the Commander key and
+  letter its command in the TurnOver menu, Settings, Keyboard shortcuts, My own keys, Give a key to a command, then press the Commander key and
   the letter. Keypad keys are given commands the same way; trackpad gestures with Give a trackpad gesture to a command.
   With a Command or Control key as the Commander, a letter you give a command no longer reaches the app with that key:
   with Left Command, giving T a command takes Command T (a new tab) away from your apps. The Commander key and T tells
@@ -78,9 +78,9 @@ Page Down change the speed for that say all. Every other key is NVDA's.
 ## In every style
 
 - TurnOver's own commands behind Command Control Comma never change with the style.
-- Keyboard help (the TurnOver menu, Keys) says what any key does without doing it.
+- Keyboard help (the TurnOver menu, Settings, Keyboard shortcuts) says what any key does without doing it.
 - Command Control Comma, then Slash, lists every key that works where you are.
-- Your own keys (the TurnOver menu, Keys, My own keys) sit on top of any style.
+- Your own keys (the TurnOver menu, Settings, Keyboard shortcuts, My own keys) sit on top of any style.
 
 ## Keys, speech and announcements
 
