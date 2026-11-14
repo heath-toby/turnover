@@ -295,6 +295,19 @@ public final class GlobalCommands: ScriptableObject {
                          n.isEmpty || n == v ? "" : String(localized: "build \(n)", comment: "An application's build number: %@ is the build")]
             Speech.speakMessage(words.filter { !$0.isEmpty }.joined(separator: ", "))
         }
+        // NVDA's Speech History add-on (14 Nov 2026): back and forward through what was said, and copy the one you're on.
+        script("speechHistoryPrevious", String(localized: "Speech history: says the thing said before (NVDA's Speech History add-on)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:control+shift+f11"], category: sys) { _ in SpeechHistory.move(-1) }
+        script("speechHistoryNext", String(localized: "Speech history: says the thing said after", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:control+shift+f12"], category: sys) { _ in SpeechHistory.move(1) }
+        script("speechHistoryCopy", String(localized: "Speech history: copies the thing you are on, as said", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:control+f12"], category: sys) { _ in SpeechHistory.copy() }
+        // Recording (the tester, 14 Nov 2026): several things said, copied together. TO Shift F11 is VoiceOver's Screen
+        // Curtain in the Mac style (there TurnOver's own curtain key is NVDA's TO Control Escape), so in the Mac style
+        // recording starts and stops on TO Shift F12 pressed twice.
+        script("speechRecord", String(localized: "Starts recording what TurnOver says; again, stops", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:turnover+shift+f11"], category: sys) { _ in SpeechHistory.toggleRecording() }
+            .isAvailable = { config.general.windowsKeys }
+        script("speechRecordCopy", String(localized: "Copies the speech recorded, a line each; in the Mac style, pressed twice starts or stops recording", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:turnover+shift+f12"], category: sys) { _ in
+            if config.general.macKeys, ScriptHandler.lastScriptRepeatCount > 0 { SpeechHistory.toggleRecording(); return }
+            SpeechHistory.copyRecording()
+        }
         script("jaws_speechHistory", String(localized: "Lists what TurnOver said lately, newest first; Return says one again (JAWS: Insert+Space, H)", comment: "A command, as the key list and keyboard help say it"), gestures: [], category: sys) { _ in
             let recent = Speech.history.value.suffix(100).reversed().map(\.text).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             guard !recent.isEmpty else { Speech.speakMessage(String(localized: "nothing said yet", comment: "The speech history is empty")); return }

@@ -55,6 +55,17 @@ go through the languages; Tab goes on to the chosen one's voice, rate, pitch and
 A language you haven't set up uses its best voice at your own rate, pitch and volume. Each change is heard in that
 language as you make it.
 
+## Speech history
+
+As NVDA's Speech History add-on: **Control Shift F11** says the thing said before, **Control Shift F12** the
+thing after, and **Control F12** copies the one you are on, to paste into a report. New speech puts you back at the
+newest. Private speech (a password, a code, what you type) is never kept.
+
+To copy several things at once, record them: **TO Shift F11** starts recording, and again stops it; **TO Shift F12**
+copies what was recorded, a line each, as written where the text came with its own words (a message, a line of a
+document). With VoiceOver keys, TO Shift F11 is Screen Curtain, so press TO Shift F12 twice to start or stop
+recording.
+
 ## How text is said
 
 Settings has VoiceOver's and NVDA's choices for how text is read:

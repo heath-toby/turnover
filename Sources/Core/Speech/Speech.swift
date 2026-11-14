@@ -188,7 +188,11 @@ public enum Speech {
         else if redactNext { Log.io("say: (\(redactLabel), \(s.count) characters)") }
         else if Self.logsWords { Log.io("say\(voice != nil ? " [\(language ?? "")]" : ""): \(s.prefix(160))") }
         else { Log.io("say\(voice != nil ? " [\(language ?? "")]" : ""): [\(s.count) characters]") }
-        if !privateNext { history.value.append((Date(), s)); if history.value.count > 3000 { history.value.removeFirst(500) } }
+        if !privateNext, !historyQuiet {
+            history.value.append((Date(), s)); if history.value.count > 3000 { history.value.removeFirst(500) }
+            // The recording (TO Shift F11): the text as written where it came with it, else as spoken.
+            SpeechHistory.recorded(spoken: s, written: lastRaw)
+        }
         if let pitch { Log.io("say: (pitch raised to \(Int(pitch * 100)) percent)") }
         // Kokoro (the maintainer's Mac): say all, or everything, in a natural voice; another language keeps its own voice, and
         // a capital said higher keeps the Mac voice (Kokoro has no pitch).
@@ -212,6 +216,8 @@ public enum Speech {
                      onStart: tone ? Self.withCapitalTone(start) : start, completion: completion)
     }
     private static var pitchNext: Float?
+    /// Speech that isn't added to the history: the history itself, read back (SpeechHistory).
+    static var historyQuiet = false
     /// `onStart` with the capital's tone first, played on the main thread.
     nonisolated private static func withCapitalTone(_ onStart: (@Sendable () -> Void)?) -> @Sendable () -> Void {
         let at = cancels.value
