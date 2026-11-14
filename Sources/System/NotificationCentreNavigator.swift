@@ -326,12 +326,18 @@ package enum NotificationCentreNavigator {
         if let w = widget { if DesktopNavigator.pressLine(w.lines[w.index].element) { widget = nil } else { Tones.edge() }; return }
         let gs = groups()
         guard !gs.isEmpty else { return }
-        let (g, i) = place(in: gs)
+        let (g, i, heard) = heardPlace(in: gs)
         let item = gs[g].items[min(i, gs[g].items.count - 1)]
+        // A press only on what was heard: the remembered one gone, resolvePlace fell back to an app's first, and
+        // Space pressed it unheard (a review, 14 Nov 2026).
+        func pressHeard() {
+            guard heard else { land(gs, g, i, announceGroup: groupName != gs[g].name); Tones.edge(); return }
+            press(item)
+        }
         switch item.kind {
         case .stack: expand(item.element, app: gs[g].name)
         case .widget: if !enterWidget(item, name: gs[g].name) { press(item) }
-        case .button: press(item)
+        case .button: pressHeard()
         case .notification:
             // In an opened app: Space closes it up again (its Show Less button), as it opened.
             if let less = gs[g].items.first(where: { $0.kind == .button && $0.words.lowercased().contains("show less") }) {
@@ -341,7 +347,7 @@ package enum NotificationCentreNavigator {
                     let now = groups()
                     if let ng = now.firstIndex(where: { $0.name == gs[g].name }) { itemWords = nil; itemIndex = nil; land(now, ng, 0, announceGroup: false, interrupt: false) }
                 }
-            } else { press(item) }
+            } else { pressHeard() }
         }
     }
 
@@ -399,7 +405,14 @@ package enum NotificationCentreNavigator {
     static func clearApp() {
         let gs = groups()
         guard !gs.isEmpty else { return }
-        let (g, _) = place(in: gs)
+        // As Delete: not while a landing is pending (a second press cleared the first app, unheard), and only the app
+        // heard, not resolvePlace's fallback when the remembered one's notifications have gone (a review, 14 Nov 2026).
+        if Date() < closeLandingUntil {
+            Log.io("notification centre: Command-Delete before the landing was said; not cleared")
+            Tones.edge(); return
+        }
+        let (g, i, heard) = heardPlace(in: gs)
+        guard heard else { land(gs, g, i, announceGroup: groupName != gs[g].name); Tones.edge(); return }
         let group = gs[g]
         guard group.items.contains(where: { $0.kind == .notification || $0.kind == .stack }) else { Tones.edge(); return }
         var done = false
@@ -415,6 +428,7 @@ package enum NotificationCentreNavigator {
         Tones.press()
         Speech.speakMessage(String(localized: "\(group.name) cleared", comment: "An app's notifications cleared: %@ is the app"))
         groupName = nil; itemWords = nil; itemIndex = nil
+        closeLandingUntil = Date().addingTimeInterval(0.7)   // past the landing below
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             let now = groups()
             guard !now.isEmpty else { return }
