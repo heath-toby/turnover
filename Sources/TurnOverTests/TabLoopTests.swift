@@ -97,4 +97,11 @@ func tabLoopTests() {
         expect(SystemPrompts.rest(afterFailures: 3), 5, "the third in a row rests it")
         check(SystemPrompts.rest(afterFailures: 4) > 0, "and it keeps resting while it fails")
     }
+    test("system prompts: the same prompt asked again after its window closed is read again") {
+        let read: [(window: Int, key: String)] = [(1, "pid|Touch ID")]
+        check(SystemPrompts.readElsewhere("pid|Touch ID", by: 2, in: read, open: { $0 == 1 }, same: ==), "a new window while the first is open: not read")
+        check(!SystemPrompts.readElsewhere("pid|Touch ID", by: 2, in: read, open: { _ in false }, same: ==), "cancelled and asked again: read, and given the keyboard")
+        check(!SystemPrompts.readElsewhere("pid|Touch ID", by: 1, in: read, open: { _ in true }, same: ==), "its own window is no repeat")
+        check(!SystemPrompts.readElsewhere("pid|other", by: 2, in: read, open: { _ in true }, same: ==), "other words are read")
+    }
 }
