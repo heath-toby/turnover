@@ -834,7 +834,9 @@ public enum Mouse {
     /// The topmost element at `p` is `target`, inside it, or one of its three nearest ancestors.
     public static func pointHits(_ p: CGPoint, _ target: AXUIElement) -> Bool {
         let sys = AXUIElementCreateSystemWide()
+        // The system-wide timeout is every app's default (Core sets it to 1 s): lowered here only for this question.
         AXUIElementSetMessagingTimeout(sys, 0.5)
+        defer { AXUIElementSetMessagingTimeout(sys, 1.0) }
         var hit: AXUIElement?
         guard AXUIElementCopyElementAtPosition(sys, Float(p.x), Float(p.y), &hit) == .success, let hit else { return false }
         var x: AXUIElement? = hit, hops = 0

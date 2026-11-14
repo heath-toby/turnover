@@ -119,9 +119,11 @@ public enum NotificationCentrePanel {
         func look() {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 guard n == watching, open, openPid == centre else { return }
+                // (No timeout set on the system-wide element: that is every app's default, which it lowered to 0.25 s
+                // for the rest of the session, and hung apps were never rested: a review, 14 Nov 2026.)
                 let sys = AXUIElementCreateSystemWide()
-                AXUIElementSetMessagingTimeout(sys, 0.25)
                 guard let app = sys.element(kAXFocusedApplicationAttribute) else { look(); return }
+                AXUIElementSetMessagingTimeout(app, 0.25)
                 var pid: pid_t = 0
                 AXUIElementGetPid(app, &pid)
                 if pid == centre { seenCentre = true }

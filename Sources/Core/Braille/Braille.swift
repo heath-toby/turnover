@@ -528,7 +528,8 @@ public enum Braille {
             // The same item again (its value changed, another event): the window stays where the reader panned to.
             windowStart = sameItem && windows.contains(objectWindowStart) ? objectWindowStart : windowOrigin
             // A row panned back onto: its end, so a long row reads backwards too (a review, 14 Nov 2026).
-            if !sameItem, let t = objectEndWanted, Date().timeIntervalSince(t) < 1.5 { windowStart = windows.last ?? windowStart }
+            // (Not after a keyboard key since: Down or Tab after an edge at the list's top opened the next item at its end.)
+            if !sameItem, let t = objectEndWanted, Date().timeIntervalSince(t) < 1.5, InputManager.lastKeyDownAt == objectEndKeyAt { windowStart = windows.last ?? windowStart }
             if !sameItem { objectEndWanted = nil }
         } else {
             source = nil; text = ""; cursor = nil; selection = nil; windowStart = 0; lastObject = nil
@@ -544,6 +545,7 @@ public enum Braille {
     private static var objectOwnCell = 0
     /// A row panned back onto: its end shown when it comes (as a text line's is).
     private static var objectEndWanted: Date?
+    private static var objectEndKeyAt = Date.distantPast
     /// The item last shown, and where its window was (panned to, or placed).
     private static var lastObject: AXUIElement?
     private static var objectWindowStart = 0
@@ -722,6 +724,7 @@ public enum Braille {
             switch key {
             case .routing(let i):
                 let cell = routedCell(i)
+                if routedPastShown { Tones.edge(); return }   // nothing clicked that isn't shown
                 mk("route:\(cell < cellMap.count ? cellMap[cell] : (text as NSString).length)")
             case .key(let name):
                 switch keyMap[name] {
@@ -911,7 +914,7 @@ public enum Braille {
         guard case .text = source else {
             if !fromTimer, case .object(let o) = source, [.tableRow, .listItem, .treeViewItem, .cell, .tableCell].contains(o.role),
                !inGrid(o) {
-                objectEndWanted = forward ? nil : Date()
+                objectEndWanted = forward ? nil : Date(); objectEndKeyAt = InputManager.lastKeyDownAt
                 press(forward ? "downArrow" : "upArrow")
                 // The list's end: nothing moved, so the edge sound, as before.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -921,7 +924,9 @@ public enum Braille {
             }
             // Auto scroll at an item's end: stopped, not an edge sound every few seconds for ever. (Only an item's: a
             // message showing waits, above, and auto scroll went off three seconds after "auto scroll on".)
-            // A message source with nothing held (speech output mode, screen recognition): waits quietly for more.
+            // Screen recognition's result: on to its next line, as a pan by hand does. A message source with nothing held
+            // (speech output mode): waits quietly for more.
+            if fromTimer, modalShowing, let mk = modalKey { mk("downArrow"); return }
             if fromTimer, case .message = source { return }
             if fromTimer { autoScroll?.invalidate(); autoScroll = nil; Speech.speakMessage(String(localized: "auto scroll off", comment: "Spoken message")); return }
             Tones.edge(); return
@@ -1017,8 +1022,12 @@ public enum Braille {
     private static func routedCell(_ i: Int) -> Int {
         var end = windowEnd(windowStart)
         if let c = cursorCell, c == cells.count, end == cells.count { end += 1 }   // the cursor cell after the line's end
+        // Over the padding the place is the window's end, but what is there isn't shown: the caret goes there and
+        // nothing is pressed or said (a link starting the next window was pressed unseen: a review, 14 Nov 2026).
+        routedPastShown = windowStart + i > end || (windowStart + i == end && end < cells.count)
         return min(windowStart + i, end)
     }
+    private static var routedPastShown = false
 
     /// The caret (or the review cursor) to an offset in the text shown, as a routing key does.
     private static func routeToText(_ offset: Int) {
@@ -1045,13 +1054,13 @@ public enum Braille {
                 if config.braille.routingMovesCaret == "always" { r.updateCaret() }
             } else { r.updateCaret() }
             // The character routed to is said (NVDA's "speak character when routing cursor in text").
-            if config.braille.speakOnRouting {
+            if config.braille.speakOnRouting, !routedPastShown {
                 let c = r.copy(); c.expand(.character)
                 Speech.cancel()
                 Speech.speakTextInfo(c, unit: .character, reason: .caret)
             }
             // Only on a link or button: plain text has nothing to press, and saying so at every routing key would wear.
-            if let d = API.focusTreeInterceptor, !d.passThrough, let b = r as? BufferTextInfo, onActionable(b.element(at: r.start)),
+            if !routedPastShown, let d = API.focusTreeInterceptor, !d.passThrough, let b = r as? BufferTextInfo, onActionable(b.element(at: r.start)),
                let s = ScriptHandler.findScript(named: "activatePosition") {
                 _ = d
                 s.handler(KeyboardGesture(keyCode: 36, modifiers: [], characters: "\r", timestamp: 0, isRepeat: false, flags: []))

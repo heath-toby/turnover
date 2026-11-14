@@ -199,6 +199,7 @@ final class MenuNavigationPlugin: GlobalPlugin {
     }
 
     static func holdMenuBar() {
+        heldStatus = nil
         guard let pid = API.focusPid, let bar = AXUIElementCreateApplication(pid).element(kAXMenuBarAttribute) else { Tones.edge(); return }
         let titles = bar.elements(kAXChildrenAttribute)
         guard !titles.isEmpty else { Tones.edge(); return }
@@ -230,7 +231,7 @@ final class MenuNavigationPlugin: GlobalPlugin {
 
     private static func barKey(_ g: KeyboardGesture) {
         guard var h = heldBar else { g.send(); return }
-        guard API.focusPid == h.pid else { heldBar = nil; g.send(); return }
+        guard API.focusPid == h.pid else { heldBar = nil; heldStatus = nil; g.send(); return }   // (both: a stale status hold blocked refocus)
         switch g.keyName {
         case "leftArrow", "rightArrow":
             let j = h.index + (g.keyName == "rightArrow" ? 1 : -1)

@@ -188,7 +188,14 @@ public enum PluginChecker {
             throw NSError(domain: "TurnOver", code: 4, userInfo: [NSLocalizedDescriptionKey: "it would install outside the plugins folder"])
         }
         try fm.createDirectory(at: ProfileStore.folder, withIntermediateDirectories: true)
-        try? fm.removeItem(at: dest)
+        // A plugin already there is moved aside, not deleted: a second plugin made for the same app had the same id
+        // and deleted the first outright (a review, 14 Nov 2026).
+        if fm.fileExists(atPath: dest.path) {
+            let aside = ProfileStore.folder.deletingLastPathComponent().appendingPathComponent("plugins-replaced", isDirectory: true)
+            try? fm.createDirectory(at: aside, withIntermediateDirectories: true)
+            let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
+            if (try? fm.moveItem(at: dest, to: aside.appendingPathComponent("\(dest.lastPathComponent) \(stamp)"))) == nil { try? fm.removeItem(at: dest) }
+        }
         try fm.createDirectory(at: dest, withIntermediateDirectories: true)
         for f in ["manifest.json", "profile.json"] { try fm.copyItem(at: plugin.folder.appendingPathComponent(f), to: dest.appendingPathComponent(f)) }
         return dest

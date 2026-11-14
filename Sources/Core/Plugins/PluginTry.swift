@@ -209,6 +209,10 @@ public enum PluginTry {
             // reader, turn speech off, copy, or open TurnOver's menus, lists and notifications (a review, 14 Nov 2026).
             if let g = KeyboardGesture(identifier: normalizeGestureIdentifier("kb:" + s)), g.modifiers.contains(.turnover),
                let name = ScriptHandler.findScript(for: g)?.name.lowercased(),
+               // Allowed only if it reads or moves, and never if it changes anything (a list of what to refuse kept
+               // missing commands: closeWindow, the speech settings ring, the commanders: a review, 14 Nov 2026).
+               !(["report", "review", "read", "say", "where", "navigat", "next", "previous", "first", "last", "parent", "child", "current", "describe", "line", "word", "char", "sentence", "paragraph", "moveto", "top", "bottom"].contains(where: { name.contains($0) })
+                 && !["toggle", "set", "cycle", "close", "copy", "speak", "quit", "menu", "lock", "mode"].contains(where: { name.contains($0) })) ||
                // (And anything that changes a setting or a mode that would outlast the try: the key lock, keyboard
                // help, pass next key, the speech ring's rate and volume.)
                ["quit", "copy", "clipboard", "menu", "notification", "speechmode", "sleep", "curtain", "chooser", "desktop", "force", "uninstall", "statusmenus", "dock", "plugin",
