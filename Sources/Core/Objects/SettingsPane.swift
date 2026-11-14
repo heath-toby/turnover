@@ -400,14 +400,16 @@ public final class SettingsPanePlugin: GlobalPlugin {
         if was != inTrap { Log.io("tab trap: \(inTrap ? "in" : "out of") a remembered place (\(e.role) \"\(Log.words(e.string(kAXDescriptionAttribute) ?? e.string(kAXTitleAttribute) ?? ""))\")") }
     }
 
-    static func focusMoved(to obj: TurnOverObject) {
+    /// `followed`: the focus followed TurnOver's own cursor (FocusChanges.present): no gainFocus event is queued for
+    /// it, so this is called directly, and nothing here may speak (a review, 14 Nov 2026).
+    static func focusMoved(to obj: TurnOverObject, followed: Bool = false) {
         // A menu opening on the held place (its context menu) takes the focus for a moment: the place is kept for
         // when it closes.
         if virtual != nil, ["AXMenu", "AXMenuItem"].contains(obj.axRole) { return }
         // Back from a menu opened on the place TurnOver holds (the context menu on a call in Phone): the app hands its
         // focus to a nameless group, and the place was lost, Up and Down silent (a tester, 11 Nov 2026). Kept.
         // (A group holding the place, named or not: Phone's focus went to its calls' group.)
-        if let v = virtual, !obj.isSameElement(as: v), v.role != "?", v.pid == obj.pid,
+        if !followed, let v = virtual, !obj.isSameElement(as: v), v.role != "?", v.pid == obj.pid,
            let ended = AXHandler.shared.lastMenuEnded, ended.pid == v.pid, Date().timeIntervalSince(ended.at) < 2,
            obj.axRole == "AXGroup" && obj.name.isEmpty || { var p = v.element(kAXParentAttribute); var hops = 0
                while let x = p, hops < 10 { if x.isSame(obj.element) { return true }; p = x.element(kAXParentAttribute); hops += 1 }
@@ -586,10 +588,10 @@ public final class SettingsPanePlugin: GlobalPlugin {
             }
         }
         script("trap_next", String(localized: "Where the app ignores Tab: the next control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Settings") { [weak self] g in self?.trapMove(g, forward: true) }.isAvailable = { Self.inTrapZone && !Self.focusInPage() }
-        script("rowList_up", String(localized: "In a column of rows TurnOver reads as a list: the row above", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:upArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(-1) }.isAvailable = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) }.map { !Self.isSideways($0.container) } == true }
-        script("rowList_down", String(localized: "In a column of rows TurnOver reads as a list: the row below", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:downArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(1) }.isAvailable = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) }.map { !Self.isSideways($0.container) } == true }
-        script("rowList_left", String(localized: "In a row of items TurnOver reads as a list: the item to the left", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:leftArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(-1) }.isAvailable = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) }.map { Self.isSideways($0.container) } == true }
-        script("rowList_right", String(localized: "In a row of items TurnOver reads as a list: the item to the right", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:rightArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(1) }.isAvailable = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) }.map { Self.isSideways($0.container) } == true }
+        script("rowList_up", String(localized: "In a column of rows TurnOver reads as a list: the row above", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:upArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(-1) }.isAvailable = { Self.holdingFocus && Self.virtual.flatMap { Self.rowList(of: $0) }.map { !Self.isSideways($0.container) } == true }
+        script("rowList_down", String(localized: "In a column of rows TurnOver reads as a list: the row below", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:downArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(1) }.isAvailable = { Self.holdingFocus && Self.virtual.flatMap { Self.rowList(of: $0) }.map { !Self.isSideways($0.container) } == true }
+        script("rowList_left", String(localized: "In a row of items TurnOver reads as a list: the item to the left", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:leftArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(-1) }.isAvailable = { Self.holdingFocus && Self.virtual.flatMap { Self.rowList(of: $0) }.map { Self.isSideways($0.container) } == true }
+        script("rowList_right", String(localized: "In a row of items TurnOver reads as a list: the item to the right", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:rightArrow"], category: "Settings") { [weak self] _ in self?.rowListMove(1) }.isAvailable = { Self.holdingFocus && Self.virtual.flatMap { Self.rowList(of: $0) }.map { Self.isSideways($0.container) } == true }
         script("trap_previous", String(localized: "Where the app ignores Shift+Tab: the previous control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Settings") { [weak self] g in self?.trapMove(g, forward: false) }.isAvailable = { Self.inTrapZone && !Self.focusInPage() }
         script("settings_next", String(localized: "In a settings pane: the next control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:tab"], category: "Settings") { [weak self] g in self?.move(g, forward: true) }.isAvailable = { Self.inPane }
         script("settings_previous", String(localized: "In a settings pane: the previous control, in screen order", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Settings") { [weak self] g in self?.move(g, forward: false) }.isAvailable = { Self.inPane }
@@ -603,9 +605,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
             Log.io("Return on a focused button that is not the default: pressed it → \(r.rawValue)")
             if r != .success { g.send() } else { SystemPrompts.checkPress(of: b, name: ObjectFactory.make(b).name) }
         }.isAvailable = { Self.returnWouldMissFocus }
-        script("settings_pressHeld", String(localized: "In a settings pane: presses the control TurnOver is holding", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:space", "kb:enter"], category: "Settings") { [weak self] g in self?.pressHeld(g) }.isAvailable = { Self.holdingVirtual }
+        script("settings_pressHeld", String(localized: "In a settings pane: presses the control TurnOver is holding", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:space", "kb:enter"], category: "Settings") { [weak self] g in self?.pressHeld(g) }.isAvailable = { Self.holdingFocus }
         // A grid's arrows (Chess's board): Up and Down a row, Left and Right a column.
-        let inGrid = { Self.holdingVirtual && Self.virtual.flatMap { Self.rowList(of: $0) }.map { Self.gridColumns($0.container) != nil } == true }
+        let inGrid = { Self.holdingFocus && Self.virtual.flatMap { Self.rowList(of: $0) }.map { Self.gridColumns($0.container) != nil } == true }
         for (name, key, dir) in [("grid_up", "kb:upArrow", -1), ("grid_down", "kb:downArrow", 1), ("grid_left", "kb:leftArrow", -2), ("grid_right", "kb:rightArrow", 2)] {
             script(name, String(localized: "In a grid TurnOver reads as one: the next square that way", comment: "A command, as the key list and keyboard help say it"), gestures: [key], category: "Settings") { [weak self] _ in
                 guard let v = Self.virtual, let c = Self.rowList(of: v)?.container, let cols = Self.gridColumns(c) else { return }
@@ -938,6 +940,13 @@ public final class SettingsPanePlugin: GlobalPlugin {
     }
 
     static var holdingVirtual: Bool { lock.lock(); defer { lock.unlock() }; return _holding }
+    /// Holding a place that is still TurnOver's focus: the keys that act on the held place (its list's arrows, Space
+    /// and Return) only then. The focus following TurnOver's cursor elsewhere left the old place held, and Up and
+    /// Down read the old list (a review, 14 Nov 2026).
+    static var holdingFocus: Bool {
+        guard holdingVirtual, let v = virtual else { return false }
+        return API.focusObject?.isSameElement(as: v) == true
+    }
     private static var _holding = false
 
     /// The window an element is in. Safari's settings controls do not say (no AXWindow; 4 Oct 2026): walk up to it.
