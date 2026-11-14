@@ -1129,6 +1129,15 @@ public final class BufferTextInfo: TextInfo {
 
     public override var soundElement: AXUIElement? { element(at: start) }
 
+    public override var brailleHeadingLevel: Int? {
+        // The kinds kept as the page was read: nothing asked of the page at each refresh.
+        guard let i = buffer.lineIndex(at: start) else { return nil }
+        let line = buffer.lines[i]
+        let kinds = line.enteringKinds.count == line.entering.count ? line.enteringKinds : line.entering.map(WebBuffer.ElementKind.live)
+        guard let h = kinds.last(where: { $0.role == "AXHeading" }) else { return nil }
+        return h.headingLevel ?? 0
+    }
+
     public override func controlFieldSpeech() -> (prefix: [String], text: String?) {
         pendingTones.removeAll()
         guard let i = buffer.lineIndex(at: start) else { return ([], nil) }

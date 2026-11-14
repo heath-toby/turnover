@@ -462,6 +462,12 @@ public enum Braille {
             text = displayed(line.text)
             // Read by paragraph, a paragraph's start can be marked (NVDA's paragraph start marker).
             if byParagraph { leadingCells = ["pilcrow": BrailleOutput.translate("¶", cursor: nil).cells + [0], "spaces": [0, 0]][config.braille.paragraphMarker] ?? [] }
+            // A heading: "h4" before its line, as NVDA's display shows it (speech said "heading level 4" and the display
+            // showed only the words: a tester, 14 Nov 2026). Cells of their own, standing for the line's start.
+            if config.documentFormatting.headings != .off, let level = line.brailleHeadingLevel {
+                let mark = level > 0 && config.documentFormatting.reportHeadingLevel ? "h\(level)" : (roleShortForms[.heading] ?? "h")
+                leadingCells += BrailleOutput.translate(mark, cursor: nil).cells + [0]
+            }
             // Bold, italic and underline, for the table's signs or dots 7 and 8 (asked of the app only when shown).
             if config.braille.formattingMarks != "off" { emphasis = line.emphasisRuns() }
             cursorIsReview = reviewed != nil

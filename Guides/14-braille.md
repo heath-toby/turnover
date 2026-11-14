@@ -33,6 +33,8 @@ in Settings, Braille; the TurnOver menu's Braille submenu has the table and the 
   out of sight until you pan left; Always fill display shows it every time.
 - **Read by paragraph:** the display shows a paragraph instead of a line, and its up and down move by paragraph,
   with a start marker if you want one (a pilcrow, or two blank cells).
+- **Headings:** a line in a heading starts with its level, h1 to h9 (in Word and on web pages), unless headings
+  are turned off under Document formatting; with the level not reported there, just h.
 - **Avoid splitting words:** the display ends at a space rather than inside a word.
 - **Show messages:** TurnOver's messages for a time (seconds for each display's width), until a key, or not at all.
 - **Cursor:** shown or not, blinking or not and how fast, and its shape for the focus and for review (dots 7 and 8,

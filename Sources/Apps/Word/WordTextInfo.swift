@@ -78,6 +78,12 @@ final class WordTextInfo: AXTextInfo {
     static func isTableStandIn(_ text: String) -> Bool {
         text.range(of: #"^\s*Table, \d+ Rows, \d+ Columns"#, options: .regularExpression) != nil
     }
+    override var brailleHeadingLevel: Int? {
+        guard let a = textElement.param(kAXAttributedStringForRangeParameterizedAttribute, axRangeValue(start, 1)) as? NSAttributedString, a.length > 0,
+              let custom = a.attributes(at: 0, effectiveRange: nil)[NSAttributedString.Key("AXCustom")] as? [String],
+              let style = custom.first(where: { $0.hasPrefix("Heading") || $0 == "Title" }) else { return nil }
+        return Int(style.filter(\.isNumber)) ?? (style == "Title" ? 1 : 0)
+    }
     /// Word puts the paragraph style in AXCustom ("Heading 1", "Paragraph"); NVDA says "heading level 1" as a line is read.
     override func controlFieldSpeech() -> (prefix: [String], text: String?) {
         pendingTones.removeAll()

@@ -274,6 +274,10 @@ open class TextInfo {
     /// NVDA's control fields: what to say before the text (heading level, link, list) and,
     /// optionally, the text with inline markers ("link" before link runs). Documents override.
     open func controlFieldSpeech() -> (prefix: [String], text: String?) { ([], nil) }
+    /// The heading this range starts in, for the display's "h2" before the line (NVDA's braille shows it with the
+    /// text; speech's "heading level 4" never reached the display: a tester, 14 Nov 2026). 0: a heading of no level.
+    /// Nil: not a heading, or the document can't tell cheaply. Asked at every refresh, so no side effects.
+    open var brailleHeadingLevel: Int? { nil }
     /// Sounds to play before the text (element kinds set to "tone"), collected by the last controlFieldSpeech.
     public var pendingTones: [() -> Void] = []
     /// Where on screen this range sits, for positional sound (SoundChoices): its sounds are panned there. Nil keeps
