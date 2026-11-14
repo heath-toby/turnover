@@ -169,6 +169,7 @@ public final class BrowseModeDocument: ScriptableObject {
         // in the app, so focus mode stays and the view is not announced or read from its top; only browse mode treats
         // it as a new page. Ended, focus mode was lost silently (a review, 13 Nov 2026).
         let keepFocusMode = !first && passThrough && Self.isRouteChange(now, lastURL)
+        let wasEmpty = buffer.lines.isEmpty
         lastURL = now
         // Back or Forward counts for this arrival only: true for 10 s, it made a link followed after Back resume
         // part way down too (a review, 13 Nov 2026). The page still arriving resumes by it (historyURL).
@@ -198,9 +199,14 @@ public final class BrowseModeDocument: ScriptableObject {
             selectionAnchor = nil
             // And the places kept for it: where it was before it emptied, a module's wish to enter it at its last
             // control, its line said instead of a say all. Left over, they placed or silenced the new page (a review,
-            // 13 Nov 2026). A request made in the last second is for this arrival (Mail's Shift Tab, as it moves on).
-            placeBeforeEmpty = nil; startAtLastControl = false; noAutoRead = false
-            if let r = Self.lastControlRequest, r.area.isSame(webArea), Date().timeIntervalSince(r.at) > 1 { Self.lastControlRequest = nil }
+            // 13 Nov 2026). A wish made in the last second, or while the page before was still empty (it never arrived:
+            // about:blank to the message, or a message loading for longer), is for this arrival (Mail's Shift Tab, as
+            // it moves on). startAtLastControl was cleared regardless, and a slow message lost the request too (a review,
+            // 13 Nov 2026).
+            let forThisArrival = { (at: Date) in wasEmpty || Date().timeIntervalSince(at) <= 1 }
+            placeBeforeEmpty = nil; noAutoRead = false
+            if startAtLastControl, !forThisArrival(startAtLastControlAt) { startAtLastControl = false }
+            if let r = Self.lastControlRequest, r.area.isSame(webArea), !forThisArrival(r.at) { Self.lastControlRequest = nil }
             // Safari reuses one web area per tab: a page reached again by a link is a new arrival, read again; only
             // Back and Forward come back to one announced (a review, 13 Nov 2026).
             if !byHistory, !keepFocusMode { BrowseModeHandler.forgetAnnounced(webArea, url: now) }
@@ -301,7 +307,9 @@ public final class BrowseModeDocument: ScriptableObject {
     /// control): no automatic say all from the top; the line there is said instead, once (placeOnArrival).
     public var noAutoRead = false
     /// The page was entered from below while still empty: when it arrives, the reading starts at its last control.
-    public var startAtLastControl = false
+    public var startAtLastControl = false { didSet { if startAtLastControl { startAtLastControlAt = Date() } } }
+    /// When startAtLastControl was last set, for a new page arriving just after (refreshIfNavigated).
+    var startAtLastControlAt = Date.distantPast
     /// What Tab stops on in a page, for "its last control" (one set: Mail's Shift Tab too).
     public static let lastControlRoles: Set<String> = ["AXLink", "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXComboBox", "AXSlider", "AXMenuButton", "AXDisclosureTriangle"]
     /// A web area about to be entered from below (Mail's Shift Tab into a message), asked before its document may
@@ -476,6 +484,10 @@ public final class BrowseModeDocument: ScriptableObject {
         announcedURL = now
         BrowseModeHandler.noteAnnounced(webArea, url: now)
         watchingFor = ""
+        // Placed as every arrival is: entered from below while empty (Mail's Shift Tab), at its last control, before the
+        // key reads. The key says its own line, so no line-instead-of-say-all is kept (a review, 13 Nov 2026).
+        placeOnArrival()
+        noAutoRead = false
     }
 
     /// The page has content again at the same address: the reading back where it was before it emptied. True if so.
