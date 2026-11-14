@@ -201,7 +201,7 @@ final class TerminalText: TurnOverObject {
         // password was spoken aloud). Nor kept in the typed-so-far, which is compared with the echo.
         if Self.atPasswordPrompt(cursorLine()?.1) { s.secret.sawPrompt() }
         if IsSecureEventInputEnabled() || s.secret.isSecret(now: Date()) {
-            s.secret.keyTypedAhead(backspace: ch == "\u{8}")
+            s.secret.keyTypedAhead(backspace: ch == "\u{8}", at: Date())
             Speech.clearTypedWordBuffer()
             Speech.speakMessage(String(localized: "star", comment: "A typed character hidden, as in a password field"), remember: false)
             return
@@ -348,7 +348,10 @@ final class TerminalText: TurnOverObject {
 
         if let (start, text) = cursorLine() { s.anchor = start; s.anchorText = text } else { s.anchor = total }
         // The prompt drawn: what is typed now is the password. Other new lines: typing ahead is over.
-        if TerminalRules.isPasswordPrompt(s.anchorText) { s.secret.sawPrompt() } else if !rest.isEmpty { s.secret.outputArrived() }
+        // Only lines with something besides the typed-ahead echo (taken off above) are output: the first key's echo can
+        // land in the same batch as Return's newline, and ended the secret at once (a review, 13 Nov 2026).
+        if TerminalRules.isPasswordPrompt(s.anchorText) { s.secret.sawPrompt() }
+        else if !TerminalRules.allBlank(rest) { s.secret.outputArrived() }
         s.review = nil
         var out = TerminalRules.withoutRules(speech.joined(separator: "\n")).trimmingCharacters(in: .whitespacesAndNewlines)
         // A full-screen program redrawing its input box as you type (Claude Code: the line typed so far and the box's
@@ -394,7 +397,7 @@ final class TerminalText: TurnOverObject {
         // Editing keys, as in any edit field: what was deleted is said, and where the cursor went.
         script("terminal_backspace", String(localized: "Deletes the character before the cursor and says it", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:backspace"], category: cat) { [weak self] g in
             // A password: the key goes, nothing is said (before the cursor is the prompt's colon, or a star).
-            if let self, self.state.secret.isSecret(now: Date()) { self.state.secret.keyTypedAhead(backspace: true); g.send(); return }
+            if let self, self.state.secret.isSecret(now: Date()) { self.state.secret.keyTypedAhead(backspace: true, at: Date()); g.send(); return }
             guard let self, let c = self.cursor, !self.atInputStart(c) else { Tones.edge(); g.send(); return }
             let ch = self.character(at: c - 1)
             g.send()
@@ -570,6 +573,11 @@ package enum TerminalRules {
         String(line.dropFirst(max(0, keys)))
     }
 
+    /// Whether new lines hold nothing (spaces only, or the typed-ahead echo already taken off): not output. Pure.
+    package nonisolated static func allBlank(_ lines: [String]) -> Bool {
+        lines.allSatisfy { $0.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
     /// What on the cursor's line is output rather than the shell's prompt: the text before the prompt when the line
     /// holds it ("hi" in "hiuser@host ~ %"), nothing when the line starts with it, the whole line when it isn't there
     /// (a program's question: "Password:"). Nothing when no prompt is known. Pure.
@@ -615,12 +623,16 @@ package enum TerminalRules {
     }
 }
 
-/// Whether keys typed in a terminal are a password: from a password prompt being seen until Return, and for two seconds
-/// after Return on a line that asks for one next (`sudo …`, `ssh host`) or after a password (a retry), until a prompt
-/// or other output arrives. Pure (a review, 13 Nov 2026).
+/// Whether keys typed in a terminal are a password: from a password prompt being seen until Return, and after Return on
+/// a line that asks for one next (`sudo …`, `ssh host`) or after a password (a retry), until a prompt or other output
+/// arrives: two seconds from Return or the last key typed ahead, ten at most from Return. Rolling, as a slow ssh or
+/// sudo prompt (over two seconds) had the rest of a password typed ahead spoken (a review, 13 Nov 2026). Pure.
 package nonisolated struct TerminalSecret {
     package private(set) var latched = false
+    /// Return, or the last key typed ahead since: the rolling window's start.
     package private(set) var aheadFrom: Date?
+    /// The Return that opened the window: it closes ten seconds after, however long the typing goes on.
+    package private(set) var aheadSince: Date?
     /// How many keys were typed ahead of the prompt (Backspace takes one off): their echo is not read. Only a count.
     package private(set) var aheadKeys = 0
     package init() {}
@@ -631,8 +643,10 @@ package nonisolated struct TerminalSecret {
     /// stayed: the next command was spoken as stars, its echo silenced and its Return taken for a retry (a review,
     /// 13 Nov 2026).
     package mutating func outputArrived() { latched = false; aheadFrom = nil; aheadKeys = 0 }
-    package mutating func keyTypedAhead(backspace: Bool) {
-        guard !latched, aheadFrom != nil else { return }
+    package mutating func keyTypedAhead(backspace: Bool, at now: Date) {
+        // Only inside a live window: an expired one is not reopened by a key (secure input on says "star" too).
+        guard !latched, isSecret(now: now) else { return }
+        aheadFrom = now
         aheadKeys = backspace ? max(0, aheadKeys - 1) : aheadKeys + 1
     }
     package mutating func returnPressed(commandLine: String, at now: Date) {
@@ -642,8 +656,11 @@ package nonisolated struct TerminalSecret {
         latched = false
         aheadKeys = 0
         aheadFrom = retry || TerminalRules.asksForPassword(commandLine: commandLine) ? now : nil
+        aheadSince = aheadFrom
     }
     package func isSecret(now: Date) -> Bool {
-        latched || (aheadFrom.map { now.timeIntervalSince($0) < 2 } ?? false)
+        if latched { return true }
+        guard let from = aheadFrom, let since = aheadSince else { return false }
+        return now.timeIntervalSince(from) < 2 && now.timeIntervalSince(since) < 10
     }
 }
