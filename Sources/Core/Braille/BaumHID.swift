@@ -36,7 +36,10 @@ public final class BrailleDisplays {
             guard let self else { return }
             // USB before Bluetooth: a display plugged in while TurnOver has it over Bluetooth switches to USB (and
             // stops answering over Bluetooth), so move to the cable (6 Oct 2026).
-            if let a = self.apple, a.display.isBluetooth, let usb = TOAppleBrailleDisplay.detect().first {
+            // (Looked for every ten seconds, not three: the scan reads every driver and asks IOKit, on the main thread.)
+            let usbDue = self.apple?.display.isBluetooth == true && Date().timeIntervalSince(self.lastUSBLook) >= 10
+            if usbDue { self.lastUSBLook = Date() }
+            if usbDue, let a = self.apple, let usb = TOAppleBrailleDisplay.detect().first {
                 Log.info("braille: \(a.name) is on USB now; moving to it")
                 Braille.detach(a); a.close(); self.apple = nil
                 self.adopt(usb)
@@ -64,6 +67,7 @@ public final class BrailleDisplays {
     }
 
     private var lastBluetoothLook = Date.distantPast
+    private var lastUSBLook = Date.distantPast
     private var scanStarted = Date.distantPast
     private var lastFullScan = Date.distantPast
 

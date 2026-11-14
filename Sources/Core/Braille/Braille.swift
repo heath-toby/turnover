@@ -127,6 +127,8 @@ public enum Braille {
             if e <= s { e = s + n }
             s = e
         }
+        // The cursor past the end of a line whose last window is full: a window of its own, or it couldn't be shown.
+        if let c = cursorCell, c == cells.count, c > 0, let last = starts.last, c - last >= n { starts.append(c) }
         return starts
     }
 
@@ -348,6 +350,12 @@ public enum Braille {
         return false
     }
 
+    /// Typing on the braille keyboard: a message gives way, so the cells typed show (NVDA dismisses it at any key).
+    public static func dismissMessage() {
+        guard messageUntil != nil, historyIndex == nil else { return }
+        messageUntil = nil
+    }
+
     /// The focus or the caret moved (NVDA dismisses a message then): a message up for a moment already gives way.
     public static func focusOrCaretMoved() {
         lastObject = nil   // a real move: the next item's context is read afresh (a window's new title with it)
@@ -453,6 +461,11 @@ public enum Braille {
                 if let c = cursorCell, c < windowStart || c >= windowEnd(windowStart) { windowStart = window(containing: c) }
             }
             if !windows.contains(windowStart) { windowStart = window(containing: windowStart) }
+            // Panned back onto this line: its end is shown, once the app's caret has really reached it (Chromium
+            // moves it a moment later, and the line's start was shown instead: a review, 14 Nov 2026).
+            if let t = endOfLineWanted, Date().timeIntervalSince(t.at) < 1.5 {
+                if t.start == line.start { windowStart = windows.last ?? 0; endOfLineWanted = nil }
+            } else { endOfLineWanted = nil }
             lastCaret = caret.start
         } else if let focus = API.focusObject {
             // A list, table or outline: its selected item, as speech reads it (Mail's list showed only "message
@@ -551,7 +564,7 @@ public enum Braille {
         let start = min(windowStart, max(0, cells.count - 1))
         // The cursor cell past the last character (the end of a line) belongs to the last window.
         var end = windowEnd(start)
-        if let c = cursorCell, c == Self.cells.count, end == Self.cells.count { end += 1 }
+        if let c = cursorCell, c == Self.cells.count, end == Self.cells.count, end - start < n { end += 1 }
         var window = Array(cells[min(start, cells.count)..<min(end, cells.count)])
         while window.count < n { window.append(0) }
         updateBlink()
@@ -566,6 +579,11 @@ public enum Braille {
             let b = windowEnd(start) < cellMap.count ? cellMap[windowEnd(start)] : (text as NSString).length
             let shown = (text as NSString).substring(with: NSRange(location: min(a, (text as NSString).length), length: max(0, min(b, (text as NSString).length) - min(a, (text as NSString).length))))
             if case .message = source, messagePrivate { Log.io("braille shows (\(kind)): (private, \(shown.count) cells)") }
+            // Typing in a password field (the pending cells), or speech's words in speech output mode (private echo
+            // among them): only the length, even with developer logging (#61; a review, 14 Nov 2026).
+            else if (!BrailleInput.pending.isEmpty && BrailleInput.typingSecret) || config.braille.mode == "speechOutput" {
+                Log.io("braille shows (\(kind)): [\(shown.count) cells]")
+            }
             else if Speech.logsWords {
                 // The dots themselves, as the display has them (the cursor's and selection's dots too), so a table's
                 // output can be checked against what it should be, not only what it was made from (a tester, 12 Nov 2026).
@@ -615,7 +633,14 @@ public enum Braille {
             Speech.cancel()
             SayAll.stop(byGesture: true)
         }
-        BrailleInput.flush()
+        // A contracted word half typed goes in first, and the key acts once the app has it: the caret moved at once
+        // by accessibility raced the typed word, which landed at the routed place or the caret ended up early
+        // (a review, 14 Nov 2026).
+        if BrailleInput.hasWord {
+            BrailleInput.flush()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { handle(key) }
+            return
+        }
         // The TurnOver menu open: the display's keys drive it, not the application behind (the joystick moved through
         // Mail's list while the menu was up, 6 Oct 2026). Panning still reads along a long item.
         if TurnOverMenu.shared.isOpen {
@@ -659,6 +684,7 @@ public enum Braille {
             return
         }
         // In the announcement history: up and down move through it, panning reads along; anything else leaves.
+        if historyIndex != nil, case .routing = key { historyIndex = nil; messageUntil = nil; refresh() }   // (it stayed half on)
         if historyIndex != nil, case .key(let name) = key {
             switch keyMap[name] {
             case "previousLine": historyIndex = min(history.count - 1, historyIndex! + 1); showHistory(); return
@@ -847,11 +873,17 @@ public enum Braille {
         let spoken = r.copy(); spoken.expand(unit)
         Speech.speakTextInfo(spoken, unit: unit, reason: .caret)
         refresh()
-        if toEnd { windowStart = windows.last ?? 0; show(); caretToWindow() }
+        if toEnd {
+            endOfLineWanted = (spoken.start, Date())
+            if case .text(_, let s) = source, s == spoken.start { windowStart = windows.last ?? 0; endOfLineWanted = nil; show() }
+            caretToWindow()
+        }
     }
 
     /// The line reached by panning with "Panning moves the cursor" off, and the caret then: shown until the caret moves.
     private static var heldLine: (info: TextInfo, caret: Int)?
+    /// The line panned back onto, whose end is to be shown when the display reaches it.
+    private static var endOfLineWanted: (start: Int, at: Date)?
 
     /// What panning on to another line moves. Tethered to review, the review cursor only, as NVDA's braille does, and
     /// the caret stays where it is; otherwise the caret, unless "Panning moves the cursor" is off, when the display

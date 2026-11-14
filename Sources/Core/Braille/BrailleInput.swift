@@ -22,6 +22,9 @@ public enum BrailleInput {
 
     private static var echoWords: Bool { ["words", "both"].contains(config.braille.inputEcho) }
     private static var echoCharacters: Bool { ["characters", "both"].contains(config.braille.inputEcho) }
+    /// A word is being typed (contracted, or letters still to be corrected).
+    public static var hasWord: Bool { !word.isEmpty }
+    package static var typingSecret: Bool { isSecureInput }
     private static var isSecureInput: Bool { API.focusObject?.role == .passwordEdit || Speech.typingIntoSecretField }
 
     /// A chord let go: its dots (1 to 8) and whether space was in it.
@@ -61,6 +64,7 @@ public enum BrailleInput {
     }
 
     public static func chord(dots: Set<Int>, space: Bool, spaceLate: Bool = false) {
+        Braille.dismissMessage()
         Speech.cancel()   // as a typed key does
         // Input help: the chord says what it does, except keyboard help itself (space with 1 3), which turns it off.
         if InputManager.isInputHelpActive, !(space && (dots == [1, 3] || dots == [1, 3, 7])) {

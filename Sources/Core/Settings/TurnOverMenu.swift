@@ -756,7 +756,7 @@ public final class TurnOverMenu {
             MenuItem("Braille table", .submenu {
                 @MainActor func item(_ t: (id: String, name: String)) -> MenuItem {
                     MenuItem(verbatim: t.id == current ? String(localized: "\(t.name), current", comment: "The braille table in use") : t.name, .select {
-                        config.braille.table = t.id; config.save(); Braille.refreshSoon()
+                        config.braille.table = t.id; config.save(); Braille.settingsChanged()
                         Speech.speakMessage(t.name)
                     })
                 }
@@ -776,19 +776,19 @@ public final class TurnOverMenu {
                 MenuItem("How long", .number(get: { Double(config.braille.messageSeconds) }, set: { config.braille.messageSeconds = Int($0) },
                     step: 1, min: 1, max: 30, format: { Int($0.rounded()) == 1 ? String(localized: "1 second", comment: "A time") : String(localized: "\(Int($0.rounded())) seconds", comment: "A time") }), hint: "For each display's width of message"),
             ] }),
-            MenuItem("Keep words whole", .toggle(get: { config.braille.wordWrap }, set: { config.braille.wordWrap = $0; Braille.refreshSoon() }), hint: "A word is not split across the end of the display"),
+            MenuItem("Keep words whole", .toggle(get: { config.braille.wordWrap }, set: { config.braille.wordWrap = $0; Braille.settingsChanged() }), hint: "A word is not split across the end of the display"),
             MenuItem("Cursor", .submenu { [
-                MenuItem("Show the cursor", .toggle(get: { config.braille.showCursor }, set: { config.braille.showCursor = $0; Braille.refreshSoon() })),
-                MenuItem("Blink", .toggle(get: { config.braille.blinkCursor }, set: { config.braille.blinkCursor = $0; Braille.refreshSoon() })),
+                MenuItem("Show the cursor", .toggle(get: { config.braille.showCursor }, set: { config.braille.showCursor = $0; Braille.settingsChanged() })),
+                MenuItem("Blink", .toggle(get: { config.braille.blinkCursor }, set: { config.braille.blinkCursor = $0; Braille.settingsChanged() })),
                 MenuItem("Blink rate", .number(get: { Double(config.braille.blinkRateMs) }, set: { config.braille.blinkRateMs = Int($0) },
                     step: 100, min: 200, max: 2000, format: { String(localized: "\(String(Int($0.rounded()))) milliseconds", comment: "A time") })),
                 MenuItem("Shape", .cycle(options: [String(localized: "dots 7 and 8", comment: "A choice in the TurnOver menu"), String(localized: "dot 8", comment: "A choice in the TurnOver menu"), String(localized: "all dots", comment: "A choice in the TurnOver menu")],
                     get: { ["78", "8", "all"].firstIndex(of: config.braille.cursorShape) ?? 0 },
-                    set: { config.braille.cursorShape = ["78", "8", "all"][$0]; Braille.refreshSoon() })),
-                MenuItem("Selection with dots 7 and 8", .toggle(get: { config.braille.showSelection }, set: { config.braille.showSelection = $0; Braille.refreshSoon() })),
+                    set: { config.braille.cursorShape = ["78", "8", "all"][$0]; Braille.settingsChanged() })),
+                MenuItem("Selection with dots 7 and 8", .toggle(get: { config.braille.showSelection }, set: { config.braille.showSelection = $0; Braille.settingsChanged() })),
             ] }),
             MenuItem("Stop speech while panning", .toggle(get: { config.braille.interruptSpeechWhileScrolling }, set: { config.braille.interruptSpeechWhileScrolling = $0 })),
-            MenuItem("Show the word at the cursor uncontracted", .toggle(get: { config.braille.expandAtCursor }, set: { config.braille.expandAtCursor = $0; Braille.refreshSoon() })),
+            MenuItem("Show the word at the cursor uncontracted", .toggle(get: { config.braille.expandAtCursor }, set: { config.braille.expandAtCursor = $0; Braille.settingsChanged() })),
         ]
     }
 
