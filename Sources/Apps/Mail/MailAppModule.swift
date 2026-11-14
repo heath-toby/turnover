@@ -361,6 +361,11 @@ package final class MailAppModule: AppModule {
             guard let self, let f = API.focusObject?.element else { g.send(); return }
             self.composeMove(forward: false, from: f, g)
         }.isAvailable = { Self.place.hasPrefix("compose:") }
+        // Option Tab in the message (where Tab is typed): round to the toolbar, the round's start (the tester, 14 Nov 2026).
+        script("mail_composeToToolbar", String(localized: "Writing a message: from the message to the window's toolbar (Send, Attach and the rest)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:option+tab"], category: "Mail") { [weak self] g in
+            guard let self, let f = API.focusObject?.element, self.toWindowToolbar(from: f, last: false) else { g.send(); return }
+            Self.placeLock.lock(); Self._place = "compose:toolbar"; Self.placeLock.unlock()
+        }.isAvailable = { Self.place == "compose:body" }
         script("mail_toMailboxes", String(localized: "From the message list: the mailbox list (Shift Tab)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:shift+tab"], category: "Mail") { [weak self] g in
             guard let self, let f = API.focusObject?.element else { g.send(); return }
             self.focusList("mailboxes", from: f)
@@ -849,6 +854,9 @@ package final class MailAppModule: AppModule {
         else if e.role == "AXWebArea" { p = "reading" }
         else if e.string(kAXDescriptionAttribute) == "messages" || MailMessageRow.isMessageRow(e) { p = "messages" }
         else if e.role == "AXOutline" || e.element(kAXParentAttribute)?.role == "AXOutline" { p = "mailboxes" }
+        // The compose window's own toolbar (Send, Attach, Format...): part of the compose window's round (the tester,
+        // 14 Nov 2026), known by its Send button.
+        else if Self.inWindowToolbar(e), Self.isComposeToolbarWindow(e) { p = "compose:toolbar" }
         Self.placeLock.lock(); Self._place = p; Self.placeLock.unlock()
     }
 
@@ -886,8 +894,22 @@ package final class MailAppModule: AppModule {
         // comes, and the place noted stayed the field before, so Shift Tab went to Cc again and again (13 Nov 2026).
         let on = SettingsPanePlugin.heldRow ?? from
         let here = byId.first(where: { $0.value.isSame(on) })?.key ?? String(Self.place.dropFirst("compose:".count))
+        // The window's toolbar is the round's start (the tester, 14 Nov 2026): Shift Tab from the first field goes to
+        // it; from it, Tab goes to the first field and Shift Tab round to the message.
+        if here == "toolbar" || Self.inWindowToolbar(on) {
+            let id = forward ? present.first : present.last
+            guard let id, let target = byId[id] else { g.send(); return }
+            Log.io("mail: \(forward ? "Tab" : "Shift+Tab") from the toolbar to \(id)")
+            SettingsPanePlugin.focus(target)
+            Self.placeLock.lock(); Self._place = "compose:" + id; Self.placeLock.unlock()
+            return
+        }
         guard let i = present.firstIndex(of: here) else { g.send(); return }
         let n = forward ? i + 1 : i - 1
+        if n < 0, toWindowToolbar(from: on, last: false) {
+            Self.placeLock.lock(); Self._place = "compose:toolbar"; Self.placeLock.unlock()
+            return
+        }
         guard present.indices.contains(n), let target = byId[present[n]] else { g.send(); return }   // the ends: Mail's own
         Log.io("mail: \(forward ? "Tab" : "Shift+Tab") from \(here) to \(present[n])")
         SettingsPanePlugin.focus(target)
@@ -1007,6 +1029,11 @@ package final class MailAppModule: AppModule {
         Log.io("mail: on to the window's toolbar")
         SettingsPanePlugin.focus(SettingsPanePlugin.toolbarStop(tb, items) ?? items[0])
         return true
+    }
+    /// A toolbar item of a window being written in: its toolbar has a Send button.
+    static func isComposeToolbarWindow(_ e: AXUIElement) -> Bool {
+        guard let w = SettingsPanePlugin.windowOf(e), let tb = w.elements(kAXChildrenAttribute).first(where: { $0.role == "AXToolbar" }) else { return false }
+        return tb.elements(kAXChildrenAttribute).contains { $0.role == "AXButton" && $0.string(kAXDescriptionAttribute) == "Send" }
     }
     static func isSearch(_ e: AXUIElement) -> Bool {
         ["AXTextField", "AXSearchField"].contains(e.role) || e.string(kAXSubroleAttribute) == "AXSearchField"
