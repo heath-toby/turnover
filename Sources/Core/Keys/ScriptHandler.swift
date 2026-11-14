@@ -145,6 +145,8 @@ public enum ScriptHandler {
             if AXHandler.shared.focusIsBehindFrontApp, !handled.modifiers.contains(.turnover) {
                 Log.io("key: TurnOver's focus is still an app's behind the front one; \(handled.logDescription()) goes to the front app")
                 resolved = .some(nil)
+                // (Tab then says why nothing is read yet, as the Tab trap does while an app comes up.)
+                if handled.keyName == "tab" { Speech.speakMessage(String(localized: "please wait", comment: "Spoken message"), remember: false) }
             }
             let taken = InputManager.handleKeyDown(handled, script: resolved)
             var late = false
