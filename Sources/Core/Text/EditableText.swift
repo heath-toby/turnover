@@ -394,6 +394,11 @@ open class EditableText: TurnOverObject {
             Speech.speakTextInfo(passed, unit: .character, reason: .caret)
             return
         }
+        // The Windows style's word keys: TurnOver's own stops, punctuation included (WordStops).
+        if unit == .word, config.general.windowsKeys, ["leftArrow", "rightArrow"].contains(gesture.keyName), !gesture.modifiers.contains(.shift),
+           let n = newInfo, let old = try? makeTextInfo(.bookmark(bookmark)), windowsWordStop(from: old, after: n, forward: gesture.keyName == "rightArrow", gesture: gesture) {
+            return
+        }
         // Option+Right on the Mac stops at the end of the word, on the space or comma after it: say the word passed
         // over, as VoiceOver does, not "blank" or "comma" (Mail's compose window, 5 Oct 2026).
         if unit == .word, gesture.keyName == "rightArrow", let n = newInfo, n.start > 0 {
@@ -419,21 +424,6 @@ open class EditableText: TurnOverObject {
                     caretMoved(speak: .word, gesture: gesture, info: next)
                     return
                 }
-                // No word after it: the punctuation ending the text is the next stop, said at once. It took three
-                // presses, "dog", "dog" again, then "question mark" (a tester, 14 Nov 2026).
-                if target >= limit {
-                    var e = n.start
-                    while e < limit, e - n.start < 10, let c = n.textRange(e, e + 1).first, !c.isWhitespace, !isWordChar(String(c)) { e += 1 }
-                    if e > n.start {
-                        let marks = n.textRange(n.start, e)
-                        let after = type(of: n).init(obj: n.obj, start: e, end: e)
-                        after.updateCaret()
-                        _ = hasCaretMoved(from: n.bookmark)
-                        caretMoved(speak: nil, gesture: gesture, info: after)
-                        Speech.speakMessage(marks.map { Symbols.name(of: $0) }.joined(separator: " "))
-                        return
-                    }
-                }
             }
             if isWordChar(n.textRange(n.start - 1, n.start)), !isWordChar(n.textRange(n.start, n.start + 1)) {
                 caretMoved(speak: nil, gesture: gesture, info: n)
@@ -445,6 +435,34 @@ open class EditableText: TurnOverObject {
             }
         }
         caretMoved(speak: unit, gesture: gesture, info: newInfo)
+    }
+
+    /// Puts the caret on the next or previous word stop from where it was before the key, and reads it. False when
+    /// there is none nearby (the text's end): the app's own move is read as before.
+    private func windowsWordStop(from old: TextInfo, after n: TextInfo, forward: Bool, gesture: KeyboardGesture) -> Bool {
+        let length = n.storyLength()
+        let a = max(0, old.start - 300), b = min(length, old.start + 300)
+        guard b > a else { return false }
+        let window = n.textRange(a, b)
+        guard let stop = WordStops.stop(in: window, from: old.start - a, forward: forward) else { return false }
+        // A stop cut by the window's edge isn't one: the word goes on past it.
+        if !forward, stop.at == 0, a > 0 { return false }
+        let at = a + stop.at
+        let here = type(of: n).init(obj: n.obj, start: at, end: at)
+        if n.start != at { here.updateCaret(); _ = hasCaretMoved(from: n.bookmark) }
+        caretMoved(speak: nil, gesture: gesture, info: here)
+        let u = Array(window.utf16)
+        func names(_ r: Range<Int>) -> String {
+            String(utf16CodeUnits: Array(u[r]), count: r.count).map { Symbols.name(of: $0) }.joined(separator: " ")
+        }
+        switch stop.kind {
+        case .blank: Speech.speakOnly(Phrases.blank)
+        case .marks: Speech.speakOnly(names(stop.at..<stop.end))
+        case .word:
+            let word = String(utf16CodeUnits: Array(u[(stop.at + stop.lead)..<stop.end]), count: stop.end - stop.at - stop.lead)
+            Speech.speakOnly((stop.lead > 0 ? names(stop.at..<(stop.at + stop.lead)) + " " : "") + Speech.processed(word))
+        }
+        return true
     }
 
     /// Enter: read what is on the new line before the caret (auto numbering, a bullet), or just note the move.

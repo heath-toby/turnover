@@ -182,6 +182,7 @@ Switch styles with Command Control Comma, then K. TurnOver's own commands behind
 | Control Shift Escape | Force quit, as Task Manager's key (Windows: Control+Shift+Escape) |
 | Option Command Tab | Application chooser; lists every application with a window, system alerts too, to switch to (Windows: Windows+Tab, Task View) |
 | Option Shift D | Opens the Desktop folder in Finder, its items under the arrows (Option Shift D) |
+| Option Left and Right arrows | By word, as on Windows: to the start of each word and reads it. Punctuation ending a word is a stop of its own ("comma", "period quote"); punctuation opening one is read with it ("quote I") |
 
 # In the apps
 

@@ -41,6 +41,22 @@ func brailleMapTests() {
         expect(BrailleOutput.fillInvalid([-1, 0], length: 1), [0, 0])
         expect(BrailleOutput.fillInvalid([], length: 0), [])
     }
+    test("Word stops: punctuation ending a word is a stop, opening punctuation is read with the word") {
+        let t = "He said \"I am.\" The lazy, dog? e-mail\n\nNext"
+        let ns = t as NSString
+        func walk(_ from: Int) -> [String] {
+            var out: [String] = [], c = from
+            while let s = WordStops.stop(in: t, from: c, forward: true) { out.append(ns.substring(with: NSRange(location: s.at, length: s.end - s.at)) + (s.kind == .blank ? "<blank>" : "")); c = s.at }
+            return out
+        }
+        expect(walk(0), ["said", "\"I", "am", ".\"", "The", "lazy", ",", "dog", "?", "e-mail", "<blank>", "Next"], "the stops, forward")
+        let quote = WordStops.stops(in: t).first { $0.kind == .word && $0.lead == 1 }
+        expect(quote.map { ns.substring(with: NSRange(location: $0.at + $0.lead, length: $0.end - $0.at - $0.lead)) }, "I", "the quote opening a word: its lead")
+        let back = WordStops.stop(in: t, from: ns.range(of: "dog").location, forward: false)
+        expect(back.map { ns.substring(with: NSRange(location: $0.at, length: $0.end - $0.at)) }, ",", "back from dog: the comma")
+        let mid = WordStops.stop(in: t, from: ns.range(of: "lazy").location + 2, forward: false)
+        expect(mid?.at, ns.range(of: "lazy").location, "back from inside a word: its start")
+    }
     test("Word selection: the parts on each page joined into one") {
         let parts: [Int: (Int, Int)] = [0: (0, 79), 1: (79, 95)]
         let p = { (j: Int) in parts[j] }
