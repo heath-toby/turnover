@@ -75,6 +75,15 @@ extension BrowseModeDocument {
         // anew when it opens, so "Log out" in the buffer pointed at an element that no longer exists, 3 Oct 2026).
         // Find the live link or button with the line's text and press that.
         let text = lineText(at: position).trimmingCharacters(in: .whitespacesAndNewlines)
+        // Only a control the page has once by that name: rows each with their own "Delete" pressed the first row's
+        // (a review, 14 Nov 2026). Several: the page is read again, and nothing is pressed until it is.
+        if !text.isEmpty, Self.liveActionableCount(named: text, in: webArea) > 1 {
+            Log.io("browse mode: \"\(Log.words(text))\" was stale and the page has several; reading the page again")
+            buffer.isDirty = true
+            Tones.edge()
+            Speech.speakMessage(String(localized: "the page changed; press again", comment: "Spoken message: browse mode activated something the page had replaced"))
+            return
+        }
         if !text.isEmpty, let live = Self.liveActionable(named: text, in: webArea) {
             Log.io("browse mode: \"\(Log.words(text))\" was stale in the buffer; pressing the page's own \(live.role)")
             if press(nearestTo: live) {
@@ -510,7 +519,11 @@ extension BrowseModeDocument {
     }
 
     /// A link or button on the live page whose text is `name`.
-    static func liveActionable(named name: String, in root: AXUIElement) -> AXUIElement? {   // bounded: it runs only when the buffer failed
+    static func liveActionable(named name: String, in root: AXUIElement) -> AXUIElement? { liveActionables(named: name, in: root, limit: 1).first }
+    static func liveActionableCount(named name: String, in root: AXUIElement) -> Int { liveActionables(named: name, in: root, limit: 2).count }
+
+    static func liveActionables(named name: String, in root: AXUIElement, limit: Int) -> [AXUIElement] {   // bounded: it runs only when the buffer failed
+        var found: [AXUIElement] = []
         let wanted = name.lowercased()
         var queue = [root]; var visited = 0
         while !queue.isEmpty, visited < 3000 {
@@ -519,11 +532,11 @@ extension BrowseModeDocument {
             if ["AXLink", "AXButton", "AXMenuItem", "AXCheckBox", "AXRadioButton", "AXPopUpButton"].contains(role) {
                 let own = [e.string(kAXTitleAttribute), e.string(kAXDescriptionAttribute)].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
                 let inner = e.elements(kAXChildrenAttribute).compactMap { $0.string(kAXValueAttribute)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.joined(separator: " ")
-                if own.contains(wanted) || inner == wanted { return e }
+                if own.contains(wanted) || inner == wanted { found.append(e); if found.count >= limit { return found } }
             }
             queue.append(contentsOf: e.elements(kAXChildrenAttribute))
         }
-        return nil
+        return found
     }
 
     static func actionable(_ x: AXUIElement) -> Bool {

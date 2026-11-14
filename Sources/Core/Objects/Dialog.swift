@@ -151,6 +151,9 @@ open class Dialog: TurnOverObject {
 
     static var spokenAt: (AXUIElement, Date)?
     static var choiceIndex: [Int: Int] = [:]
+    /// The choice heard, by its element: Return presses that one, wherever it now is in the list (a control enabled or
+    /// added meanwhile shifted the index onto another button: a review, 14 Nov 2026).
+    static var choiceElement: [Int: AXUIElement] = [:]
 
     /// A dialog read afresh: where Tab and the arrows were in it is forgotten. Kept by the element's hash and never
     /// cleared, a later dialog with the same hash started on an old choice, and Return pressed it (a review,
@@ -158,7 +161,7 @@ open class Dialog: TurnOverObject {
     static func readAfresh(_ element: AXUIElement) {
         spokenAt = (element, Date())
         let key = Int(CFHash(element))
-        choiceIndex[key] = nil; lineIndex[key] = nil
+        choiceIndex[key] = nil; lineIndex[key] = nil; choiceElement[key] = nil
     }
 
     private func announce(choicesToo: Bool) {
@@ -243,7 +246,7 @@ open class Dialog: TurnOverObject {
         if let cur, next == cur { Tones.edge(keySent: true) }
         Self.lineIndex[key] = next
         let (e, n, isChoice) = all[next]
-        if isChoice, let ci = choices.firstIndex(where: { $0.0.isSame(e) }) { Self.choiceIndex[key] = ci } else { Self.choiceIndex[key] = nil }
+        if isChoice, let ci = choices.firstIndex(where: { $0.0.isSame(e) }) { Self.choiceIndex[key] = ci; Self.choiceElement[key] = e } else { Self.choiceIndex[key] = nil; Self.choiceElement[key] = nil }
         let kind = isChoice ? (e.role == "AXStaticText" ? Role.button.displayString : ObjectFactory.make(e).role.displayString) : ""
         Speech.speakMessage(kind.isEmpty ? n : "\(n), \(kind)")
     }
@@ -256,6 +259,7 @@ open class Dialog: TurnOverObject {
         Self.choiceIndex[key] = next
         Self.lineIndex[key] = nil
         let (e, n) = all[next]
+        Self.choiceElement[key] = e
         let kind = e.role == "AXStaticText" ? Role.button.displayString : ObjectFactory.make(e).role.displayString
         Tones.focusTick()   // a move like any other Tab (a tester, 11 Nov 2026)
         Speech.speakMessage("\(n), \(kind), \(Phrases.position(next + 1, of: all.count))")
@@ -278,9 +282,15 @@ open class Dialog: TurnOverObject {
 
     private func pressChoice(_ g: KeyboardGesture) {
         let all = choices
-        guard let i = Self.choiceIndex[key], all.indices.contains(i) else {
+        guard var i = Self.choiceIndex[key], all.indices.contains(i) else {
             // No choice picked yet: Return is the dialog's default button, as always.
             g.send(); return
+        }
+        if let heard = Self.choiceElement[key] {
+            guard let j = all.firstIndex(where: { $0.0.isSame(heard) }) else {
+                Tones.edge(); Speech.speakMessage(String(localized: "that choice has gone", comment: "Spoken message: the dialog's button heard is no longer there")); return
+            }
+            i = j
         }
         let (e, n) = all[i]
         if press(e) { Log.io("dialog: pressed \(Log.words(n))"); SystemPrompts.checkPress(of: e, name: n) }
