@@ -20,6 +20,8 @@ the apps you use every day more simply than VoiceOver does. It runs on macOS 14 
   Speak the following greeting after login, gives it words to say as it starts then.
 - Settings, General, Portable preferences: Export settings saves a copy of all your settings to a file, and Import
   settings reads one back, on this Mac or another. A file that isn't TurnOver's settings is refused, and nothing changes.
+  An import changes only the settings in the file; a settings profile that is on is switched off first. Keys that open
+  an app, a script or a Shortcut are left out of an import, and a speech volume or rate too low to hear is raised.
 
 ## The first five minutes
 

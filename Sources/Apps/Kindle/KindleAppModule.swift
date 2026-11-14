@@ -207,12 +207,15 @@ final class KindleAppModule: AppModule {
     /// Keys bumped during this turn.
     private var bumps = 0
 
-    private func turnAndRead(forward: Bool, atEnd: Bool, _ g: KeyboardGesture?, then done: (() -> Void)? = nil) {
-        if turning { Tones.edge(); bumps += 1; return }
+    /// `speak`: the new page's line is said (braille panning may say nothing: "Speak the line when panning to it").
+    /// `done` hears whether the reading position is now on the new page.
+    private func turnAndRead(forward: Bool, atEnd: Bool, _ g: KeyboardGesture?, speak: Bool = true, then done: ((Bool) -> Void)? = nil) {
+        if turning { Tones.edge(); bumps += 1; done?(false); return }
         bumps = 0
         let keysAt = InputManager.keyDownCount
         turnPage(forward: forward) { [weak self] turned in
-            defer { done?() }
+            var placed = false
+            defer { done?(placed) }
             guard let self, let (doc, page) = self.bookDocument() else { return }
             // Another key came while the page turned: it has said or moved since; this reading would talk over it.
             // (Keys bumped while it turned don't count: holding Page Down ended in silence on a page that had turned.)
@@ -222,15 +225,16 @@ final class KindleAppModule: AppModule {
             guard turned else { Tones.edge(); Speech.speakMessage(forward ? String(localized: "end of the book", comment: "Spoken message") : String(localized: "start of the book", comment: "Spoken message")); return }
             guard let lines = self.textLines(doc, page) else { Speech.speakMessage(Self.noTextWords); return }
             doc.position = doc.buffer.lines[atEnd ? lines.last : lines.first].start
-            doc.speakUnit(.line)
+            placed = true
+            if speak { doc.speakUnit(.line) }
         }
     }
 
     /// Braille's "Turn pages when panning" (14 Nov 2026): panning on from the page's last line (or back from its
     /// first) turns the page, as Down and Up do here.
-    override func brailleTurnPage(forward: Bool, done: @escaping () -> Void) -> Bool {
+    override func brailleTurnPage(forward: Bool, speak: Bool, done: @escaping (Bool) -> Void) -> Bool {
         guard onEdgeLine(last: forward) else { return false }
-        turnAndRead(forward: forward, atEnd: !forward, nil, then: done)
+        turnAndRead(forward: forward, atEnd: !forward, nil, speak: speak, then: done)
         return true
     }
 

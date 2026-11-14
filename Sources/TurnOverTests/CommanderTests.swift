@@ -85,6 +85,62 @@ func commanderTests() {
         check(refused("[1, 2]"), "not an object")
         check(refused(#"{"name": "something else"}"#), "none of the sections")
         guard case .success(let c) = SettingsBridge.portableSettings(from: Data(#"{"speech": {"rate": 0.7}, "general": {"keyboardStyle": "windows"}}"#.utf8)) else { check(false, "a real file"); return }
-        expect(c.speech.rate, 0.7); expect(c.general.keyboardStyle, "windows")
+        expect(c.config.speech.rate, 0.7); expect(c.config.general.keyboardStyle, "windows")
+    }
+    test("portable preferences: an import merges over the settings, keeps speech audible and leaves out keys that run things") {
+        var base = Config()
+        base.speech.volume = 150; base.speech.pitch = 0.3
+        base.braille.verbosity = "low"
+        base.keyboard.userGestures = ["kb:rightoption+a": "app:com.example.mine", "kb:rightoption+b": "script:dateTime"]
+        let file = #"{"speech": {"rate": 0.7}, "keyboard": {"userGestures": {"kb:rightoption+s": "file:/tmp/x.scpt", "kb:rightoption+c": "shortcut:ABC", "kb:rightoption+d": "script:sayAll", "kb:rightoption+e": "app:com.other"}}}"#
+        guard case .success(let r) = SettingsBridge.portableSettings(from: Data(file.utf8), over: base) else { check(false, "a real file"); return }
+        expect(r.config.speech.rate, 0.7); expect(r.config.speech.volume, 150, "a key the file lacks keeps its value")
+        expect(r.config.speech.pitch, 0.3); expect(r.config.braille.verbosity, "low", "a section the file lacks is left alone")
+        expect(r.droppedKeys, 3)
+        expect(r.config.keyboard.userGestures["kb:rightoption+d"], "script:sayAll")
+        expect(r.config.keyboard.userGestures["kb:rightoption+s"], nil); expect(r.config.keyboard.userGestures["kb:rightoption+e"], nil)
+        expect(r.config.keyboard.userGestures["kb:rightoption+a"], "app:com.example.mine", "this Mac's own app key stays")
+        guard case .success(let quiet) = SettingsBridge.portableSettings(from: Data(#"{"speech": {"volume": 0, "rate": 5, "pitch": -1, "languageVolumes": {"fr": 0}}}"#.utf8), over: base) else { check(false, "speech"); return }
+        expect(quiet.config.speech.volume, 10); expect(quiet.config.speech.rate, 1); expect(quiet.config.speech.pitch, 0)
+        expect(quiet.config.speech.languageVolumes["fr"], 10)
+        guard case .success(let v) = SettingsBridge.portableSettings(from: Data(#"{"vision": {}, "sounds": {}}"#.utf8), over: base) else { check(false, "vision and sounds only"); return }
+        expect(v.config.speech.volume, 150)
+    }
+    test("commander: off turns off a Command Commander's letters, an Option one's set by the user stay") {
+        check(UserGestures.commanderApplies(key: .rightOption, on: true, userSet: false), "on")
+        check(!UserGestures.commanderApplies(key: .rightOption, on: false, userSet: false), "TurnOver's own letters off")
+        check(UserGestures.commanderApplies(key: .leftOption, on: false, userSet: true), "an Option letter the user set")
+        check(!UserGestures.commanderApplies(key: .leftCommand, on: false, userSet: true), "a Command letter is the app's")
+        check(!UserGestures.commanderApplies(key: .rightControl, on: false, userSet: true), "Control")
+        check(Commander.Key.rightOption.typesCharacters, "Option"); check(!Commander.Key.leftCommand.typesCharacters, "Command")
+    }
+    test("commander: T tells the time only with an Option Commander") {
+        let saved = (config.keyboard.commanderKey, config.keyboard.userGestures, config.keyboard.optionCommander)
+        defer { config.keyboard.commanderKey = saved.0; config.keyboard.userGestures = saved.1; config.keyboard.optionCommander = saved.2 }
+        config.keyboard.userGestures = [:]; config.keyboard.optionCommander = true
+        config.keyboard.commanderKey = "leftCommand"
+        let cmdT = KeyboardGesture(keyCode: 17, modifiers: [.command], characters: "t", timestamp: 0, isRepeat: false, flags: CGEventFlags(rawValue: 0x100008))
+        check(UserGestures.target(for: cmdT) == nil, "Left Command T stays the apps'")
+        config.keyboard.userGestures = ["kb:rightoption+t": "script:sayAll"]
+        check(UserGestures.target(for: cmdT) == .script("sayAll"), "unless the user gives it a command")
+        config.keyboard.optionCommander = false
+        check(UserGestures.target(for: cmdT) == nil, "and the Commander off gives it back")
+        config.keyboard.userGestures = [:]; config.keyboard.optionCommander = true
+        config.keyboard.commanderKey = "rightOption"
+        let optT = KeyboardGesture(keyCode: 17, modifiers: [.option], characters: "t", timestamp: 0, isRepeat: false, flags: CGEventFlags(rawValue: 0x80040))
+        check(UserGestures.target(for: optT) == .script("dateTime"), "right Option T, the time")
+    }
+    test("login greeting: once a login session") {
+        let s = Date(timeIntervalSince1970: 1_000_000)
+        expect(LoginGreeting.sessionKey(sessionStarted: s, bootedAt: nil), "login 1000000")
+        expect(LoginGreeting.sessionKey(sessionStarted: nil, bootedAt: s), "boot 1000000")
+        expect(LoginGreeting.sessionKey(sessionStarted: nil, bootedAt: nil), nil)
+        check(LoginGreeting.due(atLogin: true, session: "login 1", lastGreeted: nil), "first")
+        check(!LoginGreeting.due(atLogin: true, session: "login 1", lastGreeted: "login 1"), "a restart in the same session")
+        check(LoginGreeting.due(atLogin: true, session: "login 2", lastGreeted: "login 1"), "a new login")
+        check(!LoginGreeting.due(atLogin: false, session: "login 2", lastGreeted: nil), "not at login")
+    }
+    test("trackpad: the one-finger double-tap stays TurnOver's") {
+        check(!Trackpad.assignable.contains("G double-tap 1"), "activates")
     }
 }

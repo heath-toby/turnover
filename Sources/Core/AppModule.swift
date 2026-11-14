@@ -80,7 +80,9 @@ open class AppModule: ScriptableObject {
 
     /// Braille panned past the page's last line (or before its first), with "Turn pages when panning" on: the module
     /// may turn the page (Kindle) and call `done` once the new page is in place. True when it will (14 Nov 2026).
-    open func brailleTurnPage(forward: Bool, done: @escaping () -> Void) -> Bool { false }
+    /// `speak`: the new page's line is said ("Speak the line when panning to it"); `done(true)` only when the page
+    /// really turned and the reading position is on it, so the display moves only then (a review, 14 Nov 2026).
+    open func brailleTurnPage(forward: Bool, speak: Bool, done: @escaping (Bool) -> Void) -> Bool { false }
 
     /// A field whose focus can't be set by accessibility: the module may put the keyboard there itself (a click).
     /// True when it did.

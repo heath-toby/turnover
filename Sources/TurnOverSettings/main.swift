@@ -38,6 +38,7 @@ final class Model: ObservableObject {
                 self?.requestedSection = Pane(rawValue: name)
                 return
             }
+            if message["op"] as? String == "exportSettings", let json = message["json"] as? String { self?.writeExport(json); return }
             guard message["op"] as? String == "state", let json = message["json"] as? String, let data = json.data(using: .utf8),
                   let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
             self?.state = dict; self?.connected = true
@@ -60,6 +61,35 @@ final class Model: ObservableObject {
     }
 
     func ask() { connection?.send(["op": "ask"]) }
+
+    // Portable preferences (a review, 14 Nov 2026): the window reads and writes the file, not TurnOver. The panel gave
+    // this app the file; TurnOver opening it on its main thread could wait on a Files and Folders prompt for Documents,
+    // Desktop or Downloads, and the reader would freeze. TurnOver only checks and adopts the settings, or hands over its
+    // own for the window to write.
+    private var exportURL: URL?
+    func exportSettings(to url: URL) {
+        exportURL = url
+        connection?.send(["op": "exportSettings"])
+    }
+    /// TurnOver's settings, for the file chosen to export to.
+    private func writeExport(_ json: String) {
+        guard let url = exportURL else { return }
+        exportURL = nil
+        do {
+            try Data(json.utf8).write(to: url, options: .atomic)
+            setSpecial("_settingsExported", ["name": url.lastPathComponent])
+        } catch {
+            setSpecial("_settingsExported", ["name": url.lastPathComponent, "error": error.localizedDescription])
+        }
+    }
+    func importSettings(from url: URL) {
+        // Under the control channel's limit for one message (a megabyte); a settings file is a few dozen kilobytes.
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        guard size <= 800_000, let data = try? Data(contentsOf: url), let json = String(data: data, encoding: .utf8) else {
+            setSpecial("_importSettings", ["name": url.lastPathComponent, "json": ""]); return
+        }
+        setSpecial("_importSettings", ["name": url.lastPathComponent, "json": json])
+    }
 
     func get(_ section: String, _ key: String) -> Any? { (state[section] as? [String: Any])?[key] }
     func special(_ key: String) -> Any? { state[key] }
@@ -818,7 +848,9 @@ struct KeyboardView: View {
                 Toggle("Review cursor follows the caret", isOn: model.bool("keyboard", "reviewFollowsCaret"))
                 Toggle("Review cursor follows the mouse", isOn: model.bool("keyboard", "reviewFollowsMouse"))
                 Text("Silent: the review cursor goes to what the pointer is over, and nothing is said. To hear it as well, use Mouse, Moving the pointer moves the cursor.").font(.caption)
-                Toggle("Simple review mode: NVDA keys skip layout", isOn: model.bool("keyboard", "simpleReviewMode"))
+                // Not NVDA keys only: VoiceOver keys with Ignore groups, and moving out to the parent, skip layout too (a review, 14 Nov 2026).
+                Toggle("Simple review mode: moving item by item skips layout", isOn: model.bool("keyboard", "simpleReviewMode"))
+                Text("Layout with nothing of its own to say is passed over by NVDA's object keys, by VoiceOver keys with Ignore groups, and when moving out to the item holding the cursor.").font(.caption)
                 Picker("Initial position of the cursor in a new window", selection: model.string("general", "cursorStart", "focus")) {
                     Text("Keyboard focused item").tag("focus"); Text("First item in window").tag("firstItem")
                 }
@@ -827,18 +859,19 @@ struct KeyboardView: View {
                 Text("Fast searching moves to the next item starting with the letter. While it is on, Right Command and a letter does not reach the app in a list; Left Command does.").font(.caption)
             }
             Section("Keyboard Commander") {
-                // The Commander's own on and off is under The keypad, below.
+                // VoiceOver's Keyboard Commander, which only VO-Shift-K could turn on or off (the settings audit, 14 Nov
+                // 2026); beside its key since a review the same day (it was under The keypad).
+                Toggle("The Commander key with a letter runs a command (VoiceOver's Keyboard Commander)", isOn: model.bool("keyboard", "optionCommander"))
                 Picker("Commander key", selection: model.string("keyboard", "commanderKey", "rightOption")) {
                     Text("Right Option").tag("rightOption"); Text("Left Option").tag("leftOption")
                     Text("Right Command").tag("rightCommand"); Text("Left Command").tag("leftCommand"); Text("Right Control").tag("rightControl")
                 }
                 Text("The Commander key and a letter runs the command given to that letter. Give letters, keypad keys and trackpad gestures their commands in the TurnOver menu, Keys, My own keys.").font(.caption)
+                Text("With a Command or Control key as the Commander, a letter you give a command no longer reaches the app with that key: with Left Command, that letter's shortcut stops working. The Commander key and T tells the time only while an Option key is the Commander. A letter given a command also wins over fast searching.").font(.caption)
             }
             Section("The keypad") {
                 Toggle("Keypad commands with VoiceOver keys (VO Clear switches)", isOn: model.bool("keyboard", "numpadCommander"))
                 Toggle("Keypad commands with NVDA keys (Clear switches)", isOn: model.bool("keyboard", "keypadCommands"))
-                // VoiceOver's Keyboard Commander, which only VO-Shift-K could turn on or off (the settings audit, 14 Nov 2026).
-                Toggle("The Commander key with a letter runs a command (VoiceOver's Keyboard Commander)", isOn: model.bool("keyboard", "optionCommander"))
             }
             // NVDA's timing settings (its multiple key press timeout, and Advanced's caret move timeout).
             Section("Timing") {
@@ -1105,6 +1138,34 @@ struct OtherAppsView: View {
     }
 }
 
+/// The login greeting, sent to TurnOver when Return is pressed or typing pauses, not at every key: each key was a
+/// patch, a save and the settings sent back (a review, 14 Nov 2026).
+struct GreetingField: View {
+    @EnvironmentObject var model: Model
+    @State private var text = ""
+    @State private var edited = false
+    @State private var pause: DispatchWorkItem?
+    var body: some View {
+        TextField("Speak the following greeting after login", text: $text)
+            .onAppear { text = model.get("general", "loginGreeting") as? String ?? "" }
+            .onChange(of: text) { _, _ in
+                edited = true
+                pause?.cancel()
+                let w = DispatchWorkItem { commit() }
+                pause = w
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: w)
+            }
+            .onSubmit { commit() }
+            .onDisappear { commit() }
+    }
+    private func commit() {
+        pause?.cancel(); pause = nil
+        guard edited else { return }
+        edited = false
+        if (model.get("general", "loginGreeting") as? String ?? "") != text { model.set("general", "loginGreeting", text) }
+    }
+}
+
 struct GeneralView: View {
     @EnvironmentObject var model: Model
     var body: some View {
@@ -1121,7 +1182,7 @@ struct GeneralView: View {
                 Text("The same as VoiceOver's").tag("follow"); Text("Always on").tag("on"); Text("Off").tag("off")
             }
             // VoiceOver's and NVDA's other General settings (14 Nov 2026).
-            TextField("Speak the following greeting after login", text: model.string("general", "loginGreeting", ""))
+            GreetingField()
             if model.special("_autoUpdateChecks") != nil {
                 Toggle("Automatically check for updates", isOn: Binding(get: { model.special("_autoUpdateChecks") as? Bool ?? false }, set: { model.setSpecial("_autoUpdateChecks", $0) }))
             }
@@ -1131,11 +1192,11 @@ struct GeneralView: View {
             Section("Portable preferences") {
                 Button("Export settings…") {
                     let panel = NSSavePanel(); panel.nameFieldStringValue = "TurnOver settings.json"; panel.allowedContentTypes = [.json]
-                    if panel.runModal() == .OK, let url = panel.url { model.setSpecial("_exportSettings", url.path) }
+                    if panel.runModal() == .OK, let url = panel.url { model.exportSettings(to: url) }
                 }
                 Button("Import settings…") {
                     let panel = NSOpenPanel(); panel.allowedContentTypes = [.json]; panel.allowsMultipleSelection = false
-                    if panel.runModal() == .OK, let url = panel.url { model.setSpecial("_importSettings", url.path) }
+                    if panel.runModal() == .OK, let url = panel.url { model.importSettings(from: url) }
                 }
                 if let message = model.special("_portableMessage") as? String { Text(message) }
             }

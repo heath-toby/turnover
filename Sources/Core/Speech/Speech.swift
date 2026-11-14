@@ -589,10 +589,10 @@ public enum Speech {
         }
         let bundle = obj.element.pid > 0 ? bundleIdentifier(of: obj.element.pid) : nil
         let list = config.presentation.verbosity(for: bundle)
-        parts = arranged(pieces, by: braille.map { list.forBraille($0) } ?? list)
+        parts = arranged(pieces, by: braille.map { list.forBraille($0, toggles: Role.toggles.contains(role)) } ?? list)
         // A check box whose label is a paragraph (an agreement): what it is and whether it is checked first, so the
         // state is not lost at the end of a long sentence.
-        if [.checkBox, .radioButton, .toggleButton, .switchControl].contains(role), name.count > 80, parts.first == name {
+        if Role.toggles.contains(role), name.count > 80, parts.first == name {
             return Array(parts.dropFirst()) + [name]
         }
         return parts

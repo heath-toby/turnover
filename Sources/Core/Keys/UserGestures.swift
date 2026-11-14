@@ -55,18 +55,29 @@ public enum UserGestures {
     static func normal(_ id: String) -> String { id.hasPrefix("kb:rightoption+") ? id : normalizeGestureIdentifier(id) }
 
     /// TurnOver's own right Option keys, used unless the user gives the key something else (or takes it away):
-    /// right Option T, the time and, pressed twice, the date (12 Oct 2026; TurnOver Shift T does the same).
+    /// right Option T, the time and, pressed twice, the date (12 Oct 2026; TurnOver Shift T does the same). Only with
+    /// an Option key as the Commander (Commander.Key.typesCharacters).
     public static let defaults: [String: String] = ["kb:rightoption+t": "script:dateTime"]
 
     public static func target(for g: KeyboardGesture) -> Target? {
+        let key = Commander.key(config.keyboard.commanderKey)
         for id in identifiers(of: g) {
-            // VoiceOver's Option Commander off (VO-Shift-K) turns off the right Option keys TurnOver gives by default, not
-            // ones the user set: those were skipped too, the key typed its character, and Right Option / said
-            // "division" (a tester, 19 Oct 2026, with the Commander off).
-            if id.hasPrefix("kb:rightoption+"), !config.keyboard.optionCommander, config.keyboard.userGestures[normal(id)] == nil { continue }
-            if let s = config.keyboard.userGestures[normal(id)] ?? defaults[normal(id)], let t = Target(s) { return t }
+            let n = normal(id)
+            let isCommander = id.hasPrefix("kb:rightoption+")
+            if isCommander, !commanderApplies(key: key, on: config.keyboard.optionCommander, userSet: config.keyboard.userGestures[n] != nil) { continue }
+            let fallback = isCommander && !key.typesCharacters ? nil : defaults[n]
+            if let s = config.keyboard.userGestures[n] ?? fallback, let t = Target(s) { return t }
         }
         return nil
+    }
+
+    /// Whether a Commander key's letter is looked up at all. Pure.
+    /// VoiceOver's Commander off (VO-Shift-K) turns off the keys TurnOver gives by default. An Option Commander's
+    /// letters the user set stay on: skipped, the key typed its character and Right Option / said "division" (a
+    /// tester, 19 Oct 2026, with the Commander off). A Command or Control Commander's letters are the apps' shortcuts,
+    /// so off means off for every one: they stayed swallowed (a review, 14 Nov 2026).
+    nonisolated public static func commanderApplies(key: Commander.Key, on: Bool, userSet: Bool) -> Bool {
+        on || (userSet && key.typesCharacters)
     }
 
     /// The script a user key runs here, nil when it has none of the user's (then TurnOver's own keys apply).

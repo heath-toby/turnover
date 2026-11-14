@@ -157,12 +157,13 @@ public enum Trackpad {
     /// The user's own gestures are kept with their keys (Config.Keyboard.userGestures), as "tp:" and the helper's line.
     nonisolated public static let userPrefix = "tp:"
     /// The gestures a command can be given, as the helper reports them. The rotor turn, exploring and the two-finger
-    /// double-tap (by where it lands) stay TurnOver's own.
+    /// double-tap (by where it lands) stay TurnOver's own. So does the one-finger double-tap: it activates what is under
+    /// the finger while exploring, and given away, nothing could be pressed by touch (a review, 14 Nov 2026).
     nonisolated public static let assignable = [
         "G flick-right 1", "G flick-left 1", "G flick-up 1", "G flick-down 1",
         "G flick-right 2", "G flick-left 2", "G flick-up 2", "G flick-down 2",
         "G flick-right 3", "G flick-left 3", "G flick-up 3", "G flick-down 3",
-        "G tap 2", "G tap 3", "G double-tap 1", "G double-tap 3", "G triple-tap 1", "G triple-tap 3", "G scrub",
+        "G tap 2", "G tap 3", "G double-tap 3", "G triple-tap 1", "G triple-tap 3", "G scrub",
     ]
     /// A gesture as said ("two-finger flick down"). Pure.
     nonisolated public static func gestureName(_ line: String) -> String {
@@ -205,7 +206,8 @@ public enum Trackpad {
         if !line.hasPrefix("E ") { Log.io("trackpad: \(line)") }
         // A gesture the user gave a command of their own (VoiceOver's Trackpad Commander assignments, 14 Nov 2026), in
         // either style; taken away, it does nothing.
-        if let stored = config.keyboard.userGestures[userPrefix + line], let t = UserGestures.Target(stored) {
+        // Only gestures that may be given away: one stored before the list changed (double-tap 1) stays TurnOver's.
+        if assignable.contains(line), let stored = config.keyboard.userGestures[userPrefix + line], let t = UserGestures.Target(stored) {
             switch UserGestures.found(t) {
             case .script(let s)?:
                 Speech.cancel()

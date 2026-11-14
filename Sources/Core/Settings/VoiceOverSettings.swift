@@ -121,6 +121,8 @@ extension VoiceOverSettings {
         public var commanderKeys: [(letter: String, command: String)] = []
         public var keyBindings: [(key: String, shift: Bool, command: Bool, fn: Bool, target: String, removed: Bool)] = []
         public var keyboardCommander: Bool?, numpadCommander: Bool?
+        /// VoiceOver's Keyboard Commander modifier as the export stores it, when it does: logged, not copied.
+        public var commanderModifier: String?
         public var archiveVersion = 0
     }
 
@@ -196,6 +198,11 @@ extension VoiceOverSettings {
         c.punctuation = (d["SCRCategories_SCRCategorySystemWide_SCRPunctuationVerbosenessLevel"] ?? d["SCRCUserDefaultsCategorySystemWide_PunctuationVerbosenessLevel"]).map { "\($0)" } ?? ""
         c.keyboardCommander = d["SCRCKeyboardCommanderEnabled"] as? Bool
         c.numpadCommander = d["SCRNumPadCommanderEnabled"] as? Bool
+        // The Commander's modifier (VoiceOver Utility, Commanders, Keyboard). VoiceOver Utility names the setting
+        // kSCRCUserDefaultsKeyboardCommanderCommandKey, its values kSCRKeyboardModifierKey… constants; neither export on
+        // this Mac holds it (at right Option, the default; macOS 27.2, 14 Nov 2026), so how a value maps to a key is
+        // unknown. Kept for the log and not copied: the result says to choose the key in Settings (a review).
+        c.commanderModifier = d["SCRCKeyboardCommanderCommandKey"].map { "\($0)" }
         for (k, v) in d {
             if k.hasPrefix("custom.keyboard-commander.SCRKeyboardCommander_"), let command = v as? String,
                let code = UInt32(k.components(separatedBy: "_").last ?? "", radix: 16), let scalar = Unicode.Scalar(code) {
@@ -306,6 +313,10 @@ extension VoiceOverSettings {
             letters.append(Symbols.raised(letter))   // Turkish i is İ, not I (said ı)
         }
         if !letters.isEmpty { said.append(String(localized: "Keyboard Commander keys \(letters.sorted().joined(separator: ", "))", comment: "Copying VoiceOver's settings: the letters given")) }
+        if let m = c.commanderModifier { Log.info("VoiceOver settings: Keyboard Commander modifier stored as \(m); not copied") }
+        // VoiceOver's choice of Commander key can't be read from its export (above): said, so letters copied for left
+        // Command, say, are not taken to be lost.
+        let commanderNote = letters.isEmpty ? "" : String(localized: "VoiceOver's Commander key isn't copied: TurnOver's is \(Commander.key(config.keyboard.commanderKey).spokenName); choose another in Settings, Keyboard, Keyboard Commander.", comment: "Copying VoiceOver's settings: %@ is the Commander key, such as right option")
         var bound = 0
         for b in c.keyBindings {
             let name = KeyNames.code(for: b.key).map { KeyNames.name(for: $0) } ?? b.key
@@ -325,7 +336,7 @@ extension VoiceOverSettings {
         Log.info("VoiceOver settings copied (archive version \(c.archiveVersion)): \(said.joined(separator: ", "))")
         let copied = String(localized: "VoiceOver settings copied: \(said.joined(separator: ", ")).", comment: "The VoiceOver settings copy done: %@ lists what was copied")
         let again = String(localized: "Run it again whenever you change VoiceOver's settings: the TurnOver menu, Copy VoiceOver settings.", comment: "The VoiceOver settings copy done")
-        return [copied, voiceNote, again].filter { !$0.isEmpty }.joined(separator: " ")
+        return [copied, voiceNote, commanderNote, again].filter { !$0.isEmpty }.joined(separator: " ")
     }
 
     /// Said by whichever reader is talking (VoiceOver leads in VoiceOver Utility).

@@ -20,7 +20,7 @@ public enum TextReview {
     /// NVDA's "Follow system caret" (NVDA+6): a saved setting since 14 Nov 2026 (Settings, Keyboard, Moving around).
     public static var followsCaret: Bool {
         get { config.keyboard.reviewFollowsCaret }
-        set { config.keyboard.reviewFollowsCaret = newValue; config.save() }
+        set { config.keyboard.reviewFollowsCaret = newValue; config.save(); SettingsBridge.sendState() }   // an open Settings window shows it
     }
     /// NVDA+F9: the start marked for copying.
     nonisolated(unsafe) static var mark: TextInfo?

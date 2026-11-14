@@ -30,9 +30,14 @@ public enum FastSearch {
         return !letter.isEmpty && n.hasPrefix(letter.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil))
     }
 
-    static let listRoles: Set<Role> = [.list, .listItem, .table, .tableRow, .tableCell, .cell, .outline, .treeView, .treeViewItem, .browser]
+    /// The focus on a list, table, outline or browser itself: not a cell or item, which a spreadsheet's grid focuses,
+    /// and where Right Command and a letter is the app's (a review, 14 Nov 2026).
+    static let listRoles: Set<Role> = [.list, .table, .outline, .treeView, .browser]
+    static let listAXRoles: Set<String> = ["AXTable", "AXOutline", "AXList", "AXBrowser"]
+    /// How long the list's walk, and then its names, may take (each on main).
+    static let budget: TimeInterval = 0.15
 
-    /// The script for the key, when fast searching is on and the focus is in a list (main thread; no accessibility
+    /// The script for the key, when fast searching is on and the focus is on a list (main thread; no accessibility
     /// call: the focus's role is already known).
     public static func script(for g: KeyboardGesture) -> Script? {
         guard config.general.fastSearching, let letter = letter(keyName: g.keyName, modifiers: g.modifiers, flags: g.flags.rawValue),

@@ -77,6 +77,8 @@ public enum SettingsBridge {
         server.handlers["subscribe"] = { _, reply in Log.info("settings app: connected"); languagesState = nil; sendState(to: reply) }
         server.handlers["ask"] = { _, reply in languagesState = nil; sendState(to: reply) }
         server.handlers["patch"] = { message, _ in if let json = message["json"] as? String { apply(json) } }
+        // Export: the settings file's JSON to the window, which writes it where its save panel said (exportSettings).
+        server.handlers["exportSettings"] = { _, reply in reply(["op": "exportSettings", "json": exportJSON()]) }
     }
 
     /// The voices for other languages, as the window shows them: kept, not made again for every change. Made again
@@ -168,8 +170,10 @@ public enum SettingsBridge {
         if let id = patch["_soundClear"] as? String { SoundChoices.clearCustom(id); SoundChoices.preview(id) }
         if let a = patch["_speechPortAllowed"] as? [String: Any], let id = a["id"] as? String, let on = a["allowed"] as? Bool { SpeechPort.shared.setAllowed(id, on) }
         if let on = patch["_autoUpdateChecks"] as? Bool { autoUpdateChecks?.set(on) }
-        if let path = patch["_exportSettings"] as? String { exportSettings(to: path); sendState(); return }
-        if let path = patch["_importSettings"] as? String { importSettings(from: path); sendState(); return }
+        if let done = patch["_settingsExported"] as? [String: Any] { exported(done); sendState(); return }
+        if let file = patch["_importSettings"] as? [String: Any] {
+            importSettings(json: file["json"] as? String ?? "", name: file["name"] as? String ?? ""); sendState(); return
+        }
         if let on = patch["_coexist"] as? Bool, on != Coexist.wouldBeOn {
             UserDefaults.standard.set(on, forKey: "coexist")
             Speech.speakMessage(on ? String(localized: "CoExist on. TurnOver restarts.", comment: "Spoken message") : String(localized: "CoExist off. TurnOver restarts.", comment: "Spoken message"))
@@ -181,20 +185,29 @@ public enum SettingsBridge {
         // is simply left as it was.
         let filePatch = patch.filter { !$0.key.hasPrefix("_") }
         if !filePatch.isEmpty {
-            guard let current = try? JSONEncoder().encode(config),
-                  var dict = (try? JSONSerialization.jsonObject(with: current)) as? [String: Any] else { return }
-            for (section, value) in filePatch {
-                if var existing = dict[section] as? [String: Any], let changes = value as? [String: Any] {
-                    for (k, v) in changes { existing[k] = v }
-                    dict[section] = existing
-                } else { dict[section] = value }
-            }
-            guard let merged = try? JSONSerialization.data(withJSONObject: dict), let next = try? JSONDecoder().decode(Config.self, from: merged) else {
+            guard let next = merged(filePatch, over: config) else {
                 Log.warning("settings app: a change TurnOver couldn't read; nothing changed"); sendState(); return
             }
             adopt(next, what: filePatch.keys.sorted().joined(separator: ", "))
         }
         sendState()
+    }
+
+    /// Settings with a patch's sections merged over them, key by key within each section, then read back through
+    /// Config, so a value of the wrong kind is left as it was. Nil when that fails. Pure.
+    /// A window's change and an imported file both come through here: an import replaced every setting, and the
+    /// sections a file lacked went back to their defaults (a review, 14 Nov 2026).
+    public static func merged(_ patch: [String: Any], over base: Config) -> Config? {
+        guard let current = try? JSONEncoder().encode(base),
+              var dict = (try? JSONSerialization.jsonObject(with: current)) as? [String: Any] else { return nil }
+        for (section, value) in patch {
+            if var existing = dict[section] as? [String: Any], let changes = value as? [String: Any] {
+                for (k, v) in changes { existing[k] = v }
+                dict[section] = existing
+            } else { dict[section] = value }
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: dict) else { return nil }
+        return try? JSONDecoder().decode(Config.self, from: data)
     }
 
     /// New settings in effect and saved, with the hooks the menu's own items run: a change from the window, or a
@@ -273,49 +286,87 @@ public enum SettingsBridge {
         Speech.speakMessage(message)
     }
 
-    /// A copy of settings.json, as it is on disk now, written where the window's save panel said.
-    static func exportSettings(to path: String) {
-        let url = URL(fileURLWithPath: path)
+    // Portable preferences (14 Nov 2026). The Settings window reads and writes the file: it chose it, and macOS gave it
+    // access. TurnOver reading it on main could wait on a Files and Folders prompt (Documents, Desktop, Downloads), and
+    // the reader froze with it (a review, 14 Nov 2026). TurnOver only hands over its JSON, or checks and adopts some.
+
+    /// settings.json as it is on disk now (the normal settings, with a profile on), for the window to write.
+    static func exportJSON() -> String {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = (try? Data(contentsOf: Config.url)) ?? (try? encoder.encode(config)) else { return }
-        do {
-            try data.write(to: url, options: .atomic)
-            Log.info("settings: exported to \(url.lastPathComponent)")
-            tell(String(localized: "Settings exported to \(url.lastPathComponent)", comment: "Settings exported: %@ is the file's name"))
-        } catch {
-            Log.warning("settings: export failed: \(error.localizedDescription)")
-            tell(String(localized: "Settings could not be exported: \(error.localizedDescription)", comment: "Export failed: %@ is why"))
+        guard let data = (try? Data(contentsOf: Config.url)) ?? (try? encoder.encode(config)) else { return "{}" }
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    /// The window wrote the export, or could not.
+    static func exported(_ result: [String: Any]) {
+        let name = result["name"] as? String ?? ""
+        if let error = result["error"] as? String {
+            Log.warning("settings: export failed: \(error)")
+            tell(String(localized: "Settings could not be exported: \(error)", comment: "Export failed: %@ is why"))
+        } else {
+            Log.info("settings: exported to \(name)")
+            tell(String(localized: "Settings exported to \(name)", comment: "Settings exported: %@ is the file's name"))
         }
     }
 
-    /// Settings read from a file someone exported, checked first: they must be TurnOver's settings (a JSON object with
-    /// at least one of its sections) that decode. Anything else leaves the settings as they are and says why.
-    static func importSettings(from path: String) {
-        let url = URL(fileURLWithPath: path)
-        switch Self.portableSettings(from: (try? Data(contentsOf: url)) ?? Data()) {
-        case .success(let next):
-            adopt(next, what: "every setting, imported from \(url.lastPathComponent),")
-            tell(String(localized: "Settings imported from \(url.lastPathComponent)", comment: "Settings imported: %@ is the file's name"))
+    /// Settings from a file someone exported, as the window read it, checked first: they must be TurnOver's settings
+    /// (a JSON object with at least one of its sections) that decode. Anything else leaves the settings as they are and
+    /// says why. A settings profile that is on is switched off first, so the import goes into the normal settings, not
+    /// into the profile (a review, 14 Nov 2026).
+    static func importSettings(json: String, name: String) {
+        let data = Data(json.utf8)
+        // Checked first, so a file refused leaves a profile on; then merged over the normal settings.
+        var result = Self.portableSettings(from: data, over: config)
+        if case .success = result { SettingsProfiles.deactivate(); result = Self.portableSettings(from: data, over: config) }
+        switch result {
+        case .success(let imported):
+            adopt(imported.config, what: "settings imported from \(name),")
+            var message = String(localized: "Settings imported from \(name)", comment: "Settings imported: %@ is the file's name")
+            if imported.droppedKeys > 0 {
+                Log.info("settings: \(imported.droppedKeys) imported keys that open apps, scripts or Shortcuts left out")
+                message += ". " + String(localized: "Keys that open an app, a script or a Shortcut were left out: give them again in the TurnOver menu, Keys, My own keys.", comment: "Settings imported without the keys that run things on this Mac")
+            }
+            tell(message)
         case .failure(let why):
-            Log.warning("settings: import of \(url.lastPathComponent) refused: \(why.message)")
+            Log.warning("settings: import of \(name) refused: \(why.message)")
             tell(String(localized: "Settings not imported: \(why.message)", comment: "Import refused: %@ is why"))
         }
     }
 
     public struct ImportError: Error, Equatable { public let message: String }
-    /// The checks an imported file must pass. Pure.
-    public static func portableSettings(from data: Data) -> Result<Config, ImportError> {
-        guard !data.isEmpty, let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+    /// The sections an imported file may hold (Config's).
+    nonisolated static let portableSections: Set<String> = ["general", "speech", "keyboard", "editableText", "presentation", "virtualBuffers", "applications", "documentFormatting", "braille", "recognition", "games", "sounds", "mouse", "apps", "vision"]
+    /// The keys that would run something on this Mac: a file, a Shortcut or an app, by path or identifier.
+    nonisolated static let localTargetPrefixes = ["file:", "shortcut:", "app:"]
+
+    /// The checks an imported file must pass, and the settings it comes to over `base`: its sections merged over the
+    /// current ones (a file with only some sections changes only those), speech kept audible, and the user's keys that
+    /// would run a file, a Shortcut or an app left out (a file from someone else could otherwise run a script of its
+    /// choosing at a key press; the ones set here are kept). Pure.
+    public static func portableSettings(from data: Data, over base: Config = Config()) -> Result<(config: Config, droppedKeys: Int), ImportError> {
+        guard !data.isEmpty, var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             return .failure(ImportError(message: String(localized: "the file is not a TurnOver settings file", comment: "Why settings were not imported")))
         }
-        let sections: Set<String> = ["general", "speech", "keyboard", "editableText", "presentation", "virtualBuffers", "applications", "documentFormatting", "braille", "recognition", "games", "apps"]
-        guard !sections.isDisjoint(with: object.keys) else {
+        guard !portableSections.isDisjoint(with: object.keys) else {
             return .failure(ImportError(message: String(localized: "the file has none of TurnOver's settings in it", comment: "Why settings were not imported")))
         }
-        guard let config = try? JSONDecoder().decode(Config.self, from: data) else {
+        object = object.filter { portableSections.contains($0.key) }
+        var dropped = 0
+        if var keyboard = object["keyboard"] as? [String: Any], let keys = keyboard["userGestures"] as? [String: Any] {
+            var kept: [String: Any] = [:]
+            for (id, target) in keys {
+                if let t = target as? String, localTargetPrefixes.contains(where: { t.hasPrefix($0) }) { dropped += 1 } else { kept[id] = target }
+            }
+            // This Mac's own keys of that kind stay, unless the file gives the key something else.
+            for (id, target) in base.keyboard.userGestures where kept[id] == nil && localTargetPrefixes.contains(where: { target.hasPrefix($0) }) { kept[id] = target }
+            keyboard["userGestures"] = kept
+            object["keyboard"] = keyboard
+        }
+        guard var config = merged(object, over: base) else {
             return .failure(ImportError(message: String(localized: "the file could not be read as TurnOver's settings", comment: "Why settings were not imported")))
         }
-        return .success(config)
+        config.speech.keepAudible()
+        return .success((config, dropped))
     }
 
     /// The section the Settings window is asked to show when it next connects: set by `open(section:)`, sent once

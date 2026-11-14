@@ -658,7 +658,9 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         // left Option+T still types its character. Not for pass next key, a key capture or keyboard help: the key goes
         // the usual way there, as the keypad's and Quick Nav's do; it ran the time regardless (a review, 14 Nov 2026).
         // The Commander's key is chosen in Settings (14 Nov 2026); right Option unless changed, so the same test as before.
-        if code == 17, settings.optionCommander, !capsDown, Commander.holds(settings.commanderKey, modifiers: Self.plainModifiers(event.flags), flags: event.flags.rawValue),
+        // An Option Commander only: a Command or Control one's T is the apps' (Left Command T, a new tab); a letter the
+        // user gave a command there goes the ordinary way, through the user's keys (a review, 14 Nov 2026).
+        if code == 17, settings.optionCommander, settings.commanderKey.typesCharacters, !capsDown, Commander.holds(settings.commanderKey, modifiers: Self.plainModifiers(event.flags), flags: event.flags.rawValue),
            !event.flags.contains(.maskShift), !InputManager.passNextKey, !InputManager.isCapturing, !InputManager.isInputHelpActive {
             let g = KeyboardGesture(keyCode: code, modifiers: settings.commanderKey.modifier, characters: "", timestamp: 0, isRepeat: false, flags: event.flags)
             // Through the user's keys, where right Option T is the time and date unless they gave it something else

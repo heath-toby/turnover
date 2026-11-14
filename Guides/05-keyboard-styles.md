@@ -15,16 +15,21 @@ Command with the arrows moves by the rotor's kind. Control pauses speech. One Qu
 
 VoiceOver Utility's Commanders and Navigation choices are in Settings, Keyboard:
 
-- **Commander key**: right Option and a letter runs that letter's command (VO Shift K turns it on and off). It can be
-  left Option, right or left Command, or right Control instead. Give a letter its command in the TurnOver menu, Keys,
-  My own keys, Give a key to a command, then press the Commander key and the letter. Keypad keys are given commands the
-  same way; trackpad gestures with Give a trackpad gesture to a command.
+- **Keyboard Commander** and **Commander key**: right Option and a letter runs that letter's command (the switch, or
+  VO Shift K, turns it on and off). It can be left Option, right or left Command, or right Control instead. Give a
+  letter its command in the TurnOver menu, Keys, My own keys, Give a key to a command, then press the Commander key and
+  the letter. Keypad keys are given commands the same way; trackpad gestures with Give a trackpad gesture to a command.
+  With a Command or Control key as the Commander, a letter you give a command no longer reaches the app with that key:
+  with Left Command, giving T a command takes Command T (a new tab) away from your apps. The Commander key and T tells
+  the time only while an Option key is the Commander. With the Commander off, a Command or Control key's letters are
+  the apps' again; an Option key's letters you gave commands still run them.
 - **Grouping behaviour**: Standard moves by groups, as VoiceOver does; Ignore groups walks the whole window.
 - **Initial position of the cursor in a new window**: the keyboard focused item, or the window's first item.
 - **Automatically interact when using the Tab key**: on, Tab puts the cursor inside the group it reaches; off, on the
   group itself, and VO Shift Down goes in.
-- **Fast searching**: in a list or table, Right Command and a letter moves to the next item starting with it. Off at
-  first, as Right Command and a letter then no longer reaches the app in a list.
+- **Fast searching**: with the keyboard focus on a list, table or outline, Right Command and a letter moves to the
+  next item there starting with it. Off at first, as Right Command and a letter then no longer reaches the app in a
+  list. With Right Command as the Commander key, a letter you gave a command runs that command instead.
 
 ## NVDA keys (the Windows style)
 
@@ -45,8 +50,9 @@ Settings, Keyboard, Moving around has NVDA's review cursor settings:
   Caps Lock 6 switches it.
 - **Review cursor follows the mouse** (off): the review cursor goes to whatever the pointer is over, silently. To
   hear it as well, use Settings, Mouse, "Moving the pointer moves the cursor".
-- **Simple review mode** (on): moving to the next and previous object skips layout, such as unnamed groups and scroll
-  areas. Off, every object is a stop, as in NVDA's full review.
+- **Simple review mode** (on): moving item by item skips layout, such as unnamed groups and scroll areas: NVDA's next
+  and previous object, VoiceOver's keys with Grouping behaviour set to Ignore groups, and moving out to the item
+  holding the cursor. Off, every object is a stop, as in NVDA's full review.
 
 ## JAWS keys
 

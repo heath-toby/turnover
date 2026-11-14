@@ -107,6 +107,8 @@ public enum Role: String, Codable, CaseIterable {
         }
     }
 
+    /// Items whose state is what they are set to (checked, on): braille's low verbosity keeps it.
+    public static let toggles: Set<Role> = [.checkBox, .radioButton, .toggleButton, .switchControl]
     /// NVDA's silentRolesOnFocus: roles not named when they gain focus.
     /// A web page (Safari, a Mail message) is not called "document" as it is reached: the reading says where you are.
     public static let silentOnFocus: Set<Role> = [.pane, .unknown, .application, .tableCell, .listItem, .tableRow, .menuItem, .checkMenuItem, .treeViewItem, .staticText, .layoutArea, .layoutItem, .cell, .webArea]

@@ -33,6 +33,10 @@ nonisolated public enum Commander {
             case .rightControl: return .control
             }
         }
+        /// An Option key: with a letter it types a character, so taking the letter costs no app's shortcut. A Command
+        /// or Control Commander's letters are shortcuts: TurnOver's own default letters (T, the time) are not put
+        /// on them, or Left Command T (a new tab) would be taken (a review, 14 Nov 2026).
+        public var typesCharacters: Bool { modifier == .option }
         /// As said and shown ("right option S").
         public var spokenName: String {
             switch self {
