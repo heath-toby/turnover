@@ -119,6 +119,7 @@ public final class SystemPrompts {
         windows += missedOnce.map { ($0, $0.pid) }
         let gone = !goneNow.isEmpty
         shown.removeAll { w in goneNow.contains { $0.isSame(w) } }
+        for i in readKeys.indices where readKeys[i].droppedAt == nil && goneNow.contains(where: { $0.isSame(readKeys[i].window) }) { readKeys[i].droppedAt = Date() }
         summaries.removeAll { p in !shown.contains { $0.isSame(p.window) } }
         if gone, shown.isEmpty, let front = NSWorkspace.shared.frontmostApplication {
             if handsToVoiceOver { onPromptChange?(false) }
@@ -180,7 +181,11 @@ public final class SystemPrompts {
     /// The prompts read, by window, with their words: the same words in another window are not read again only while
     /// that window is still open. A two-minute block kept a prompt cancelled and asked again (Touch ID, an admin
     /// password) silent and without the keyboard, so typing went to the app behind (a review, 14 Nov 2026).
-    private var readKeys: [(window: AXUIElement, key: String)] = []
+    /// Prompts read, by window and words; `droppedAt` when the window left the prompts shown. Kept while shown and five
+    /// seconds after: a window dropped after two missed looks and found again isn't read twice (a review), and a prompt
+    /// put away (cancel, a wrong password) and asked again later, the same window ordered back in or a new one, is read
+    /// and given the keyboard (a later review, 14 Nov 2026: kept while its element lived, it was silent).
+    private var readKeys: [(window: AXUIElement, key: String, droppedAt: Date?)] = []
 
     /// Whether `key` was read in a window other than `window` that is still open: a new window for the same prompt.
     package static func readElsewhere<W>(_ key: String, by window: W, in read: [(window: W, key: String)],
@@ -207,9 +212,11 @@ public final class SystemPrompts {
         // Kept while its window lives: a window dropped from `shown` after two missed looks (an agent busy checking a
         // password) and found again was read out and given the keyboard again (a review, 14 Nov 2026). Gone (dead)
         // windows are forgotten, so the same prompt asked again after a cancel is read.
-        readKeys.removeAll { $0.window.role == "?" }
-        let again = fromTimer && Self.readElsewhere(key, by: window, in: readKeys, open: { $0.role != "?" }, same: { _, _ in false })
-        if !readKeys.contains(where: { $0.window.isSame(window) && $0.key == key }) { readKeys.append((window, key)) }
+        let now = Date()
+        readKeys.removeAll { $0.window.role == "?" || ($0.droppedAt.map { now.timeIntervalSince($0) > 5 } ?? false) }
+        let again = fromTimer && readKeys.contains { $0.key == key }
+        if let i = readKeys.firstIndex(where: { $0.window.isSame(window) && $0.key == key }) { readKeys[i].droppedAt = nil }
+        else { readKeys.append((window, key, nil)) }
         if again { Log.io("system prompt from pid \(pid) again, the same; not read again"); return }
         Log.io("system prompt from pid \(pid): \(texts.count) lines")
         Speech.cancel()

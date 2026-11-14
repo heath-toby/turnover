@@ -367,9 +367,15 @@ final class TerminalText: TurnOverObject {
         // the first new line, so it is taken off only when the cursor's line is that one.
         // (Only as the first thing after the Return that opened it, not after a retry, and not under other output:
         // a whole dialog of questions after it was starred, a review, 14 Nov 2026.)
-        let inWindow = !s.secret.latched && !s.secret.retryWindow && rest.count <= 1 && s.secret.isSecret(now: Date()) && !isPrompt(s.anchorText)
-            && TerminalRules.isPromptInSecretWindow(s.anchorText, aheadKeys: rest.count <= 1 ? s.secret.aheadKeys : 0)
-        if TerminalRules.isPasswordPrompt(s.anchorText) || inWindow { s.secret.sawPrompt() }
+        // (After other lines in the same batch, only when the cursor's line is the last of them: a lecture or a build's
+        // output before sudo's prompt. In a retry window, only the very prompt latched before.)
+        let cursorTrimmed = s.anchorText.trimmingCharacters(in: .whitespaces)
+        let cursorIsLast = rest.last.map { $0.trimmingCharacters(in: .whitespaces) == cursorTrimmed } ?? true
+        let samePromptAgain = s.secret.retryWindow && s.secret.lastPrompt == cursorTrimmed && !cursorTrimmed.isEmpty
+        let inWindow = !s.secret.latched && s.secret.isSecret(now: Date()) && !isPrompt(s.anchorText)
+            && (samePromptAgain || (!s.secret.retryWindow && (rest.count <= 1 || cursorIsLast)
+                && TerminalRules.isPromptInSecretWindow(s.anchorText, aheadKeys: rest.count <= 1 ? s.secret.aheadKeys : 0)))
+        if TerminalRules.isPasswordPrompt(s.anchorText) || inWindow { s.secret.sawPrompt(s.anchorText) }
         else if !TerminalRules.allBlank(rest) { s.secret.outputArrived() }
         // The shell's prompt drawn on the cursor's line on its own (sudo with its credentials kept, a slow prompt): the
         // command is over, so typing is no password; the next command was said as "star" (a review, 13 Nov 2026).
@@ -688,7 +694,10 @@ package nonisolated struct TerminalSecret {
     package private(set) var retryWindow = false
     package init() {}
 
-    package mutating func sawPrompt() { latched = true; aheadFrom = nil; aheadKeys = 0 }
+    package mutating func sawPrompt(_ line: String? = nil) { latched = true; aheadFrom = nil; aheadKeys = 0; if let line { lastPrompt = line.trimmingCharacters(in: .whitespaces) } }
+    /// The prompt line last latched: the same line again after a wrong password ("Sorry, try again." and the prompt in
+    /// one batch) is the prompt, in any language (a review, 14 Nov 2026).
+    package private(set) var lastPrompt: String?
     /// New lines while the cursor's line is no longer a password prompt: the prompt is gone (a password itself echoes
     /// no new line). Control-C, Escape or Control-D at the prompt draw "^C" and the shell's prompt, and the latch
     /// stayed: the next command was spoken as stars, its echo silenced and its Return taken for a retry (a review,

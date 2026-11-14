@@ -329,7 +329,10 @@ package enum DesktopNavigator {
         if let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first {
             let app = AXUIElementCreateApplication(finder.processIdentifier)
             AXUIElementSetMessagingTimeout(app, 0.25)
-            if let real = app.element(kAXFocusedUIElementAttribute), !real.isSame(desk), !SettingsPanePlugin.within(real, desk) {
+            // (The desktop's scroll area itself, its group's parent, counts as the desktop: a review.)
+            let area = desk.element(kAXParentAttribute)
+            if let real = app.element(kAXFocusedUIElementAttribute), !real.isSame(desk), !SettingsPanePlugin.within(real, desk),
+               !(area.map { real.isSame($0) } ?? false) {
                 Log.io("desktop: \(g.identifier) not sent; Finder's focus is in a window, not on the desktop")
                 Tones.edge()
                 Speech.speakMessage(String(localized: "could not select that icon", comment: "Spoken message: a key that acts on the selected desktop icon was not sent"))
