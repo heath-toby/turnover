@@ -35,6 +35,11 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
     /// key can't hold it; 14 Oct 2026).
     static let typedMarker: Int64 = 0xB05B
     static let typedTurnOverMarker: Int64 = 0xB05C
+    /// Posted by TurnOver itself: let through, or typed for a plugin try.
+    static func isOurs(_ event: CGEvent) -> Bool {
+        let tag = event.getIntegerValueField(.eventSourceUserData)
+        return tag == marker || tag == typedMarker || tag == typedTurnOverMarker
+    }
 
     var onCapsLockToggled: (@MainActor (Bool) -> Void)?
     var onReadinessChanged: (@MainActor (UInt64, Bool) -> Void)?
@@ -415,18 +420,20 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             forgetHeldKeys()
             // A TurnOver chord (Caps held) is dropped, its release and repeats with it, as askMain's stuckDecision
             // drops it in the first seconds: passed, Caps L typed "l" through a 10 s hang (a review, 14 Nov 2026).
-            if type == .keyDown || type == .keyUp {
+            // TurnOver's own posted keys are never dropped here.
+            if type == .keyDown || type == .keyUp, !Self.isOurs(event) {
                 let code = event.getIntegerValueField(.keyboardEventKeycode)
                 if type == .keyUp { return bypassDropped.remove(code) != nil ? nil : Unmanaged.passUnretained(event) }
                 if bypassDropped.contains(code) { return nil }
-                if capsDown, case .taken = ScriptHandler.stuckDecision(for: KeyboardGesture(keyCode: code, modifiers: [.turnover], characters: "", timestamp: 0, isRepeat: false, flags: event.flags), turnOverKeyLocked: InputManager.turnOverKeyLocked) {
+                // Only while VoiceOver isn't reading: the watchdog brings it back as the fallback reader, and this tap,
+                // ahead of VoiceOver's, kept its Caps Lock commands from it for the whole hang (a review, 14 Nov 2026).
+                if capsDown, case .taken = ScriptHandler.stuckDecision(for: KeyboardGesture(keyCode: code, modifiers: [.turnover], characters: "", timestamp: 0, isRepeat: false, flags: event.flags), turnOverKeyLocked: InputManager.turnOverKeyLocked),
+                   !HandOver.voiceOverReading {
                     bypassDropped.insert(code); return nil
                 }
             }
             return Unmanaged.passUnretained(event)
         }
-        // A chord dropped in the bypass, let go after it ended: its release is dropped too (a review, 14 Nov 2026).
-        if type == .keyUp, !bypassDropped.isEmpty, bypassDropped.remove(event.getIntegerValueField(.keyboardEventKeycode)) != nil { return nil }
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             Log.warning("keyboard: tap disabled (\(type.rawValue)), re-enabling")
             if let t = tap { CGEvent.tapEnable(tap: t, enable: true) }
@@ -437,8 +444,8 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
                 return Unmanaged.passUnretained(event)
             }
             // While the tap was off, key-ups went by unseen: a code kept here would swallow or translate the next
-            // real release of that key (a review, 13 Nov 2026).
-            forgetHeldKeys()
+            // real release of that key (a review, 13 Nov 2026). A chord dropped in the bypass likewise.
+            forgetHeldKeys(); bypassDropped.removeAll()
             // Three times in ten seconds: say so, once a minute (the team review: a failure that leaves the user
             // without keys is told, not only logged, 8 Oct 2026).
             let now = Date()
@@ -452,6 +459,12 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         // Our own re-posted keys (gesture.send) pass untouched.
         if event.getIntegerValueField(.eventSourceUserData) == Self.marker { return Unmanaged.passUnretained(event) }
         let code = event.getIntegerValueField(.keyboardEventKeycode)
+        // A chord dropped in the bypass, let go after it ended: its release is dropped too (a review, 14 Nov 2026).
+        // Never TurnOver's own posted keys; and a new press means the release went by unseen, so the entry goes.
+        if !bypassDropped.isEmpty, type == .keyDown || type == .keyUp, !Self.isOurs(event) {
+            if type == .keyUp, bypassDropped.remove(code) != nil { return nil }
+            if type == .keyDown, event.getIntegerValueField(.keyboardEventAutorepeat) == 0 { bypassDropped.remove(code) }
+        }
         // VoiceOver's own on-and-off shortcut goes straight on, never held for TurnOver's decision: held for a main
         // thread that was busy, Option Apostrophe (the maintainer's) reached macOS a second late, or not at all, and
         // VoiceOver seemed not to answer its key (25 Oct 2026). TurnOver has no command on it.
