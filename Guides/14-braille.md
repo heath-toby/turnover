@@ -61,3 +61,9 @@ in Settings, Braille; the TurnOver menu's Braille submenu has the table and the 
 - **The braille keyboard:** type in contracted braille a word at a time, or letter by letter. Space with dots are
   VoiceOver's braille commands; dot 7 is Backspace and dot 8 Return. Keyboard help (TurnOver 1, or space with dots
   1 3) says what each key and chord does.
+
+## The braille panel
+
+Settings, Vision, **Show the braille panel** shows on the screen what the display shows, as braille and as text, as
+VoiceOver's braille panel does. It works with no display connected, so a sighted helper can follow along. See
+[Reading and say all](reading-and-say-all.html) for the other Vision settings.

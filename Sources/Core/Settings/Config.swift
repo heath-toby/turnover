@@ -388,6 +388,41 @@ public struct Config: Codable {
             try c.encode(refreshAfterClick, forKey: .refreshAfterClick)
         }
     }
+    /// Vision (NVDA: Vision; VoiceOver: Visuals), for a sighted helper or someone with low vision (VisionAids.swift,
+    /// 14 Nov 2026). All off by default: nothing is drawn until the highlight or a panel is turned on.
+    public struct Vision: Codable, Equatable {
+        /// A ring round what TurnOver is on (NVDA: Enable highlighting; VoiceOver: Show VoiceOver cursor).
+        public var highlight = false
+        /// Which of them, once the highlight is on (NVDA's three check boxes).
+        public var highlightFocus = true
+        public var highlightReview = true
+        public var highlightBrowse = true
+        /// VoiceOver's caption panel: what TurnOver says, at the bottom of the screen.
+        public var captionPanel = false
+        /// VoiceOver's braille panel: the display's cells and their text, with or without a display.
+        public var braillePanel = false
+        /// "small", "medium" or "large".
+        public var panelFontSize = "medium"
+        public init() {}
+        enum Keys: String, CodingKey { case highlight, highlightFocus, highlightReview, highlightBrowse, captionPanel, braillePanel, panelFontSize }
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: Keys.self)
+            highlight = (try? c.decodeIfPresent(Bool.self, forKey: .highlight)) ?? false
+            highlightFocus = (try? c.decodeIfPresent(Bool.self, forKey: .highlightFocus)) ?? true
+            highlightReview = (try? c.decodeIfPresent(Bool.self, forKey: .highlightReview)) ?? true
+            highlightBrowse = (try? c.decodeIfPresent(Bool.self, forKey: .highlightBrowse)) ?? true
+            captionPanel = (try? c.decodeIfPresent(Bool.self, forKey: .captionPanel)) ?? false
+            braillePanel = (try? c.decodeIfPresent(Bool.self, forKey: .braillePanel)) ?? false
+            panelFontSize = (try? c.decodeIfPresent(String.self, forKey: .panelFontSize)) ?? "medium"
+        }
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: Keys.self)
+            try c.encode(highlight, forKey: .highlight); try c.encode(highlightFocus, forKey: .highlightFocus)
+            try c.encode(highlightReview, forKey: .highlightReview); try c.encode(highlightBrowse, forKey: .highlightBrowse)
+            try c.encode(captionPanel, forKey: .captionPanel); try c.encode(braillePanel, forKey: .braillePanel)
+            try c.encode(panelFontSize, forKey: .panelFontSize)
+        }
+    }
     /// The rising tide: which applications TurnOver leads in; VoiceOver has the rest (NVDA: sleep mode, inverted).
     public struct Applications: Codable {
         // Word is a preview in the 1.0 beta, off until the user turns it on (TurnOver menu, Applications).
@@ -808,6 +843,7 @@ public struct Config: Codable {
     public var documentFormatting = DocumentFormatting()
     public var braille = Braille()
     public var recognition = Recognition()
+    public var vision = Vision()
     /// Steam and CrossOver games speaking through TurnOver (Games.swift; this Mac only).
     public var games = Games()
     public var sounds = Sounds()
@@ -823,7 +859,7 @@ public struct Config: Codable {
     /// A settings file written by an older TurnOver lacks the sections added since; each one falls back
     /// to its defaults instead of the whole file being thrown away (which lost the owner's rate once). Keys it has
     /// that are gone ("addons", the add-on loader's list) are ignored.
-    enum Keys: String, CodingKey { case general, speech, keyboard, editableText, presentation, virtualBuffers, applications, documentFormatting, braille, recognition, games, sounds, mouse, apps }
+    enum Keys: String, CodingKey { case general, speech, keyboard, editableText, presentation, virtualBuffers, applications, documentFormatting, braille, recognition, games, sounds, mouse, apps, vision }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
         general = (try? c.decodeIfPresent(General.self, forKey: .general)) ?? General()
@@ -840,6 +876,7 @@ public struct Config: Codable {
         sounds = (try? c.decodeIfPresent(Sounds.self, forKey: .sounds)) ?? Sounds()
         mouse = (try? c.decodeIfPresent(Mouse.self, forKey: .mouse)) ?? Mouse()
         apps = (try? c.decodeIfPresent([String: [String: String]].self, forKey: .apps)) ?? [:]
+        vision = (try? c.decodeIfPresent(Vision.self, forKey: .vision)) ?? Vision()
     }
 
     public static var url: URL {

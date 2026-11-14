@@ -26,6 +26,7 @@ public enum SettingsBridge {
         case "Web pages": return String(localized: "Web pages", comment: "A section of the Settings window")
         case "Documents": return String(localized: "Documents", comment: "A section of the Settings window")
         case "Braille": return String(localized: "Braille", comment: "A section of the Settings window")
+        case "Vision": return String(localized: "Vision", comment: "A section of the Settings window")
         default: return section
         }
     }
@@ -210,6 +211,7 @@ public enum SettingsBridge {
             // Steam's switches from the window do what the menu's do.
             if before.games.readBigPicture != next.games.readBigPicture { Games.restartBigPicture() }
             MouseTracking.refresh()   // the pointer watched while a mouse setting is on, and only then
+            if before.vision != next.vision { VisionAids.apply() }
             // The EQ heard as it is set: a short sample once the slider stops.
             for (name, was, now) in [("Bass", before.speech.bass, next.speech.bass), ("Middle", before.speech.middle, next.speech.middle), ("Treble", before.speech.treble, next.speech.treble)] where was != now {
                 previewSoon(String(localized: "\(Self.eqName(name)) \(String(Int(now))). The harbour opens at nine.", comment: "The EQ changed: %1$@ is bass, middle or treble, %2$@ the decibels"))

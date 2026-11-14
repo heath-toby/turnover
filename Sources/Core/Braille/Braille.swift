@@ -180,7 +180,7 @@ public enum Braille {
 
     /// After any script or event: look again, once things settle.
     public static func refreshSoon() {
-        guard display != nil else { return }
+        guard showing else { return }
         pending?.cancel()
         let w = DispatchWorkItem { refresh() }
         pending = w
@@ -382,13 +382,13 @@ public enum Braille {
             if let i = historyIndex { historyIndex = min(i + 1, history.count - 1) }
         }
         guard historyIndex == nil else { return }
-        guard let d = display, !s.isEmpty, config.braille.showMessages != "off" else { return }
+        guard showing, !s.isEmpty, config.braille.showMessages != "off" else { return }
         source = .message
         plain()
         messagePrivate = Speech.isRedactedNow   // a private notification or code, a redacted suggestion: its length only in the log
         text = displayed(s); cursor = nil; windowStart = 0; selection = nil
         layout()
-        let widths = Double((cells.count + d.cellCount - 1) / max(d.cellCount, 1))
+        let widths = Double((cells.count + cellCount - 1) / max(cellCount, 1))
         holdMessage(min(300, Double(max(1, config.braille.messageSeconds)) * max(1, widths)))
         messageShownAt = Date()
         show()
@@ -406,7 +406,7 @@ public enum Braille {
     }
 
     static func refresh() {
-        guard display != nil else { return }
+        guard showing else { return }
         if let until = messageUntil, Date() < until { return }
         messageUntil = nil
         plain()
@@ -609,8 +609,8 @@ public enum Braille {
     private static var blinkTimer: Timer?
 
     private static func show() {
-        guard let d = display else { return }
-        let n = d.cellCount
+        guard showing else { return }
+        let n = cellCount
         var cells = Self.cells
         for i in selectedCells where i < cells.count { cells[i] |= 0xC0 }
         for i in emphasisCells where i < cells.count { cells[i] |= 0xC0 }
@@ -652,7 +652,28 @@ public enum Braille {
             else { Log.io("braille shows (\(kind)\(messageUntil != nil ? ", held" : "")): [\(shown.count) cells]") }
         }
         lastWritten = window
-        d.write(window)
+        display?.write(window)
+        if VisionAids.wantsBraillePanel {
+            let a = start < cellMap.count ? cellMap[start] : 0
+            let b = windowEnd(start) < cellMap.count ? cellMap[windowEnd(start)] : (text as NSString).length
+            let ns = text as NSString, lo = min(a, ns.length), hi = max(lo, min(b, ns.length))
+            let secret: Bool = { if case .message = source { return messagePrivate }; return false }()
+            VisionAids.braille(cells: secret ? [] : window, text: secret ? String(localized: "(private)", comment: "The braille panel in place of a private message") : ns.substring(with: NSRange(location: lo, length: hi - lo)))
+        }
+    }
+
+    // MARK: The braille panel (Vision settings)
+
+    /// Something shows the output: a display, or the braille panel on screen (which works with no display, as
+    /// VoiceOver's does, for a sighted helper; 14 Nov 2026).
+    private static var showing: Bool { display != nil || VisionAids.wantsBraillePanel }
+    /// The display's width; the panel alone shows 40 cells.
+    private static var cellCount: Int { display?.cellCount ?? 40 }
+
+    /// The panel came or went: write again, even what is already written.
+    static func panelChanged() {
+        lastWritten = []
+        refresh()
     }
 
     /// The cursor blinks while it is in view (NVDA: cursor blink rate).

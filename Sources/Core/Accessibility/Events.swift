@@ -96,6 +96,7 @@ public enum EventHandler {
         if event.kind == .gainFocus || event.kind == .caret { Braille.focusOrCaretMoved() }
         if event.kind == .gainFocus { BrailleInput.focusChanged() }
         Braille.refreshSoon()
+        VisionAids.soon()   // the highlight follows the focus
     }
 
     public static func execute(_ kind: EventKind, on obj: TurnOverObject, character: Character? = nil) {

@@ -57,6 +57,7 @@ public enum Speech {
         // speakObject's half-second check).
         if Date().timeIntervalSince(lastFocusWordsAt) < 0.5, focusWordsDone.value != focusWordsGeneration { lastFocusWordsCut = true }
         player?.cancel()
+        VisionAids.speechCancelled()
     }
 
     /// Control alone: pause speech, or carry on if it is paused (VoiceOver's way). Say All waits with it.
@@ -181,6 +182,7 @@ public enum Speech {
         else if Self.logsWords { Log.io("say\(voice != nil ? " [\(language ?? "")]" : ""): \(s.prefix(160))") }
         else { Log.io("say\(voice != nil ? " [\(language ?? "")]" : ""): [\(s.count) characters]") }
         if !privateNext { history.value.append((Date(), s)); if history.value.count > 3000 { history.value.removeFirst(500) } }
+        if !privateNext { VisionAids.spoke(s) }   // the caption panel (Vision settings), never private speech
         if let pitch { Log.io("say: (pitch raised to \(Int(pitch * 100)) percent)") }
         // Kokoro (the maintainer's Mac): say all, or everything, in a natural voice; another language keeps its own voice, and
         // a capital said higher keeps the Mac voice (Kokoro has no pitch).
