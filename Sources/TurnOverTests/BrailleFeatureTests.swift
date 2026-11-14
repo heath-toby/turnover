@@ -65,6 +65,14 @@ func brailleMapTests() {
         let gap: [Int: (Int, Int)] = [0: (10, 20), 1: (79, 95)]
         expect(WordSelection.joined((79, 95), page: 1, pages: 2, part: { gap[$0] }) == (79, 95), true, "a part that doesn't meet it: not joined")
     }
+    test("Drawn rows: a whole paragraph given as one line is cut to the row the caret is drawn on (Chromium, Signal)") {
+        let text = String(repeating: "x", count: 30)
+        let ns = text as NSString
+        let t = { (a: Int, b: Int) -> String in ns.substring(with: NSRange(location: max(0, a), length: max(0, min(30, b) - max(0, a)))) }
+        let row = { (o: Int) -> (mid: CGFloat, height: CGFloat)? in o < 0 || o >= 30 ? nil : (CGFloat(o / 10) * 20 + 10, 18) }
+        expect(DrawnRows.drawnRow(probe: 14, guess: (0, 30), length: 30, text: t, row: row).map { [$0.0, $0.1] }, [10, 20], "the middle row of three")
+        expect(DrawnRows.drawnRow(probe: 3, guess: (0, 10), length: 30, text: t, row: row) == nil, true, "a right line is kept")
+    }
     test("Word lines: a line running two characters late is put back on the row it is drawn on") {
         // "ab⏎" then a paragraph drawn ten characters to a row; Word's lines start two characters late, and the
         // paragraph's first two characters are lines of their own (Dead Souls, 14 Nov 2026).

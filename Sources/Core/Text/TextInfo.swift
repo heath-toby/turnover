@@ -555,7 +555,25 @@ open class AXTextInfo: TextInfo {
             if !Self.warnedBadLines { Self.warnedBadLines = true; Log.warning("text: the app's line range \(r.location)+\(r.length) is outside its \(n) characters; reading by paragraph instead") }
             return nil
         }
-        return (r.location, r.location + r.length)
+        // A "line" the app gives as a whole paragraph (Chromium's text boxes: Signal's message box read as one line
+        // while Command Left went to the start of the row, the tester, 14 Nov 2026): when its first and last characters
+        // are drawn on different rows, the row the caret is on is found from where the text is drawn, as for Word.
+        // Two questions for a long line, none for a short one.
+        let a = r.location, b = r.location + r.length
+        if r.length > 40, let first = Self.drawnRow(of: a, in: textElement), let last = Self.drawnRow(of: max(a, b - 2), in: textElement),
+           abs(first.mid - last.mid) >= max(first.height, last.height) / 2,
+           let row = DrawnRows.drawnRow(probe: probe, guess: (a, b), length: n, text: { [self] x, y in offsetText(x, y) }, row: { Self.drawnRow(of: $0, in: self.textElement) }) {
+            return row
+        }
+        return (a, b)
+    }
+
+    /// Where a character is drawn: the middle of its row and the row's height, or nil if the app won't say.
+    static func drawnRow(of o: Int, in e: AXUIElement) -> (mid: CGFloat, height: CGFloat)? {
+        guard let v = e.param(kAXBoundsForRangeParameterizedAttribute, axRangeValue(o, 1)), CFGetTypeID(v) == AXValueGetTypeID() else { return nil }
+        var r = CGRect.zero
+        guard AXValueGetValue(v as! AXValue, .cgRect, &r), r.height > 0 else { return nil }
+        return (r.midY, r.height)
     }
 
     open override func annotations() -> [(label: String, text: String)] {
