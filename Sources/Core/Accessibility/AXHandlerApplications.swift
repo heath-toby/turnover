@@ -123,6 +123,10 @@ extension AXHandler {
         AppMenuKeys.forget(pid: pid)
         EmptyWindowNotice.forget(pid: pid)
         AppWake.forget(pid: pid)
+        // Its open menus died with it (isMenuOpen stayed true), and a new process given the number would have been
+        // resting or counted slow (a review, 14 Nov 2026).
+        if openMenus.contains(where: { $0.pid == pid }) { openMenus.removeAll { $0.pid == pid } }
+        AXHealth.forget(pid: pid)
         lastNewsAt[pid] = nil; lastMoveNewsAt[pid] = nil; lastStructureAt[pid] = nil
         if API.focusObject?.pid == pid { API.setFocusObject(nil, ancestors: []) }
         if activePid == pid { activePid = 0 }

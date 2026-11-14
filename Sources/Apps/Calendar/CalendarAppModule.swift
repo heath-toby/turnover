@@ -245,12 +245,12 @@ final class CalendarAppModule: AppModule {
             }
             Speech.cancel()
             Speech.speakMessage(words)
-            if let d = summary.start { self.goTo(d, title: summary.title) }
+            if let d = summary.start { self.goTo(d, title: summary.title, allDay: summary.allDay) }
         }
     }
 
     /// The view turned to the day (a page at a time, up to three years), the reading on it and on the event titled so.
-    private func goTo(_ date: Date, title: String) {
+    private func goTo(_ date: Date, title: String, allDay: Bool) {
         let day = Calendar.current.startOfDay(for: date)
         var tries = 0
         let started = Date()
@@ -264,7 +264,10 @@ final class CalendarAppModule: AppModule {
         current = shown.date
         // The events read once: a second read could be shorter, and indexing it crashed (a review, 14 Nov 2026).
         let list = events(shown)
-        eventIndex = title.isEmpty ? nil : list.firstIndex { Self.brief($0).contains(title) }
+        // The title matched whole and the start time too, and only if one event fits: a substring chose "Team
+        // Meeting" for "Meeting", gave it Calendar's focus, and Delete would have removed it (a review, 14 Nov 2026).
+        let fits = title.isEmpty ? [] : list.indices.filter { Self.briefMatches(Self.brief(list[$0]), title: title, start: date, allDay: allDay) }
+        eventIndex = fits.count == 1 ? fits[0] : nil
         lastOwnMove = Date()
         // Calendar's focus put there too, so the view's keys (Up, Down, Return) work at once: after the box it was on
         // the window, and Down did nothing (driver, 18 Oct 2026).
@@ -600,7 +603,13 @@ final class CalendarAppModule: AppModule {
     }
 
     private func deleteEvent(_ g: KeyboardGesture) {
-        guard let day = dayShowing(current) else { g.send(); return }
+        // No day showing: refused, not sent unchecked (a review, 14 Nov 2026).
+        guard let day = dayShowing(current) else {
+            Log.io("calendar: \(g.identifier) not sent; no day showing")
+            Tones.edge()
+            Speech.speakMessage(String(localized: "could not select that", comment: "Spoken message: Delete was not sent, as the Calendar event or day read isn't Calendar's selection"))
+            return
+        }
         let list = events(day)
         // The day read, not an event: never sent. Calendar's focus can be the day while its event selection is still an
         // event heard earlier, and Delete removed that (a review, 13 Nov 2026).
@@ -655,6 +664,21 @@ final class CalendarAppModule: AppModule {
             return "all day, \(ns.substring(with: m.range(at: 1)))"
         }
         return d
+    }
+
+    /// Whether brief's words are the event saved: "14:00 to 15:00, Title" (or "Title, place") starting at start's
+    /// hour and minute, or "all day, Title" (a review, 14 Nov 2026).
+    static func briefMatches(_ b: String, title: String, start: Date, allDay: Bool) -> Bool {
+        func titled(_ rest: String) -> Bool { rest == title || rest.hasPrefix(title + ", ") }
+        if allDay { return b.hasPrefix("all day, ") && titled(String(b.dropFirst("all day, ".count))) }
+        let ns = b as NSString
+        guard let re = try? NSRegularExpression(pattern: #"^(\d{1,2})[:.](\d{2}) to \d{1,2}[:.]\d{2}, (.*)$"#),
+              let m = re.firstMatch(in: b, range: NSRange(location: 0, length: ns.length)),
+              let h = Int(ns.substring(with: m.range(at: 1))), let mi = Int(ns.substring(with: m.range(at: 2))) else { return false }
+        let c = Calendar.current.dateComponents([.hour, .minute], from: start)
+        // A 12-hour clock says 2:00 for 14:00.
+        guard let hour = c.hour, h % 12 == hour % 12, mi == c.minute else { return false }
+        return titled(ns.substring(with: m.range(at: 3)))
     }
 }
 

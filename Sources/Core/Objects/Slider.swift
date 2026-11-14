@@ -20,13 +20,23 @@ open class Slider: TurnOverObject {
             let keys = ScriptHandler.keysArrivedCount
             _ = Poll.pumping(every: 0.02, limit: 0.4) { self.element.attr(kAXValueAttribute).map { "\($0)" } != before || ScriptHandler.keysArrivedCount != keys }
             if ScriptHandler.keysArrivedCount != keys { return }
-            let now = self.element.string(kAXValueDescriptionAttribute).flatMap { $0.isEmpty ? nil : $0 } ?? self.element.attr(kAXValueAttribute).map { v -> String in
+            let raw = self.element.attr(kAXValueAttribute)
+            // The edge is the raw value unchanged: comparing the description with the raw value never matched, so a
+            // slider with a value description gave no edge tone (a review, 14 Nov 2026).
+            if let raw, "\(raw)" == before { Tones.edge(); return }
+            let now = self.element.string(kAXValueDescriptionAttribute).flatMap { $0.isEmpty ? nil : $0 } ?? raw.map { v -> String in
                 // Int() traps on infinity or a huge value, so those use the format (a review, 14 Nov 2026).
-                if let n = v as? NSNumber { let d = n.doubleValue; return d.isFinite && abs(d) < 1e15 && d == d.rounded() ? String(Int(d)) : String(format: "%.1f", d) }
+                if let n = v as? NSNumber {
+                    let d = n.doubleValue
+                    if d.isFinite && abs(d) < 1e15 && d == d.rounded() { return String(Int(d)) }
+                    // Up to 3 decimals without trailing zeros: %.1f read 0.10 and 0.15 both as 0.1 (a review, 14 Nov 2026).
+                    var t = String(format: "%.3f", d)
+                    if d.isFinite, t.contains(".") { while t.hasSuffix("0") { t.removeLast() }; if t.hasSuffix(".") { t.removeLast() } }
+                    return t
+                }
                 return "\(v)"
             }
             guard let now else { return }
-            if now == before { Tones.edge(); return }
             // The app may say it itself (a value change it posts, read as "67 percent"): a moment for that, then
             // only if nothing was said.
             _ = Poll.pumping(every: 0.02, limit: 0.15) { Speech.lastSpoken != spokenBefore || ScriptHandler.keysArrivedCount != keys }

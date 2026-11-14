@@ -18,10 +18,19 @@ final class CalculatorAppModule: AppModule {
         // Return and Escape aren't typed characters: their own keys.
         script("calculator_equals", String(localized: "Equals, then the answer", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:enter", "kb:numpadEnter"], category: "Calculator") { [weak self] g in
             g.send(); self?.readDisplay(prefix: "equals")
-        }
+        }.isAvailable = { [weak self] in self?.onKeypad() == true }
         script("calculator_clear", String(localized: "Clear", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:escape"], category: "Calculator") { g in
             g.send(); Speech.cancel(); Speech.speakMessage(String(localized: "clear", comment: "Spoken message"))
-        }
+        }.isAvailable = { [weak self] in self?.onKeypad() == true }
+    }
+
+    /// Return and Escape are Calculator's own only with no menu open and the focus not in a sheet: they said
+    /// "equals" or "clear" over a menu or sheet they chose or closed (a review, 14 Nov 2026).
+    private func onKeypad() -> Bool {
+        guard !AXHandler.shared.isMenuOpen, !TurnOverMenu.shared.isOpen, let f = API.focusObject, f.pid == pid else { return false }
+        var e: AXUIElement? = f.element; var hops = 0
+        while let x = e, hops < 20 { if x.role == "AXSheet" { return false }; e = x.element(kAXParentAttribute); hops += 1 }
+        return true
     }
 
     override func handleEvent(_ event: Event, next: () -> Void) {

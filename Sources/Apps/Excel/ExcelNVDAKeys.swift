@@ -70,17 +70,18 @@ extension ExcelAppModule {
                 }
             }
         }.isAvailable = windows
+        let excel = pid
         script("excel_reviewCells", String(localized: "Cell review; reads the cells around with the arrows, protected ones too; Escape stops (NVDA+Space in Excel)", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:turnover+space"], category: "Microsoft Excel") { _ in
             Self.queue.async {
                 let at = Self.run("return (first row index of active cell as text) & \",\" & (first column index of active cell as text)") ?? "1,1"
                 let n = at.split(separator: ",").compactMap { Int($0) }
-                onMain { Self.reviewCells(row: n.first ?? 1, column: n.count > 1 ? n[1] : 1) }
+                onMain { Self.reviewCells(row: n.first ?? 1, column: n.count > 1 ? n[1] : 1, pid: excel) }
             }
         }.isAvailable = windows
     }
 
     /// The cell review: arrows move a cursor of TurnOver's over the sheet, reading each cell; nothing is selected.
-    static func reviewCells(row: Int, column: Int) {
+    static func reviewCells(row: Int, column: Int, pid: pid_t) {
         Speech.speakMessage(String(localized: "cell review. Arrows read the cells; Escape stops", comment: "Spoken message"))
         func read(_ r: Int, _ c: Int) {
             queue.async {
@@ -91,7 +92,14 @@ extension ExcelAppModule {
         read(row, column)
         func next(_ r: Int, _ c: Int) {
             InputManager.captureNext = { g in
-                guard let g, !["escape", "space"].contains(g.keyName) || (g.keyName == "space" && !g.modifiers.contains(.turnover)) else { Speech.speakMessage(String(localized: "cell review off", comment: "Spoken message")); return }
+                // Excel left (another app in front): the review ends and the key goes on, rather than every next key
+                // there being taken for the review (a review, 14 Nov 2026).
+                if let g, API.focusPid != pid {
+                    Speech.speakMessage(String(localized: "cell review off", comment: "Spoken message"))
+                    if !g.modifiers.contains(.turnover) { g.send() }
+                    return
+                }
+                guard let g,!["escape", "space"].contains(g.keyName) || (g.keyName == "space" && !g.modifiers.contains(.turnover)) else { Speech.speakMessage(String(localized: "cell review off", comment: "Spoken message")); return }
                 var r2 = r, c2 = c
                 switch g.keyName {
                 case "upArrow": r2 = max(1, r - 1)

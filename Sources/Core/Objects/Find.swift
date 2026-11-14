@@ -103,6 +103,13 @@ public final class FindPrompt {
             Speech.speakMessage(String(localized: "\(s) not found", comment: "Find found nothing: %@ is what was searched for")); return
         }
         var here = ObjectNavigator.shared.element ?? f.element
+        // The review cursor can be outside the focus's window (cursor tracking off, the cursor left in another app):
+        // the walk never met the window and climbed past it. Start from the focus then (a review, 14 Nov 2026).
+        do {
+            var p: AXUIElement? = here; var hops = 0; var inside = false
+            while let x = p, hops < 64 { if x.isSame(window) { inside = true; break }; p = x.element(kAXParentAttribute); hops += 1 }
+            if !inside { here = f.element }
+        }
         // In a list or table, "here" is the selected row: the next match is after the message you are on.
         if ["AXTable", "AXOutline", "AXList"].contains(here.role), let row = here.elements(kAXSelectedRowsAttribute).first { here = row }
         let needle = s.lowercased()
@@ -123,15 +130,19 @@ public final class FindPrompt {
             // An item's own contents are part of it: a row's cells, a button's label. Containers are searched inside.
             let leafRoles: Set<String> = ["AXRow", "AXCell", "AXButton", "AXLink", "AXStaticText", "AXCheckBox", "AXRadioButton", "AXMenuItem", "AXPopUpButton", "AXTextField", "AXTextArea", "AXImage"]
             var hit: AXUIElement?
+            // Whether the 3 s ran out first. A backward walk keeps only the last match seen, which could be hundreds
+            // of rows before the real previous one: dropped, and the user told the search stopped (a review, 14 Nov 2026).
+            var stopped = false
             if forward {
                 // Reading order from just after from: from's inside (for a container), then what follows it, then up.
                 var stack: [AXUIElement] = leafRoles.contains(from.role) ? [] : Array(look(from).1.reversed())
                 var cur = from
-                search: while Date() < deadline {
+                search: while true {
+                    guard Date() < deadline else { stopped = true; break }
                     while let e = stack.popLast() {
                         let (m, kids) = look(e)
                         if m { hit = e; break search }
-                        if Date() >= deadline { break search }
+                        if Date() >= deadline { stopped = true; break search }
                         stack.append(contentsOf: kids.reversed())
                     }
                     guard !cur.isSame(window), let parent = cur.element(kAXParentAttribute) else { break }
@@ -147,18 +158,26 @@ public final class FindPrompt {
                 var up = from.element(kAXParentAttribute)
                 while let x = up, holders.count < 64, !x.isSame(window) { holders.append(x); up = x.element(kAXParentAttribute) }
                 var stack: [AXUIElement] = [window]
-                while let e = stack.popLast(), Date() < deadline {
-                    if e.isSame(from) { break }
+                // From the window itself (nothing inside it reviewed): the whole window comes before it, not nothing
+                // (a review, 14 Nov 2026).
+                let fromIsWindow = from.isSame(window)
+                while let e = stack.popLast() {
+                    guard Date() < deadline else { stopped = true; break }
+                    if !fromIsWindow, e.isSame(from) { break }
                     let (m, kids) = look(e)
                     if m, !e.isSame(window), !holders.contains(where: { $0.isSame(e) }) { hit = e }
                     stack.append(contentsOf: kids.reversed())
                 }
                 // A match inside a row stands for the row: not the row we are on.
             }
-            let timedOut = Date() >= deadline
+            let timedOut = stopped
+            let found = timedOut && !forward ? nil : hit
             DispatchQueue.main.async {
                 Log.io("find: \(visited) items searched\(timedOut ? ", stopped at 3 s" : "")")
-                guard let hit else { Speech.speakMessage(String(localized: "\(s) not found", comment: "Find found nothing: %@ is what was searched for")); return }
+                if timedOut, found == nil {
+                    Speech.speakMessage(String(localized: "Search stopped before finishing. Try again.", comment: "Spoken message")); return
+                }
+                guard let hit = found else { Speech.speakMessage(String(localized: "\(s) not found", comment: "Find found nothing: %@ is what was searched for")); return }
                 go(to: hit)
             }
         }
