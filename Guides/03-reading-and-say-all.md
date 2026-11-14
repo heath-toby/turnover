@@ -40,6 +40,24 @@ go through the languages; Tab goes on to the chosen one's voice, rate, pitch and
 A language you haven't set up uses its best voice at your own rate, pitch and volume. Each change is heard in that
 language as you make it.
 
+## How text is said
+
+Settings has VoiceOver's and NVDA's choices for how text is read:
+
+- **Speech:** read numbers as words or digits; repeated punctuation, each one or with a count ("7 dash"); when
+  deleting text, speak it, speak it lower, play a tone or do nothing; a tone before a capital, as well as or instead
+  of "cap" and a raised pitch.
+- **Pronunciations** (Speech): words said your way. Choose one in the list to change or remove it, or type a word and
+  how to say it and Add. "LBRF" said as "L B R F", for instance. It changes speech only; braille shows the word as
+  written.
+- **Documents, Lines:** line indentation as the caret moves by line, when it changes: spoken ("4 space", "tab",
+  "no indent"), as tones (higher for deeper), or both, as NVDA does.
+- **Documents, Fonts:** colour, with the font's name, size and style.
+- **Item details:** how long a pause before a hint, and whether a dialog reads its text as it opens.
+- **Keyboard:** Caps Lock on and off said or not; right Option with a letter as VoiceOver's Keyboard Commander; and
+  NVDA's timings, how soon a key pressed again counts as twice, and how long to wait for the caret.
+- **Moving around:** at the end of a group, wrap round to its start, with VoiceOver's wrap sound.
+
 ## Documents
 
 In Word, Pages and TextEdit, the arrows read as they move. **VO Command H** goes to the next heading (Shift for the
