@@ -262,10 +262,17 @@ open class TextInfo {
         guard i < t.length else { return nil }
         let l = language(at: start + i)
         // A label that cannot be right (Chrome labels unmarked Arabic as English): the text decides.
-        if let l, !l.isEmpty { return Languages.contradicts(l, text) ? (Languages.detectUnmarked(text) ?? l) : l }
+        if let l, !l.isEmpty {
+            if Languages.contradicts(l, text) { return Languages.detectUnmarked(text, sticky: true) ?? l }
+            // Marked as the main voice's own language: most often a whole page's or document's default (lang="en",
+            // Word's proofing language), not a claim about this line. A German line in it is still recognised.
+            if Languages.base(l) == Languages.mainLanguage, let found = Languages.recognise(text, sticky: true) { return found }
+            return l
+        }
         // Not marked: text in another script than the reader's voice is recognised from its words (an Arabic
-        // paragraph on a page that says nothing about its language; a tester).
-        return Languages.detectUnmarked(text)
+        // paragraph on a page that says nothing about its language; a tester), and text in the same script among the
+        // languages chosen to be recognised (VoiceOver's "Detect languages").
+        return Languages.detectUnmarked(text, sticky: true)
     }
     /// "page 3, line 12" where the control can tell (NVDA: locationText).
     open var locationText: String? { nil }

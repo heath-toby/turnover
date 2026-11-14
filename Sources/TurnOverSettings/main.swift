@@ -219,7 +219,6 @@ struct SpeechView: View {
         return voiceLists.offered + extra
     }
     @State private var showRotor = false
-    @State private var showLanguages = false
     /// One voice's tick in the rotor's list, named outright: SwiftUI left such switches nameless here (2 Nov 2026).
     private func rotorToggle(_ id: String, _ name: String) -> some View {
         Toggle(name, isOn: Binding(
@@ -350,7 +349,6 @@ struct SpeechView: View {
             Picker("Punctuation", selection: model.int("speech", "symbolLevel")) {
                 Text("None").tag(0); Text("Some").tag(1); Text("Most").tag(2); Text("All").tag(3)
             }
-            Toggle("Switch language when text says it is in another", isOn: model.bool("speech", "autoLanguageSwitching"))
             Picker("Where speech plays", selection: model.string("speech", "outputDevice", "")) {
                 Text("The Mac's default output").tag("")
                 ForEach(outputDevices, id: \.uid) { d in Text(d.name).tag(d.uid) }
@@ -364,17 +362,16 @@ struct SpeechView: View {
                     .accessibilityValue(model.number("speech", "capitalPitch").wrappedValue == 0 ? String(localized: "off", comment: "A setting that is off")
                         : String(localized: "\(Int(model.number("speech", "capitalPitch").wrappedValue)) percent", comment: "A slider's value"))
             }
-            // The speech rotor's own short list (18 Oct 2026): none ticked, every voice.
-            // Folded until opened: a picker per language is the costliest part of the pane to draw (23 Oct 2026).
-            Toggle("Show voices for other languages", isOn: $showLanguages).accessibilityLabel("Show voices for other languages")
-            if showLanguages {
+            // The languages table (a tester, 14 Nov 2026): Up and Down go through the languages, Tab goes on to the
+            // chosen one's voice, rate, pitch and volume, and whether it is recognised in text. Replaces a picker and a
+            // rate per language, every one drawn at once.
+            Section(String(localized: "Languages", comment: "A group in Speech settings")) {
+                Toggle("Automatic language switching", isOn: model.bool("speech", "autoLanguageSwitching"))
+                    .accessibilityHint(String(localized: "Text in another language is read in that language's voice: text marked as one, text in another alphabet, and text recognised as one of the languages ticked below.", comment: "Speech settings"))
                 if otherLanguages.isEmpty {
                     Text("No voices for other languages are installed.").font(.caption)
                 } else {
-                    Text("Text marked as another language is read in that language's voice, when language switching is on.").font(.caption)
-                    ForEach(otherLanguages, id: \.code) { language in
-                        OtherLanguageRow(language: language)
-                    }
+                    LanguagesTable(languages: otherLanguages)
                 }
             }
             // Folded away: the list is long by nature (every voice the rotor could step through).
@@ -423,37 +420,128 @@ struct OtherLanguage {
     let voices: [Voice]
 }
 
-/// One language: its voice (Automatic is the best installed one) and its own rate (the main rate until changed).
-struct OtherLanguageRow: View {
+/// The languages, one row each, and the chosen row's own settings after it: its voice (Automatic is the best one
+/// installed), rate, pitch and volume (the main voice's until changed), and whether text is recognised as it.
+struct LanguagesTable: View {
     @EnvironmentObject var model: Model
-    let language: OtherLanguage
-    private var chosenVoices: [String: String] { model.get("speech", "languageVoices") as? [String: String] ?? [:] }
-    private var rates: [String: Double] {
-        let raw = model.get("speech", "languageRates") as? [String: Any] ?? [:]
-        return raw.compactMapValues { ($0 as? NSNumber)?.doubleValue }
+    let languages: [OtherLanguage]
+    @State private var selected: String?
+
+    private func dict(_ key: String) -> [String: Any] { model.get("speech", key) as? [String: Any] ?? [:] }
+    private func number(_ key: String, _ code: String) -> Double? { (dict(key)[code] as? NSNumber)?.doubleValue }
+    private func main(_ key: String, _ fallback: Double) -> Double { (model.get("speech", key) as? NSNumber)?.doubleValue ?? fallback }
+    /// The languages recognised: the list once chosen, else those given anything of their own (Config's rule).
+    private var recognised: Set<String> {
+        if let list = model.get("speech", "detectLanguages") as? [String] { return Set(list) }
+        return Set(["languageVoices", "languageRates", "languagePitches", "languageVolumes"].flatMap { dict($0).keys })
     }
-    private var mainRatePercent: Double { ((model.get("speech", "rate") as? NSNumber)?.doubleValue ?? 0.55) * 100 }
-    private var voiceChoice: Binding<String> {
-        Binding(get: { chosenVoices[language.code] ?? "" }, set: { chosen in
-            var all = chosenVoices
-            if chosen.isEmpty { all.removeValue(forKey: language.code) } else { all[language.code] = chosen }
-            model.set("speech", "languageVoices", all)
+    /// Ticked and configured languages first, then the rest by name.
+    private var ordered: [OtherLanguage] {
+        let r = recognised
+        return languages.filter { r.contains($0.code) } + languages.filter { !r.contains($0.code) }
+    }
+    private func summary(_ l: OtherLanguage) -> String {
+        var parts = [l.name]
+        if recognised.contains(l.code) { parts.append(String(localized: "recognised", comment: "A language in the Speech settings' table: text is recognised as it")) }
+        let voice = (dict("languageVoices")[l.code] as? String).flatMap { id in l.voices.first { $0.id == id }?.name } ?? l.voices.first.map { String(localized: "\($0.name), automatic", comment: "A language's voice in the table: the best installed") }
+        if let voice { parts.append(voice) }
+        if let r = number("languageRates", l.code) { parts.append(String(localized: "rate \(Int((r * 100).rounded()))", comment: "A language's rate in the table")) }
+        if let p = number("languagePitches", l.code) { parts.append(String(localized: "pitch \(Int((p * 100).rounded()))", comment: "A language's pitch in the table")) }
+        if let v = number("languageVolumes", l.code) { parts.append(String(localized: "volume \(Int(v))", comment: "A language's volume in the table")) }
+        return parts.joined(separator: ", ")
+    }
+    /// A value of the language's own, shown as the main voice's until set; `scale` 100 for 0–1 values.
+    private func binding(_ key: String, _ code: String, mainKey: String, mainDefault: Double, scale: Double) -> Binding<Double> {
+        Binding(get: { (number(key, code) ?? main(mainKey, mainDefault)) * scale }, set: { v in
+            var all = dict(key)
+            if scale == 100 { all[code] = (v / 100 * 100).rounded() / 100 } else { all[code] = Int(v.rounded()) }
+            model.set("speech", key, all)
         })
     }
-    private var ratePercent: Binding<Double> {
-        Binding(get: { (rates[language.code] ?? (mainRatePercent / 100)) * 100 }, set: { percent in
-            var all = rates
-            all[language.code] = (percent / 100 * 100).rounded() / 100
-            model.set("speech", "languageRates", all)
-        })
-    }
+
     var body: some View {
-        Picker("\(language.name) voice", selection: voiceChoice) {
-            Text("Automatic\(language.voices.first.map { ": \($0.name)" } ?? "")").tag("")
-            ForEach(language.voices, id: \.id) { voice in Text("\(voice.name), \(voice.language)").tag(voice.id) }
+        let list = ordered
+        List(list, id: \.code, selection: $selected) { l in
+            Text(summary(l)).tag(l.code)
         }
-        Slider(value: ratePercent, in: 10...100, step: 5) { Text("\(language.name) rate") }
-            .accessibilityValue(rates[language.code] == nil ? String(localized: "\(String(Int(ratePercent.wrappedValue))), same as the main voice", comment: "A language's speech rate, when it is the main voice's") : "\(Int(ratePercent.wrappedValue))")
+        .frame(minHeight: 160, maxHeight: 220)
+        .accessibilityLabel(String(localized: "Languages", comment: "The Speech settings' table of languages"))
+        .onAppear { if selected == nil { selected = list.first?.code } }
+        if let code = selected, let l = languages.first(where: { $0.code == code }) {
+            Picker(String(localized: "\(l.name) voice", comment: "A language's voice"), selection: Binding(
+                get: { dict("languageVoices")[code] as? String ?? "" },
+                set: { v in var all = dict("languageVoices"); if v.isEmpty { all.removeValue(forKey: code) } else { all[code] = v }; model.set("speech", "languageVoices", all) })) {
+                Text("Automatic\(l.voices.first.map { ": \($0.name)" } ?? "")").tag("")
+                ForEach(l.voices, id: \.id) { voice in Text("\(voice.name), \(voice.language)").tag(voice.id) }
+            }
+            let rate = binding("languageRates", code, mainKey: "rate", mainDefault: 0.55, scale: 100)
+            Slider(value: rate, in: 10...100, step: 5) { Text("\(l.name) rate") }
+                .accessibilityValue(number("languageRates", code) == nil ? String(localized: "\(String(Int(rate.wrappedValue))), same as the main voice", comment: "A language's setting, when it is the main voice's") : "\(Int(rate.wrappedValue))")
+            let pitch = binding("languagePitches", code, mainKey: "pitch", mainDefault: 0.5, scale: 100)
+            Slider(value: pitch, in: 0...100, step: 5) { Text("\(l.name) pitch") }
+                .accessibilityValue(number("languagePitches", code) == nil ? String(localized: "\(String(Int(pitch.wrappedValue))), same as the main voice", comment: "A language's setting, when it is the main voice's") : "\(Int(pitch.wrappedValue))")
+            let volume = binding("languageVolumes", code, mainKey: "volume", mainDefault: 100, scale: 1)
+            Slider(value: volume, in: 10...200, step: 10) { Text("\(l.name) volume") }
+                .accessibilityValue(number("languageVolumes", code) == nil ? String(localized: "\(String(Int(volume.wrappedValue))) percent, same as the main voice", comment: "A language's volume, when it is the main voice's") : String(localized: "\(String(Int(volume.wrappedValue))) percent", comment: "A slider's value"))
+            Toggle(String(localized: "Recognise \(l.name) in text", comment: "A language's switch: text is recognised as it"), isOn: Binding(
+                get: { recognised.contains(code) },
+                set: { on in var r = recognised; if on { r.insert(code) } else { r.remove(code) }; model.set("speech", "detectLanguages", r.sorted()) }))
+                .accessibilityHint(String(localized: "Text that doesn't say what language it is in is recognised as this language when it plainly is, as VoiceOver's Detect languages does.", comment: "Speech settings"))
+            Button(String(localized: "Use the main voice's rate, pitch and volume for \(l.name)", comment: "A button in Speech settings")) {
+                for key in ["languageRates", "languagePitches", "languageVolumes"] { var all = dict(key); all.removeValue(forKey: code); model.set("speech", key, all) }
+            }
+        }
+    }
+}
+
+/// Language profiles: the languages braille recognises, each ticked, and the table for each ticked one (its own
+/// contracted table until one is chosen). The ticked ones first; Done or Escape closes.
+struct BrailleLanguageProfiles: View {
+    @EnvironmentObject var model: Model
+    let done: () -> Void
+    @State private var order: [String] = []
+    private var all: [[String: Any]] { model.special("_brailleLanguages") as? [[String: Any]] ?? [] }
+    private var ticked: [String] { model.get("braille", "languages") as? [String] ?? [] }
+    private var tables: [String: String] { model.get("braille", "languageTables") as? [String: String] ?? [:] }
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("Language profiles").font(.title2).accessibilityAddTraits(.isHeader)
+            Text("Braille recognises the languages ticked here. With automatic language switching on, a line in one of them is shown in its table; every other line in the output table.").font(.caption)
+            Form {
+                // In the order the sheet opened with, so a language doesn't jump away as it is ticked.
+                ForEach(order, id: \.self) { code in
+                    if let lang = all.first(where: { $0["code"] as? String == code }) { row(lang, code: code) }
+                }
+            }.formStyle(.grouped)
+            HStack { Spacer(); Button(String(localized: "Done", comment: "Closes a sheet")) { done() }.keyboardShortcut(.defaultAction) }
+        }
+        .padding()
+        .frame(minWidth: 480, minHeight: 480)
+        .onExitCommand { done() }
+        .onAppear {
+            let t = Set(ticked)
+            let codes = all.compactMap { $0["code"] as? String }
+            order = codes.filter { t.contains($0) } + codes.filter { !t.contains($0) }
+        }
+    }
+    @ViewBuilder private func row(_ lang: [String: Any], code: String) -> some View {
+        let name = lang["name"] as? String ?? code
+        Toggle(name, isOn: Binding(get: { ticked.contains(code) }, set: { on in
+            var list = ticked.filter { $0 != code }
+            if on { list.append(code) }
+            model.set("braille", "languages", list)
+        }))
+        if ticked.contains(code) {
+            let list = (lang["tables"] as? [[String: String]]) ?? []
+            let defaultID = lang["default"] as? String ?? ""
+            let defaultName = list.first { $0["id"] == defaultID }?["name"] ?? defaultID
+            Picker(String(localized: "\(name) table", comment: "A language's braille table in Language profiles"), selection: Binding(
+                get: { tables[code] ?? "" },
+                set: { v in var all = tables; if v.isEmpty { all.removeValue(forKey: code) } else { all[code] = v }; model.set("braille", "languageTables", all) })) {
+                Text(String(localized: "Automatic: \(defaultName)", comment: "A language's braille table: its own default")).tag("")
+                ForEach(list, id: \.self) { t in Text(t["name"] ?? "").tag(t["id"] ?? "") }
+            }
+        }
     }
 }
 
@@ -480,6 +568,7 @@ struct BrailleView: View {
     private var autoScroll: Binding<Double> {
         Binding(get: { (model.get("braille", "autoScrollSeconds") as? NSNumber)?.doubleValue ?? 3 }, set: { model.set("braille", "autoScrollSeconds", ($0 * 2).rounded() / 2) })
     }
+    @State private var showProfiles = false
     @ViewBuilder private func tablePicker(_ title: String, key: String, automatic: String) -> some View {
         let current = model.get("braille", key) as? String ?? ""
         let all = tables
@@ -510,6 +599,13 @@ struct BrailleView: View {
             Section("Tables") {
                 tablePicker("Output table", key: "table", automatic: String(localized: "Automatic, contracted for your language", comment: "Braille output table choice"))
                 tablePicker("Input table", key: "inputTable", automatic: String(localized: "Same as the output table", comment: "Braille input table choice"))
+                // Braille language switching (a tester, 14 Nov 2026), in the order asked for: the tables, the switch, then
+                // the profiles, which open whether the switch is on or not.
+                Toggle("Automatic language switching", isOn: model.bool("braille", "autoLanguageSwitching"))
+                    .accessibilityHint(String(localized: "Each line is shown in the table for the language it is in, among the languages ticked in Language profiles.", comment: "Braille settings"))
+                Button(String(localized: "Language profiles…", comment: "A button in Braille settings")) { showProfiles = true }
+                    .accessibilityHint(String(localized: "Tick the languages braille recognises, and choose a table for each.", comment: "Braille settings"))
+                    .sheet(isPresented: $showProfiles) { BrailleLanguageProfiles(done: { showProfiles = false }).environmentObject(model) }
                 if !outputName.isEmpty { Text("In use: \(outputName)").font(.caption) }
                 Toggle("Show the word at the cursor uncontracted", isOn: model.bool("braille", "expandAtCursor"))
                 Toggle("Type in contracted braille, a word at a time", isOn: model.bool("braille", "contractedInput"))

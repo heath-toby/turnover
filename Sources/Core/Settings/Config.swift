@@ -157,6 +157,17 @@ public struct Config: Codable {
         public var languageVoices: [String: String] = [:]
         /// A speech rate for each other language (0.1 to 1, as `rate`), when it should differ (a tester).
         public var languageRates: [String: Float] = [:]
+        /// A pitch for each other language (0 to 1, as `pitch`), and a volume (10 to 200 percent, as `volume`), when
+        /// they should differ: the languages table in Settings (a tester, 14 Nov 2026).
+        public var languagePitches: [String: Float] = [:]
+        public var languageVolumes: [String: Int] = [:]
+        /// The languages recognised in text that doesn't say what it is in, as VoiceOver's "Detect languages" does
+        /// among the rotor's languages. Nil until chosen: the languages given a voice or rate of their own.
+        public var detectLanguages: [String]?
+        /// The languages text is recognised as, besides the main voice's.
+        public var recognisedLanguages: [String] {
+            detectLanguages ?? Array(Set(languageVoices.keys).union(languageRates.keys).union(languagePitches.keys).union(languageVolumes.keys)).sorted()
+        }
         /// Where speech plays (VoiceOver Utility's Sound, NVDA's output device): a CoreAudio device UID, or empty
         /// for the Mac's default output, followed as it changes. A chosen device that is absent (headphones off)
         /// falls back to the default until it returns.
@@ -192,7 +203,7 @@ public struct Config: Codable {
         }
         public init() {}
         // Each field falls back to its default, so a setting added later never resets the voice and rate.
-        enum Keys: String, CodingKey { case voice, rate, symbolLevel, sayCapForCapitals, volume, autoLanguageSwitching, languageVoices, languageRates, outputDevice, capitalPitch, ducking, pitch, rotorVoices, bass, middle, treble, voiceTunings }
+        enum Keys: String, CodingKey { case voice, rate, symbolLevel, sayCapForCapitals, volume, autoLanguageSwitching, languageVoices, languageRates, languagePitches, languageVolumes, detectLanguages, outputDevice, capitalPitch, ducking, pitch, rotorVoices, bass, middle, treble, voiceTunings }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
             voice = (try? c.decodeIfPresent(String.self, forKey: .voice)) ?? voice
@@ -203,6 +214,9 @@ public struct Config: Codable {
             autoLanguageSwitching = (try? c.decodeIfPresent(Bool.self, forKey: .autoLanguageSwitching)) ?? autoLanguageSwitching
             languageVoices = (try? c.decodeIfPresent([String: String].self, forKey: .languageVoices)) ?? languageVoices
             languageRates = (try? c.decodeIfPresent([String: Float].self, forKey: .languageRates)) ?? languageRates
+            languagePitches = (try? c.decodeIfPresent([String: Float].self, forKey: .languagePitches)) ?? languagePitches
+            languageVolumes = (try? c.decodeIfPresent([String: Int].self, forKey: .languageVolumes)) ?? languageVolumes
+            detectLanguages = (try? c.decodeIfPresent([String].self, forKey: .detectLanguages)) ?? nil
             outputDevice = (try? c.decodeIfPresent(String.self, forKey: .outputDevice)) ?? outputDevice
             capitalPitch = (try? c.decodeIfPresent(Int.self, forKey: .capitalPitch)) ?? capitalPitch
             pitch = (try? c.decodeIfPresent(Float.self, forKey: .pitch)) ?? pitch
@@ -219,6 +233,8 @@ public struct Config: Codable {
             try c.encode(sayCapForCapitals, forKey: .sayCapForCapitals); try c.encode(volume, forKey: .volume)
             try c.encode(autoLanguageSwitching, forKey: .autoLanguageSwitching); try c.encode(languageVoices, forKey: .languageVoices)
             try c.encode(languageRates, forKey: .languageRates); try c.encode(outputDevice, forKey: .outputDevice)
+            try c.encode(languagePitches, forKey: .languagePitches); try c.encode(languageVolumes, forKey: .languageVolumes)
+            try c.encodeIfPresent(detectLanguages, forKey: .detectLanguages)
             try c.encode(capitalPitch, forKey: .capitalPitch); try c.encode(ducking, forKey: .ducking); try c.encode(pitch, forKey: .pitch)
             try c.encode(rotorVoices, forKey: .rotorVoices)
             try c.encode(bass, forKey: .bass); try c.encode(middle, forKey: .middle); try c.encode(treble, forKey: .treble)
@@ -625,13 +641,19 @@ public struct Config: Codable {
         public var speakOnRouting = true
         /// The line or paragraph panned on to is spoken, as VoiceOver does (NVDA's braille is silent there).
         public var speakWhenPanning = true
+        /// Braille language switching (JAWS has it; Polyglot for Orca does it on Linux): each line in the table for the
+        /// language it is in, among the languages ticked in Language profiles (a tester, 14 Nov 2026).
+        public var autoLanguageSwitching = false
+        /// The languages braille recognises ("de"), and the table for each ("" or missing: that language's own default).
+        public var languages: [String] = []
+        public var languageTables: [String: String] = [:]
         /// NVDA's move system caret when routing review cursor: "never", "auto" (only tethered automatically) or "always".
         public var routingMovesCaret = "never"
         /// NVDA's focus context presentation: "changes" (what the focus is in, when that changes), "scrolling" (only on
         /// panning back), or "always".
         public var focusContext = "changes"
         public init() {}
-        enum Keys: String, CodingKey { case table, expandAtCursor, contractedInput, inputEcho, showMessages, messageSeconds, showCursor, blinkCursor, blinkRateMs, cursorShape, wordWrap, showSelection, interruptSpeechWhileScrolling, bluetooth, tether, mode, autoScrollSeconds, panMovesCaret, display, inputTable, formattingMarks, cursorShapeReview, readByParagraph, paragraphMarker, speakOnRouting, routingMovesCaret, focusContext, speakWhenPanning }
+        enum Keys: String, CodingKey { case table, expandAtCursor, contractedInput, inputEcho, showMessages, messageSeconds, showCursor, blinkCursor, blinkRateMs, cursorShape, wordWrap, showSelection, interruptSpeechWhileScrolling, bluetooth, tether, mode, autoScrollSeconds, panMovesCaret, display, inputTable, formattingMarks, cursorShapeReview, readByParagraph, paragraphMarker, speakOnRouting, routingMovesCaret, focusContext, speakWhenPanning, autoLanguageSwitching, languages, languageTables }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
             table = (try? c.decodeIfPresent(String.self, forKey: .table)) ?? ""
@@ -660,6 +682,9 @@ public struct Config: Codable {
             paragraphMarker = (try? c.decodeIfPresent(String.self, forKey: .paragraphMarker)) ?? "none"
             speakOnRouting = (try? c.decodeIfPresent(Bool.self, forKey: .speakOnRouting)) ?? true
             speakWhenPanning = (try? c.decodeIfPresent(Bool.self, forKey: .speakWhenPanning)) ?? true
+            autoLanguageSwitching = (try? c.decodeIfPresent(Bool.self, forKey: .autoLanguageSwitching)) ?? false
+            languages = (try? c.decodeIfPresent([String].self, forKey: .languages)) ?? []
+            languageTables = (try? c.decodeIfPresent([String: String].self, forKey: .languageTables)) ?? [:]
             routingMovesCaret = (try? c.decodeIfPresent(String.self, forKey: .routingMovesCaret)) ?? "never"
             focusContext = (try? c.decodeIfPresent(String.self, forKey: .focusContext)) ?? "changes"
         }
@@ -676,6 +701,7 @@ public struct Config: Codable {
             try c.encode(display, forKey: .display); try c.encode(inputTable, forKey: .inputTable); try c.encode(formattingMarks, forKey: .formattingMarks)
             try c.encode(cursorShapeReview, forKey: .cursorShapeReview); try c.encode(readByParagraph, forKey: .readByParagraph)
             try c.encode(paragraphMarker, forKey: .paragraphMarker); try c.encode(speakOnRouting, forKey: .speakOnRouting); try c.encode(speakWhenPanning, forKey: .speakWhenPanning)
+            try c.encode(autoLanguageSwitching, forKey: .autoLanguageSwitching); try c.encode(languages, forKey: .languages); try c.encode(languageTables, forKey: .languageTables)
             try c.encode(routingMovesCaret, forKey: .routingMovesCaret); try c.encode(focusContext, forKey: .focusContext)
         }
     }

@@ -121,7 +121,8 @@ public enum SettingsBridge {
         dict["_brailleDrivers"] = BrailleSettingsLists.drivers
         dict["_brailleDisplay"] = Braille.display.map { "\($0.name), \($0.cellCount) cells" } ?? ""
         dict["_brailleTables"] = BrailleSettingsLists.tables
-        dict["_brailleOutputTable"] = BrailleOutput.tableIdentifier ?? ""
+        dict["_brailleOutputTable"] = BrailleOutput.outputTable ?? ""
+        dict["_brailleLanguages"] = BrailleSettingsLists.languages
         // The app the window's "For this app" means: the last ordinary app in front that isn't TurnOver's own.
         if let f = frontApp { dict["_frontApp"] = ["bundle": f.bundle, "name": f.name] }
         guard let out = try? JSONSerialization.data(withJSONObject: dict), let s = String(data: out, encoding: .utf8) else { return }
@@ -199,6 +200,9 @@ public enum SettingsBridge {
             if before.general.keyboardStyle != next.general.keyboardStyle { GlobalCommands.setKeyboardStyle(next.general.style) }
             if before.braille.bluetooth != next.braille.bluetooth, next.braille.bluetooth { BrailleDisplays.shared.lookNow() }
             if before.braille.display != next.braille.display { BrailleDisplays.shared.displayChoiceChanged() }
+            if before.braille.languages != next.braille.languages || before.braille.languageTables != next.braille.languageTables
+                || before.braille.autoLanguageSwitching != next.braille.autoLanguageSwitching { BrailleLanguages.forget() }
+            if before.speech.detectLanguages != next.speech.detectLanguages { Languages.lastRecognised = nil }
             Braille.settingsChanged()
             if before.applications.perAppReaders != next.applications.perAppReaders { TurnOverMenu.shared.leadModeChanged?() }
             if before.applications.swapWithVoiceOver != next.applications.swapWithVoiceOver { onSwapChanged?(next.applications.swapWithVoiceOver) }
@@ -207,6 +211,20 @@ public enum SettingsBridge {
             // The EQ heard as it is set: a short sample once the slider stops.
             for (name, was, now) in [("Bass", before.speech.bass, next.speech.bass), ("Middle", before.speech.middle, next.speech.middle), ("Treble", before.speech.treble, next.speech.treble)] where was != now {
                 previewSoon(String(localized: "\(Self.eqName(name)) \(String(Int(now))). The harbour opens at nine.", comment: "The EQ changed: %1$@ is bass, middle or treble, %2$@ the decibels"))
+            }
+            // A language's voice, rate, pitch or volume heard as it is set, in that language (the languages table).
+            let changedLanguages = Set([(before.speech.languageVoices, next.speech.languageVoices)].flatMap { a, b in Set(a.keys).union(b.keys).filter { a[$0] != b[$0] } })
+                .union(Set(before.speech.languageRates.keys).union(next.speech.languageRates.keys).filter { before.speech.languageRates[$0] != next.speech.languageRates[$0] })
+                .union(Set(before.speech.languagePitches.keys).union(next.speech.languagePitches.keys).filter { before.speech.languagePitches[$0] != next.speech.languagePitches[$0] })
+                .union(Set(before.speech.languageVolumes.keys).union(next.speech.languageVolumes.keys).filter { before.speech.languageVolumes[$0] != next.speech.languageVolumes[$0] })
+            if changedLanguages.count == 1, let code = changedLanguages.first {
+                Languages.forget()
+                previewGeneration += 1
+                let g = previewGeneration
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    guard g == previewGeneration else { return }
+                    Speech.cancel(); Speech.enqueue(Languages.sample(code), language: code)
+                }
             }
             let voiceChanged = before.speech.voice != next.speech.voice
             let languageVoicesChanged = before.speech.languageVoices != next.speech.languageVoices

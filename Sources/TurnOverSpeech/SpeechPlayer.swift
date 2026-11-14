@@ -110,8 +110,9 @@ public final class SpeechPlayer: @unchecked Sendable {
         get { settingsLock.lock(); defer { settingsLock.unlock() }; return _eq }
         set { settingsLock.lock(); _eq = newValue.map { max(-12, min(12, $0)) }; settingsLock.unlock() }
     }
-    private func applyVolume(_ b: AVAudioPCMBuffer) {
-        let gain = volume
+    /// `gain`: the utterance's own volume (another language's), else the player's.
+    private func applyVolume(_ b: AVAudioPCMBuffer, gain own: Float? = nil) {
+        let gain = own ?? volume
         guard abs(gain - 1) > 0.01, let data = b.floatChannelData else { return }
         for ch in 0..<Int(b.format.channelCount) {
             let p = data[ch]
@@ -444,7 +445,7 @@ public final class SpeechPlayer: @unchecked Sendable {
     /// first. `requestedAt` lets the caller pass the originating event's time.
     /// `voice`: this utterance only (another language's voice); nil is the current voice.
     public func speak(_ text: String, interrupt: Bool = true, requestedAt: UInt64 = mach_absolute_time(), voice: String? = nil, rate rateOverride: Float? = nil,
-                      pitch: Float? = nil,
+                      pitch: Float? = nil, voicePitch: Float? = nil, voiceVolume: Float? = nil,
                       onStart: (@Sendable () -> Void)? = nil,
                       completion: (@Sendable (_ finished: Bool) -> Void)? = nil) {
         if interrupt { outputHealth.cancel() }
@@ -452,7 +453,7 @@ public final class SpeechPlayer: @unchecked Sendable {
             if interrupt { cancelOnQueue() }
             // One utterance renders at a time, in order: a second write while the first was rendering played their
             // buffers interleaved (a typed word and its punctuation queued together).
-            let job = { [self] in render(text, requestedAt: requestedAt, voice: voice, rate: rateOverride, pitch: pitch, onStart: onStart, completion: completion) }
+            let job = { [self] in render(text, requestedAt: requestedAt, voice: voice, rate: rateOverride, pitch: pitch, voicePitch: voicePitch, voiceVolume: voiceVolume, onStart: onStart, completion: completion) }
             if rendering { waiting.append((job, completion)) } else { job() }
         }
     }
@@ -480,7 +481,9 @@ public final class SpeechPlayer: @unchecked Sendable {
         job()
     }
 
-    private func render(_ text: String, requestedAt: UInt64, voice: String?, rate rateOverride: Float? = nil, pitch: Float? = nil, onStart: (@Sendable () -> Void)?, completion: (@Sendable (Bool) -> Void)?) {
+    /// `voicePitch` and `voiceVolume`: another language's own (its pitch multiplier, its volume 0.1 to 2), for this
+    /// utterance only.
+    private func render(_ text: String, requestedAt: UInt64, voice: String?, rate rateOverride: Float? = nil, pitch: Float? = nil, voicePitch: Float? = nil, voiceVolume: Float? = nil, onStart: (@Sendable () -> Void)?, completion: (@Sendable (Bool) -> Void)?) {
         do {
             let state = UtteranceState(completion: completion)
             state.hasWords = text.contains { $0.isLetter || $0.isNumber }
@@ -508,7 +511,8 @@ public final class SpeechPlayer: @unchecked Sendable {
                 self.endRender(state, gen: gen)
             }
             utterance.rate = rateOverride ?? rate
-            let base = self.pitch
+            let base = voicePitch.map { max(0.5, min(2, $0)) } ?? self.pitch
+            state.gain = voiceVolume.map { max(0.1, min(2, $0)) }
             if let pitch { utterance.pitchMultiplier = max(0.5, min(2, pitch * base)) }   // a capital letter, raised (NVDA)
             else if abs(base - 1) > 0.001 { utterance.pitchMultiplier = base }
             current = (utterance, state, gen)
@@ -524,7 +528,7 @@ public final class SpeechPlayer: @unchecked Sendable {
                         self.pending.removeAll { $0 === state }; self.noteBusy()
                         self.rendering = false
                         let mac = self.fallbackVoiceIdentifier.isEmpty ? nil : self.fallbackVoiceIdentifier
-                        self.render(text, requestedAt: requestedAt, voice: mac ?? AVSpeechSynthesisVoice(language: nil)?.identifier ?? "com.apple.voice.compact.en-GB.Daniel", rate: rateOverride, pitch: pitch, onStart: onStart, completion: completion)
+                        self.render(text, requestedAt: requestedAt, voice: mac ?? AVSpeechSynthesisVoice(language: nil)?.identifier ?? "com.apple.voice.compact.en-GB.Daniel", rate: rateOverride, pitch: pitch, voicePitch: voicePitch, voiceVolume: voiceVolume, onStart: onStart, completion: completion)
                     }
                 }
                 doing("external voice render")
@@ -572,7 +576,7 @@ public final class SpeechPlayer: @unchecked Sendable {
                     // The EQ for Mac voices too, as Settings says ("for every voice"); only natural voices had it (a review, 14 Nov 2026).
                     if state.eq == nil { state.eq = SpeechEQ(self.eq, sampleRate: out.format.sampleRate) }
                     state.eq?.run(out)
-                    self.applyVolume(out)
+                    self.applyVolume(out, gain: state.gain)
                     self.outputHealth.scheduledFrames(for: state.outputIncident, sampleTime: self.outputSampleTime())
                     if timing.value.firstBufferAt == nil {
                         timing.value.firstBufferAt = mach_absolute_time()
@@ -617,7 +621,7 @@ public final class SpeechPlayer: @unchecked Sendable {
             guard pcm.frameLength > 0, let out = self.convert(pcm), out.frameLength > 0 else { return }
             if state.eq == nil { state.eq = SpeechEQ(self.eq, sampleRate: out.format.sampleRate) }
             state.eq?.run(out)
-            self.applyVolume(out)
+            self.applyVolume(out, gain: state.gain)
             self.outputHealth.scheduledFrames(for: state.outputIncident, sampleTime: self.outputSampleTime())
             if timing.value.firstBufferAt == nil {
                 timing.value.firstBufferAt = mach_absolute_time()
@@ -683,6 +687,8 @@ public final class SpeechPlayer: @unchecked Sendable {
         var done = false
         var voice = ""
         var hasWords = false
+        /// The utterance's own volume (another language's), nil for the player's.
+        var gain: Float?
         var outputIncident: SpeechOutputIncident?
         /// The EQ as the utterance's first buffer came, its filters carried from buffer to buffer.
         var eq: SpeechEQ?

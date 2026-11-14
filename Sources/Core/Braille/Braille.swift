@@ -59,13 +59,14 @@ public enum Braille {
     private static var emphasisCells = Set<Int>()
     /// Cells put before a paragraph (NVDA's paragraph start marker), read by paragraph.
     private static var leadingCells: [UInt8] = []
+    private static var lastLineTable: String?
     /// Where the window starts are counted from (the focus's place, with context before it), and the cursor is
     /// TurnOver's review cursor (its own shape).
     private static var windowOrigin = 0
     private static var cursorIsReview = false
 
     /// Back to plain text: no formatting, marker, context or review cursor (each kind of thing shown sets its own).
-    private static func plain() { emphasis = []; leadingCells = []; windowOrigin = 0; cursorIsReview = false }
+    private static func plain() { emphasis = []; leadingCells = []; windowOrigin = 0; cursorIsReview = false; BrailleOutput.lineTable = nil }
 
     private static func layout() {
         (cells, cellMap) = BrailleOutput.translate(text, cursor: cursor, emphasis: emphasis)
@@ -460,6 +461,12 @@ public enum Braille {
             let line = shown.copy(); line.expand(byParagraph ? .paragraph : .line)
             source = .text(line, lineStart: line.start); lastObject = nil
             text = displayed(line.text)
+            // The line's language's table, with braille language switching on (BrailleLanguages).
+            if config.braille.autoLanguageSwitching {
+                let switched = BrailleLanguages.table(for: text, marked: line.language(at: line.start))
+                if switched != lastLineTable { Log.io("braille: line table \(switched ?? "the output table")"); lastLineTable = switched }
+                BrailleOutput.lineTable = switched
+            }
             // Read by paragraph, a paragraph's start can be marked (NVDA's paragraph start marker).
             if byParagraph { leadingCells = ["pilcrow": BrailleOutput.translate("¶", cursor: nil).cells + [0], "spaces": [0, 0]][config.braille.paragraphMarker] ?? [] }
             // A heading: "h4" before its line, as NVDA's display shows it (speech said "heading level 4" and the display
@@ -870,7 +877,7 @@ public enum Braille {
 
     /// VoiceOver's contracted braille key: the output table between its contracted and uncontracted forms.
     public static func toggleContracted() {
-        guard let id = BrailleOutput.tableIdentifier else { Tones.edge(); return }
+        guard let id = BrailleOutput.outputTable else { Tones.edge(); return }
         let other: String? = id.hasSuffix("_g2") ? String(id.dropLast(3)) + "_g1" : id.hasSuffix("_g1") ? String(id.dropLast(3)) + "_g2" : nil
         guard let other, TOBrailleTranslatorTablesCheck.exists(other) else { Tones.edge(); Speech.speakMessage(String(localized: "this table has no contracted form", comment: "Spoken message")); return }
         config.braille.table = other; config.save()

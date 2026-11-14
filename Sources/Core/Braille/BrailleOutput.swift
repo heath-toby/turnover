@@ -8,10 +8,14 @@ import TurnOverBraille
 
 public enum BrailleOutput {
     /// The table in use: the one chosen, or the system's contracted default for the user's language.
-    public static var tableIdentifier: String? {
+    public static var tableIdentifier: String? { lineTable ?? outputTable }
+    /// The output table as chosen in Settings, whatever the line's language.
+    public static var outputTable: String? {
         if !config.braille.table.isEmpty { return config.braille.table }
         return TOBrailleTranslator.defaultTable(forLocale: Locale.current.identifier, contracted: true)
     }
+    /// The table for the line shown, when braille language switching found it in another language (BrailleLanguages).
+    public static var lineTable: String?
 
     /// Cells, and for each the offset in `text` it shows.
     /// `emphasis`: the text's bold, italic and underlined stretches, given to the table when its own signs are wanted.
@@ -93,7 +97,8 @@ public enum BrailleOutput {
     }
 
     /// The table typing goes through (NVDA's input table): the one chosen for input, or else the output table.
-    public static var inputTableIdentifier: String? { config.braille.inputTable.isEmpty ? tableIdentifier : config.braille.inputTable }
+    /// (The output table as chosen, not a line's language's: what is typed is in the reader's own braille.)
+    public static var inputTableIdentifier: String? { config.braille.inputTable.isEmpty ? outputTable : config.braille.inputTable }
 
     /// Braille typed on the display's keyboard, as text: the input table, or its uncontracted form.
     public static func backTranslate(_ cells: [UInt8], contracted: Bool) -> String {
@@ -159,6 +164,29 @@ enum BrailleSettingsLists {
         ]
         return known[driver] ?? driver
     }
+
+    /// Every language macOS has braille tables for, by its code, for Language profiles: its name, the table used when
+    /// none is chosen (its own contracted one), and its tables. The user's own language first, then by name.
+    static let languages: [[String: Any]] = {
+        let mine = Locale.current.language.languageCode?.identifier ?? "en"
+        var codes = Set<String>()
+        for id in Locale.availableIdentifiers { if let l = Locale(identifier: id).language.languageCode?.identifier { codes.insert(l) } }
+        var out: [[String: Any]] = []
+        for l in codes {
+            var seen = Set<String>(), tables: [[String: String]] = []
+            for pair in TOBrailleTranslator.tables(forLocale: l) where pair.count == 2 {
+                if seen.insert(pair[1]).inserted { tables.append(["id": pair[0], "name": pair[1]]) }
+            }
+            // A language whose list is only English (macOS's fallback) has no tables of its own.
+            guard !tables.isEmpty, l == "en" || !tables.allSatisfy({ ($0["name"] ?? "").lowercased().contains("english") }) else { continue }
+            let name = Locale.current.localizedString(forLanguageCode: l) ?? l
+            out.append(["code": l, "name": name, "default": TOBrailleTranslator.defaultTable(forLocale: l, contracted: true) ?? "", "tables": tables])
+        }
+        return out.sorted { a, b in
+            let ca = a["code"] as? String == mine, cb = b["code"] as? String == mine
+            return ca != cb ? ca : (a["name"] as? String ?? "") < (b["name"] as? String ?? "")
+        }
+    }()
 
     /// Every table, by language: the user's language first, then the others by name. Each table as id and name.
     static let tables: [[String: Any]] = {

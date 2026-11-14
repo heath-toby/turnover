@@ -321,6 +321,40 @@ func pureTests() {
         check(a.count == 24 && !a.contains("wikipedia"), "a hash, not the address: \(a)")
         expect(BrowseModeHandler.shortURL("https://example.com/a/b?q=secret%20term"), "example.com/a/b")
     }
+    test("Braille languages: each line's language among the ticked ones, as Polyglot decides") {
+        var m: (language: String, at: Date)? = nil
+        let now = Date()
+        func lang(_ t: String, marked: String? = nil, chosen: [String] = ["de", "ru"]) -> String? {
+            BrailleLanguages.language(of: t, marked: marked, main: "en", chosen: chosen, now: now, memory: &m)
+        }
+        expect(lang("The quick brown fox jumps over the lazy dog."), nil, "English: the output table")
+        expect(lang("Ich habe heute leider keine Zeit."), "de", "German")
+        expect(lang("Kapitel"), "de", "a one-word line among German ones keeps German")
+        expect(lang("Привет, как дела?"), "ru", "Cyrillic, Russian ticked")
+        expect(lang("Привет, как дела?", chosen: ["de"]), nil, "Cyrillic with no Cyrillic language ticked: the output table")
+        expect(lang("Привіт, як справи? Що нового у тебе сьогодні?", chosen: ["ru", "uk"]), "uk", "Ukrainian told from Russian")
+        expect(lang("Bonjour tout le monde", marked: "fr", chosen: ["fr"]), "fr", "the document's own marking, a ticked language")
+        expect(lang("Hello there my friend", marked: "ru", chosen: ["ru"]), nil, "a marking the letters can't be in: ignored")
+        expect(lang("12345 6789"), nil, "no letters: the output table")
+        expect(lang("Ich habe heute leider keine Zeit.", chosen: []), nil, "nothing ticked: nothing switches")
+    }
+    test("Languages: same-script text recognised among the chosen languages, as VoiceOver and Polyglot") {
+        let now = Date()
+        Languages.lastRecognised = nil
+        func r(_ t: String, sticky: Bool = false) -> String? { Languages.recognise(t, main: "en", among: ["de", "ru"], sticky: sticky, now: now) }
+        expect(r("Ich habe heute keine Zeit für dich"), "de", "a German sentence")
+        expect(r("The quick brown fox jumps over"), nil, "an English one: the main voice")
+        expect(r("Albert Einstein was born in Ulm"), nil, "English with German names")
+        expect(r("I like Bratwurst and Sauerkraut"), nil, "English with German words")
+        expect(r("Guten Tag"), "de", "two words the recogniser is sure of")
+        expect(r("Bitte"), nil, "one word, alone: the main voice")
+        expect(Languages.recognise("Wir gehen nach Hause", main: "en", among: [], sticky: false, now: now), nil, "no languages chosen: nothing recognised")
+        _ = r("Wir gehen heute nach Hause", sticky: true)
+        expect(r("Hund", sticky: true), "de", "a word moved to in German text: German")
+        expect(r("the", sticky: true), nil, "an English word in it: English")
+        Languages.lastRecognised = nil
+        expect(r("Hund", sticky: true), nil, "no German around it: the main voice")
+    }
     test("languages: one Arabic letter goes to the Arabic voice, not the English voice's letter name") {
         let english = AVSpeechSynthesisVoice.speechVoices().first { $0.language.hasPrefix("en") }
         guard let english else { return }   // no English voice on this Mac: nothing to compare with

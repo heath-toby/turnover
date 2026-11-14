@@ -745,7 +745,7 @@ public final class TurnOverMenu {
 
     /// Braille: the table (macOS's own, the ones VoiceOver offers) and the word at the cursor.
     private func brailleItems() -> [MenuItem] {
-        let current = BrailleOutput.tableIdentifier
+        let current = BrailleOutput.outputTable
         var tables = TOBrailleTranslatorTables.forUser()
         if tables.isEmpty { tables = [("", String(localized: "Computer braille", comment: "A braille table"))] }
         return [

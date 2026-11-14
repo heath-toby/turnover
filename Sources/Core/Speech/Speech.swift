@@ -132,7 +132,8 @@ public enum Speech {
         // script goes to that language's voice, the rest stays in the reader's. Arabic cells in Word were silent
         // under an English voice (a tester, 12 Oct 2026). Only where letters beyond Latin appear.
         if language == nil, !splittingLanguages, config.speech.autoLanguageSwitching,
-           text.unicodeScalars.contains(where: { $0.value > 0x024F && CharacterSet.letters.contains($0) }) {
+           text.unicodeScalars.contains(where: { $0.value > 0x024F && CharacterSet.letters.contains($0) })
+            || (!config.speech.recognisedLanguages.isEmpty && text.count >= 12) {
             let pieces = Languages.splitByLanguage(text)
             if pieces.contains(where: { $0.language != nil }) {
                 splittingLanguages = true
@@ -187,7 +188,11 @@ public enum Speech {
         guard player != nil else { completion?(false); return }
         let said = PronunciationDictionary.apply(s)
         if said != s, Self.logsWords, !privateNext, !redactNext { Log.io("say, as pronounced: \(said.prefix(160))") }
-        player.speak(said, interrupt: false, voice: kokoro ?? voice, rate: voice == nil ? nil : Languages.rate(for: language), pitch: pitch, onStart: onStart, completion: completion)
+        // Another language's own pitch and volume, from the languages table (a tester, 14 Nov 2026).
+        let langPitch = voice == nil ? nil : Languages.pitch(for: language).map { 0.5 * pow(4, min(1, max(0, $0))) }
+        let langVolume = voice == nil ? nil : Languages.volume(for: language).map { Float($0) / 100 }
+        player.speak(said, interrupt: false, voice: kokoro ?? voice, rate: voice == nil ? nil : Languages.rate(for: language), pitch: pitch,
+                     voicePitch: langPitch, voiceVolume: langVolume, onStart: onStart, completion: completion)
     }
     private static var pitchNext: Float?
     /// Set by say all while it queues its text: Kokoro's "for reading" takes it.
