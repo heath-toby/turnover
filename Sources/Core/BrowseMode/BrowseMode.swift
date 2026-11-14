@@ -123,10 +123,20 @@ public final class BrowseModeDocument: ScriptableObject {
     /// `byKey`: asked by a key (an arrow, a letter, Tab), not by the focus or the page's news. A new page found so is
     /// not announced later: its address taken as announced, the focus arriving on the web area much later announced it
     /// and read it all out, long after the key had read its line (a review, 13 Nov 2026).
+    /// `loadSeen`: the page's own AXLoadComplete came with this news (AXHandlerNotifications).
     @discardableResult
-    public func refreshIfNavigated(announce: Bool = false, byKey: Bool = true) -> Bool {
+    public func refreshIfNavigated(announce: Bool = false, byKey: Bool = true, loadSeen: Bool = false) -> Bool {
         let now = url
-        guard now != lastURL else { return false }
+        let loadSeen = loadSeen || AXHandler.shared.loadCompleteSeen
+        var lateNewPage = false
+        if now == lastURL {
+            // An address taken as rewritten in place (below) that turned out to be a new page after all: its copy dead,
+            // or its load finished with a reload noticed at it. Read as the new page it is.
+            guard let r = rewrittenInPlace, r.url == now, Date().timeIntervalSince(r.at) < 30,
+                  (!buffer.lines.isEmpty && pageIsGone()) || (loadSeen && reloadNoticed) else { return false }
+            Log.io("browse mode: the address rewritten in place was a new page after all")
+            rewrittenInPlace = nil; lateNewPage = true
+        }
         let first = lastURL.isEmpty
         // The same page, another anchor (a contents link, a footnote, "Jump to content"): to the target, read there,
         // not the page again from the top with its title (a review, 13 Nov 2026; NVDA moves to the target). Its anchor
@@ -165,6 +175,21 @@ public final class BrowseModeDocument: ScriptableObject {
             }
             return false
         }
+        // The page's script rewrote its own address (history.replaceState stripping utm_ or Wikipedia's &wprov=): the same
+        // scheme, host and path, the copy still alive and no load finished. Taken for a new page, its title was said
+        // again, a say all restarted and the reading put back at the top (a review, 14 Nov 2026). Not by Back or
+        // Forward, which come back to a page. Kept in mind for a while: if the copy dies or the page loads, it was one.
+        if !first, !lateNewPage, Self.isSameDocumentPath(now, lastURL), !loadSeen, !BrowseModeHandler.cameBackByHistory,
+           !buffer.lines.isEmpty, !pageIsGone() {
+            Log.io("browse mode: the page rewrote its address in place; the reading stays")
+            if announcedURL == lastURL { announcedURL = now }
+            if BrowseModeHandler.wasAnnounced(webArea, url: lastURL) { BrowseModeHandler.noteAnnounced(webArea, url: now) }
+            lastURL = now
+            rewrittenInPlace = (now, Date())
+            BrowseModeHandler.shared.remember(url: now, position: position, text: lineText(at: position))
+            return false
+        }
+        rewrittenInPlace = nil
         // A web app's view changed under focus mode (Gmail's o on a message: #inbox to #inbox/FM…): the user is working
         // in the app, so focus mode stays and the view is not announced or read from its top; only browse mode treats
         // it as a new page. Ended, focus mode was lost silently (a review, 13 Nov 2026).
@@ -237,6 +262,16 @@ public final class BrowseModeDocument: ScriptableObject {
     package static func isSamePage(_ now: String, _ last: String) -> Bool {
         guard now != last, !now.isEmpty, !last.isEmpty, urlBase(now) == urlBase(last), now.contains("#") || last.contains("#") else { return false }
         return !isRoute(now) && !isRoute(last)
+    }
+    /// An address the page rewrote in place (refreshIfNavigated), and when.
+    var rewrittenInPlace: (url: String, at: Date)?
+    /// Whether `now` is `last` with only its query (or with it, its plain anchor) changed: the same scheme, host, port and
+    /// path; a route on either side is a web app's view, not this. Pure.
+    package static func isSameDocumentPath(_ now: String, _ last: String) -> Bool {
+        guard now != last, !now.isEmpty, !last.isEmpty, !isRoute(now), !isRoute(last),
+              let a = URLComponents(string: now), let b = URLComponents(string: last), a.scheme != nil, a.host != nil else { return false }
+        return a.scheme?.lowercased() == b.scheme?.lowercased() && a.host?.lowercased() == b.host?.lowercased()
+            && a.port == b.port && a.path == b.path && a.query != b.query
     }
     /// Whether `now` is another view of the web app at `last`: the same address before the "#", a route on either side.
     /// Pure.

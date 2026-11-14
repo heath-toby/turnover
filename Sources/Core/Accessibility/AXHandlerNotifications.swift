@@ -294,7 +294,7 @@ extension AXHandler {
             guard !ScriptHandler.isScriptRunning else { scheduleNavigationCheck(after: 0.2, name: name); return }
             let loaded = loadCompleteSeen
             loadCompleteSeen = false
-            if d.refreshIfNavigated(announce: !d.passThrough, byKey: false) { Log.io("browse mode: page changed under the document (\(name))") }
+            if d.refreshIfNavigated(announce: !d.passThrough, byKey: false, loadSeen: loaded) { Log.io("browse mode: page changed under the document (\(name))") }
             else if d.loadedAfterBlank(announce: !d.passThrough) { Log.io("browse mode: page finished loading (\(name))") }
             // Read while still loading, now finished: read again, the reading kept where it is, so say all and the
             // arrows have the whole page (a review, 13 Nov 2026).
