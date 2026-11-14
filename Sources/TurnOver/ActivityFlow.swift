@@ -11,7 +11,9 @@ import TurnOverCore
 @MainActor
 final class ActivityFlow {
     static let shared = ActivityFlow()
-    struct Marker: Codable { var installed: Bool; var apps: [String]; var touched: [String]; var hush: Bool?; var masks: [String: Int]?; var recipe: Int? }
+    struct Marker: Codable { var installed: Bool; var apps: [String]; var touched: [String]; var hush: Bool?; var masks: [String: Int]?; var recipe: Int?
+        /// The person's own values for the keys TurnOver changed in their profiles, a property list (VoiceOverActivity.encode).
+        var originals: Data? }
     private var markerURL: URL { AppPaths.file("voiceover-activity.json") }
     private var folder: URL { AppPaths.file("voiceover") }
     private(set) var running = false
@@ -73,14 +75,18 @@ final class ActivityFlow {
         let m = marker
         if !m.installed, !FileManager.default.fileExists(atPath: originalURL.path) { try? FileManager.default.copyItem(at: file, to: originalURL) }
         let knownMasks = (m.masks?.isEmpty ?? true) ? originalMasks() : (m.masks ?? [:])
+        // The person's own values, as the masks: from the marker, else the export from before the first install.
+        let saved = VoiceOverActivity.decodeOriginals(m.originals)
+        let knownOriginals = saved.isEmpty ? ((try? Data(contentsOf: originalURL)).map(VoiceOverActivity.originalValues(in:)) ?? [:]) : saved
         let out: URL
         let touchedNow: [String]
         let masksNow: [String: Int]
+        let originalsNow: [String: [String: Any]]
         do {
-            let r = try VoiceOverActivity.archive(try Data(contentsOf: file), apps: apps, touched: m.touched, hush: hush, masks: knownMasks)
+            let r = try VoiceOverActivity.archive(try Data(contentsOf: file), apps: apps, touched: m.touched, hush: hush, masks: knownMasks, originals: knownOriginals)
             out = folder.appendingPathComponent("TurnOver Activity.voprefs")
             try r.data.write(to: out, options: .atomic)
-            touchedNow = r.touched; masksNow = r.masks
+            touchedNow = r.touched; masksNow = r.masks; originalsNow = r.originals
         } catch { end("The VoiceOver settings file couldn't be changed (\(error)).", completion); return }
         // 2. File > Import Preferences…, the path typed into the open panel, Open, and OK to "Are you sure".
         guard VoiceOverSettings.pressFileMenuItem(prefix: "Import Preferences") else { end("VoiceOver Utility's Import command couldn't be pressed.", completion); return }
@@ -99,7 +105,8 @@ final class ActivityFlow {
                         if still { _ = VoiceOverSettings.pressSheetButton("Cancel") }
                         VoiceOverSettings.quitUtility()
                         if still { self.end("The import wasn't confirmed; VoiceOver is as it was.", completion); return }
-                        self.save(Marker(installed: apps != nil, apps: apps ?? [], touched: touchedNow, hush: apps != nil ? hush : nil, masks: apps != nil ? masksNow : nil, recipe: VoiceOverActivity.recipe))
+                        self.save(Marker(installed: apps != nil, apps: apps ?? [], touched: touchedNow, hush: apps != nil ? hush : nil, masks: apps != nil ? masksNow : nil, recipe: VoiceOverActivity.recipe,
+                                                 originals: apps != nil ? VoiceOverActivity.encode(originals: originalsNow) : nil))
                         try? FileManager.default.removeItem(at: file)
                         self.end(apps == nil ? "VoiceOver has every app again." : "VoiceOver is quiet in TurnOver's apps.", completion)
                     }
