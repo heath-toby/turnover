@@ -10,6 +10,7 @@ Start with [How to use TurnOver](how-to-use-turnover.html): the short tour, with
 6. [TurnOver and VoiceOver](coexist.html)
 7. [Troubleshooting and feedback](troubleshooting-and-feedback.html)
 8. [Privacy and security](privacy-and-security.html)
+9. [Braille](braille.html)
 
 ## Every key
 
