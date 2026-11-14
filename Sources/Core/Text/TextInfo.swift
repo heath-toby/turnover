@@ -272,7 +272,14 @@ open class TextInfo {
         // Not marked: text in another script than the reader's voice is recognised from its words (an Arabic
         // paragraph on a page that says nothing about its language; a tester), and text in the same script among the
         // languages chosen to be recognised (VoiceOver's "Detect languages").
-        return Languages.detectUnmarked(text, sticky: true)
+        if let found = Languages.detectUnmarked(text, sticky: true) { return found }
+        // A word or two in the main script: too little to recognise, so its line is asked ("Kino" in a German line).
+        if config.speech.autoLanguageSwitching, !config.speech.recognisedLanguages.isEmpty,
+           text.split(whereSeparator: { $0 == " " || $0 == "\n" }).count < 3, text.contains(where: { !$0.isWhitespace }) {
+            let line = copy(); line.collapse(); line.expand(.line)
+            if line.text.count > text.count + 4 { return Languages.recognise(line.text, sticky: true) }
+        }
+        return nil
     }
     /// "page 3, line 12" where the control can tell (NVDA: locationText).
     open var locationText: String? { nil }

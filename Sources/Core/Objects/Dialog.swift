@@ -168,7 +168,7 @@ open class Dialog: TurnOverObject {
         if let (e, at) = Self.spokenAt, e.isSame(element), Date().timeIntervalSince(at) < 0.8 { return }
         Self.readAfresh(element)
         let list = choices.map(\.1)
-        let text = dialogText
+        let text = config.presentation.speakDialogText ? dialogText : ""
         // AppKit's alerts have no title, only the description "alert" (loginwindow's Log Out, Restart and Shut Down,
         // 12 Nov 2026: "alert, dialog, Are you sure…"). That is the role already.
         let alertOnly = (element.string(kAXTitleAttribute) ?? "").isEmpty && name.lowercased() == "alert"
@@ -183,7 +183,7 @@ open class Dialog: TurnOverObject {
         Speech.noteContext(parts.joined(separator: ", "))
         // A sheet announced before it is filled in (iPad apps' sheets: News' "Keep Up with Your News", TV's
         // notifications sheet, 12 Nov 2026, said only "dialog"): its words when they come, once.
-        if text.isEmpty, !isNotificationCentre {
+        if text.isEmpty, !isNotificationCentre, config.presentation.speakDialogText {
             let me = self, saidChoices = choicesToo && !list.isEmpty
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 guard me.element.role != "?" else { return }

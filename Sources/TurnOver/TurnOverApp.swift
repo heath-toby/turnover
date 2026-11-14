@@ -70,7 +70,7 @@ final class TurnOverApp {
         TurnOverMenu.shared.onGeneralChanged = { [weak self] in self?.status.apply() }
         TurnOverMenu.shared.onScreenCurtainChanged = { [weak self] in if self?.active == true { ScreenCurtain.apply() } }
         status.apply()
-        keyboard.onCapsLockToggled = { on in Speech.speakMessage(on ? String(localized: "caps lock on", comment: "Spoken message") : String(localized: "caps lock off", comment: "Spoken message")) }
+        keyboard.onCapsLockToggled = { on in guard config.presentation.announceCapsLock else { return }; Speech.speakMessage(on ? String(localized: "caps lock on", comment: "Spoken message") : String(localized: "caps lock off", comment: "Spoken message")) }
         keyboard.onReadinessChanged = { [weak self] generation, ready in
             guard let self, self.activation == generation else { return }
             if ready { self.finishActivation(generation) }

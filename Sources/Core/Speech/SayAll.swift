@@ -132,7 +132,7 @@ public enum SayAll {
             before += part.count
             let to = bookmark.start + (bookmark.end - bookmark.start) * before / total
             let isFirst = i == 0, isLast = i == parts.count - 1
-            Speech.enqueue(part, language: language, onStart: {
+            Speech.enqueue(part, language: language, decided: true, onStart: {
                 DispatchQueue.main.async {
                     guard gen == generation else { return }
                     if thisCopy == copy { hearing = (obj, from, to) }

@@ -37,7 +37,7 @@ nonisolated public enum Symbols {
     @MainActor public static func name(of c: Character, locale: Locale? = nil) -> String {
         let n = name(of: c, sayCap: config.speech.sayCapForCapitals, locale: locale)
         // A capital with its pitch to be raised: marked for the speech queue, which strips the mark (Speech.enqueue).
-        return c.isUppercase && config.speech.capitalPitch > 0 ? Speech.capitalMark + n : n
+        return c.isUppercase && (config.speech.capitalPitch > 0 || config.speech.capitalTone) ? Speech.capitalMark + n : n
     }
 
     /// The language TurnOver's own words are in (the catalog's, from the Mac's language): a capital's letter is lowered
@@ -91,7 +91,20 @@ nonisolated public enum Symbols {
     }
 
     /// Text for reading: symbols at or below `level` are replaced by their names.
-    public static func process(_ text: String, level: SymbolLevel) -> String {
+    /// VoiceOver's "Read numbers as digits": a run of digits said one by one ("1234" → "1 2 3 4").
+    nonisolated public static func digitsApart(_ text: String) -> String {
+        var out = "", prevDigit = false
+        for c in text {
+            let d = c.isASCII && c.isNumber
+            if d, prevDigit { out.append(" ") }
+            out.append(c); prevDigit = d
+        }
+        return out
+    }
+
+    /// `countRepeats`: VoiceOver's "Repeated punctuation spoken with count": four or more of the same symbol said as
+    /// "7 dash", not "dash dash dash…".
+    public static func process(_ text: String, level: SymbolLevel, countRepeats: Bool = false) -> String {
         guard level != .none else { return text }
         // A dot between words is a separator, said as a pause, not "bullet": Byword's status line, "Markdown • 61
         // words • 356 characters" (Day 2, 10 Oct 2026). A bullet at the start of a line, or alone, keeps its name.
@@ -102,7 +115,18 @@ nonisolated public enum Symbols {
         out.reserveCapacity(text.count + 16)
         var lastWasName = false
         let chars = Array(text)
+        var skip = 0
         for (i, c) in chars.enumerated() {
+            if skip > 0 { skip -= 1; continue }
+            if countRepeats, let s = table[c], s.level.rawValue <= level.rawValue {
+                var run = 1
+                while i + run < chars.count, chars[i + run] == c { run += 1 }
+                if run >= 4 {
+                    if !out.isEmpty, out.last != " " { out.append(" ") }
+                    out.append("\(run) \(s.name)")
+                    lastWasName = true; skip = run - 1; continue
+                }
+            }
             // A tick between two letters is an apostrophe (I’m, don't): a word's part, named only at "all".
             let isApostrophe = (c == "’" || c == "'") && i > 0 && i + 1 < chars.count && chars[i - 1].isLetter && chars[i + 1].isLetter
             let effective = isApostrophe ? SymbolLevel.all : (table[c]?.level ?? .all)
@@ -127,6 +151,16 @@ nonisolated public enum Symbols {
 
     /// Spelled out: every character by name.
     @MainActor public static func spelled(_ text: String, locale: Locale? = nil) -> String {
-        text.map { name(of: $0, locale: locale) }.joined(separator: ", ")
+        // Repeated punctuation with a count: "-----" as "5 dash" (VoiceOver), when chosen.
+        guard config.speech.repeatedSymbols == "count" else { return text.map { name(of: $0, locale: locale) }.joined(separator: ", ") }
+        var parts: [String] = [], chars = Array(text), i = 0
+        while i < chars.count {
+            var run = 1
+            while i + run < chars.count, chars[i + run] == chars[i] { run += 1 }
+            if run >= 4 { parts.append("\(run) \(name(of: chars[i], locale: locale))") }
+            else { for _ in 0..<run { parts.append(name(of: chars[i], locale: locale)) } }
+            i += run
+        }
+        return parts.joined(separator: ", ")
     }
 }

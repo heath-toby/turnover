@@ -455,12 +455,24 @@ open class EditableText: TurnOverObject {
         func names(_ r: Range<Int>) -> String {
             String(utf16CodeUnits: Array(u[r]), count: r.count).map { Symbols.name(of: $0) }.joined(separator: " ")
         }
+        // The line's language (one word is too little to recognise; "Kino" in a German line), and in another language's
+        // voice its punctuation said as written, so that voice names it ("Komma"), as the tester asked (14 Nov 2026).
+        let lineRange = type(of: n).init(obj: n.obj, start: at, end: at)
+        lineRange.expand(.line)
+        let language = stop.kind == .blank ? nil : lineRange.language()
+        let foreign = language.map { Languages.voice(for: $0) != nil } ?? false
+        // Each mark on its own: a voice names a lone "." ("Punkt") but takes one before more text for a sentence's end.
+        func sayMarks(_ r: Range<Int>) {
+            if foreign { for c in String(utf16CodeUnits: Array(u[r]), count: r.count) { Speech.speakOnly(String(c), language: language) } }
+            else { Speech.speakOnly(names(r)) }
+        }
         switch stop.kind {
         case .blank: Speech.speakOnly(Phrases.blank)
-        case .marks: Speech.speakOnly(names(stop.at..<stop.end))
+        case .marks: sayMarks(stop.at..<stop.end)
         case .word:
             let word = String(utf16CodeUnits: Array(u[(stop.at + stop.lead)..<stop.end]), count: stop.end - stop.at - stop.lead)
-            Speech.speakOnly((stop.lead > 0 ? names(stop.at..<(stop.at + stop.lead)) + " " : "") + Speech.processed(word))
+            if stop.lead > 0 { sayMarks(stop.at..<(stop.at + stop.lead)) }
+            Speech.speakOnly(foreign ? word : Speech.processed(word), language: foreign ? language : nil)
         }
         return true
     }
@@ -538,7 +550,11 @@ open class EditableText: TurnOverObject {
         // in Mail's compose window (Oliver, 20 Oct 2026: "not reading so well").
         // What was deleted is typed text: private, as the echo of typing is, so the speech history a feedback report
         // carries never holds it (a review, 13 Nov 2026).
-        if !c.isEmpty { Speech.asPrivate {
+        // VoiceOver's "When deleting text": spoken (the default), spoken lower, a tone, or nothing (the settings audit).
+        let feedback = config.speech.deletionFeedback
+        if !c.isEmpty, feedback == "tone" { Tones.beep(440, 40, volume: 0.2) }
+        if !c.isEmpty, feedback == "speak" || feedback == "pitch" { Speech.asPrivate {
+            if feedback == "pitch" { Speech.lowerNextPitch() }
             // A line break has nothing to spell: say what it was ("new line"), as for any character named on its own.
             if let only = c.first, c.count == 1, only.isNewline { Speech.speakMessage(Symbols.name(of: only)) }
             // A word or a line deleted says so ("deleted more"); a single character is just the character, as in NVDA.

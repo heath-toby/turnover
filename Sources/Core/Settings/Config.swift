@@ -70,6 +70,9 @@ public struct Config: Codable {
         /// The Windows style's review keys (TurnOver Left and Right) move by groups too, the VoiceOver way (a tester, 9 Oct
         /// 2026); off, NVDA's flat review.
         public var groupsInWindowsStyle = true
+        /// VoiceOver's "Allow cursor wrapping": past a group's last item, round to its first (and back), with
+        /// VoiceOver's wrap sound.
+        public var cursorWraps = false
         /// Whether the review keys move by groups in the style in use.
         public var movesByGroups: Bool { navigateByGroups && (!windowsKeys || groupsInWindowsStyle) }
         /// The keyboard focus follows the cursor as it lands on something that can take it: "auto" (VoiceOver's way
@@ -97,7 +100,7 @@ public struct Config: Codable {
         /// unless the settings file says "experimental" (Tones).
         public var effectiveSounds: String { sounds.isEmpty ? (edition != "experimental" ? "voiceover" : "turnover") : sounds }
         public init() {}
-        enum Keys: String, CodingKey { case openAtLogin, showInMenuBar, windowsKeys, keyboardStyle, keysWhereVoiceOverReads, navigateByGroups, groupsInWindowsStyle, focusFollowsCursor, turnOverKey = "bosunKey", handOverChimes, navigationSounds, screenCurtain, edition, handOverNothing, sounds }
+        enum Keys: String, CodingKey { case openAtLogin, showInMenuBar, windowsKeys, keyboardStyle, keysWhereVoiceOverReads, navigateByGroups, groupsInWindowsStyle, cursorWraps, focusFollowsCursor, turnOverKey = "bosunKey", handOverChimes, navigationSounds, screenCurtain, edition, handOverNothing, sounds }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
             openAtLogin = (try? c.decodeIfPresent(Bool.self, forKey: .openAtLogin)) ?? false
@@ -109,6 +112,7 @@ public struct Config: Codable {
             handOverNothing = (try? c.decodeIfPresent(Bool.self, forKey: .handOverNothing)) ?? false
             keysWhereVoiceOverReads = (try? c.decodeIfPresent(Bool.self, forKey: .keysWhereVoiceOverReads)) ?? true
             navigateByGroups = (try? c.decodeIfPresent(Bool.self, forKey: .navigateByGroups)) ?? true
+            cursorWraps = (try? c.decodeIfPresent(Bool.self, forKey: .cursorWraps)) ?? false
             groupsInWindowsStyle = (try? c.decodeIfPresent(Bool.self, forKey: .groupsInWindowsStyle)) ?? true
             focusFollowsCursor = (try? c.decodeIfPresent(String.self, forKey: .focusFollowsCursor)).flatMap { ["auto", "on", "off"].contains($0) ? $0 : nil } ?? "auto"
             turnOverKey = (try? c.decodeIfPresent(String.self, forKey: .turnOverKey)) ?? "both"
@@ -124,6 +128,7 @@ public struct Config: Codable {
             try c.encode(keyboardStyle, forKey: .keyboardStyle); try c.encode(edition, forKey: .edition); try c.encode(handOverNothing, forKey: .handOverNothing)
             try c.encode(keysWhereVoiceOverReads, forKey: .keysWhereVoiceOverReads)
             try c.encode(groupsInWindowsStyle, forKey: .groupsInWindowsStyle)
+            try c.encode(cursorWraps, forKey: .cursorWraps)
             try c.encode(navigateByGroups, forKey: .navigateByGroups); try c.encode(focusFollowsCursor, forKey: .focusFollowsCursor)
             try c.encode(turnOverKey, forKey: .turnOverKey)
             try c.encode(handOverChimes, forKey: .handOverChimes)
@@ -160,14 +165,22 @@ public struct Config: Codable {
         /// A pitch for each other language (0 to 1, as `pitch`), and a volume (10 to 200 percent, as `volume`), when
         /// they should differ: the languages table in Settings (a tester, 14 Nov 2026).
         public var languagePitches: [String: Float] = [:]
+        /// VoiceOver's "Read numbers as": "words" (1234 as one thousand…) or "digits" (one two three four).
+        public var readNumbers = "words"
+        /// VoiceOver's "When reading a capital letter: Play tone" (NVDA's "Beep for capitals"): a capital said on its
+        /// own has a short high tone before it.
+        public var capitalTone = false
+        /// VoiceOver's "Repeated punctuation": "always" (each one said) or "count" (four or more alike as "7 dash").
+        public var repeatedSymbols = "always"
+        /// VoiceOver's "When deleting text": "speak", "pitch" (spoken lower), "tone" or "nothing".
+        public var deletionFeedback = "speak"
         public var languageVolumes: [String: Int] = [:]
         /// The languages recognised in text that doesn't say what it is in, as VoiceOver's "Detect languages" does
-        /// among the rotor's languages. Nil until chosen: the languages given a voice or rate of their own.
+        /// among the rotor's languages. Nil until chosen: the languages given a voice of their own (a rate or pitch
+        /// alone doesn't turn recognising on: a review, 14 Nov 2026).
         public var detectLanguages: [String]?
         /// The languages text is recognised as, besides the main voice's.
-        public var recognisedLanguages: [String] {
-            detectLanguages ?? Array(Set(languageVoices.keys).union(languageRates.keys).union(languagePitches.keys).union(languageVolumes.keys)).sorted()
-        }
+        public var recognisedLanguages: [String] { detectLanguages ?? languageVoices.keys.sorted() }
         /// Where speech plays (VoiceOver Utility's Sound, NVDA's output device): a CoreAudio device UID, or empty
         /// for the Mac's default output, followed as it changes. A chosen device that is absent (headphones off)
         /// falls back to the default until it returns.
@@ -203,7 +216,7 @@ public struct Config: Codable {
         }
         public init() {}
         // Each field falls back to its default, so a setting added later never resets the voice and rate.
-        enum Keys: String, CodingKey { case voice, rate, symbolLevel, sayCapForCapitals, volume, autoLanguageSwitching, languageVoices, languageRates, languagePitches, languageVolumes, detectLanguages, outputDevice, capitalPitch, ducking, pitch, rotorVoices, bass, middle, treble, voiceTunings }
+        enum Keys: String, CodingKey { case voice, rate, symbolLevel, sayCapForCapitals, volume, autoLanguageSwitching, languageVoices, languageRates, languagePitches, languageVolumes, detectLanguages, readNumbers, repeatedSymbols, deletionFeedback, capitalTone, outputDevice, capitalPitch, ducking, pitch, rotorVoices, bass, middle, treble, voiceTunings }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
             voice = (try? c.decodeIfPresent(String.self, forKey: .voice)) ?? voice
@@ -217,6 +230,10 @@ public struct Config: Codable {
             languagePitches = (try? c.decodeIfPresent([String: Float].self, forKey: .languagePitches)) ?? languagePitches
             languageVolumes = (try? c.decodeIfPresent([String: Int].self, forKey: .languageVolumes)) ?? languageVolumes
             detectLanguages = (try? c.decodeIfPresent([String].self, forKey: .detectLanguages)) ?? nil
+            readNumbers = (try? c.decodeIfPresent(String.self, forKey: .readNumbers)) ?? readNumbers
+            capitalTone = (try? c.decodeIfPresent(Bool.self, forKey: .capitalTone)) ?? false
+            repeatedSymbols = (try? c.decodeIfPresent(String.self, forKey: .repeatedSymbols)) ?? repeatedSymbols
+            deletionFeedback = (try? c.decodeIfPresent(String.self, forKey: .deletionFeedback)) ?? deletionFeedback
             outputDevice = (try? c.decodeIfPresent(String.self, forKey: .outputDevice)) ?? outputDevice
             capitalPitch = (try? c.decodeIfPresent(Int.self, forKey: .capitalPitch)) ?? capitalPitch
             pitch = (try? c.decodeIfPresent(Float.self, forKey: .pitch)) ?? pitch
@@ -235,6 +252,7 @@ public struct Config: Codable {
             try c.encode(languageRates, forKey: .languageRates); try c.encode(outputDevice, forKey: .outputDevice)
             try c.encode(languagePitches, forKey: .languagePitches); try c.encode(languageVolumes, forKey: .languageVolumes)
             try c.encodeIfPresent(detectLanguages, forKey: .detectLanguages)
+            try c.encode(readNumbers, forKey: .readNumbers); try c.encode(repeatedSymbols, forKey: .repeatedSymbols); try c.encode(deletionFeedback, forKey: .deletionFeedback); try c.encode(capitalTone, forKey: .capitalTone)
             try c.encode(capitalPitch, forKey: .capitalPitch); try c.encode(ducking, forKey: .ducking); try c.encode(pitch, forKey: .pitch)
             try c.encode(rotorVoices, forKey: .rotorVoices)
             try c.encode(bass, forKey: .bass); try c.encode(middle, forKey: .middle); try c.encode(treble, forKey: .treble)
@@ -508,6 +526,12 @@ public struct Config: Codable {
         /// VoiceOver's hints: after a pause on an item, what can be done with it ("Return opens its page"). On, as in
         /// VoiceOver, while people are learning TurnOver (7 Oct 2026).
         public var speakHints = true
+        /// VoiceOver's "Speak hints after delay": how long a pause before the hint, in milliseconds.
+        public var hintDelayMs = 1200
+        /// VoiceOver's "Announce when the Caps Lock key is pressed".
+        public var announceCapsLock = true
+        /// VoiceOver's "Automatically speak text in dialog boxes": off, a dialog says its name and choices only.
+        public var speakDialogText = true
         /// Notifications from other apps (a new message, a calendar alert) read as they appear, as VoiceOver and NVDA
         /// do (a tester, 6 Oct 2026).
         public var reportNotifications = true
@@ -517,7 +541,7 @@ public struct Config: Codable {
         /// default, as NVDA does (Oliver, having heard them, 3 Nov 2026: "put the progress bar stuff in there").
         public var progressBars = "beep"
         public init() {}
-        enum Keys: String, CodingKey { case verbosity, verbosityByApp, reportObjectDescriptions, reportKeyboardShortcuts, reportObjectPositionInformation, reportDynamicContentChanges, speakHints, reportNotifications, announcePlugins, progressBars }
+        enum Keys: String, CodingKey { case verbosity, verbosityByApp, reportObjectDescriptions, reportKeyboardShortcuts, reportObjectPositionInformation, reportDynamicContentChanges, speakHints, reportNotifications, announcePlugins, progressBars, hintDelayMs, announceCapsLock, speakDialogText }
         // Each setting falls back on its own: a settings file from before speakHints keeps the others.
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
@@ -531,6 +555,9 @@ public struct Config: Codable {
             verbosityByApp = (try? c.decodeIfPresent([String: Verbosity].self, forKey: .verbosityByApp)) ?? [:]
             reportDynamicContentChanges = (try? c.decodeIfPresent(Bool.self, forKey: .reportDynamicContentChanges)) ?? true
             speakHints = (try? c.decodeIfPresent(Bool.self, forKey: .speakHints)) ?? true
+            hintDelayMs = (try? c.decodeIfPresent(Int.self, forKey: .hintDelayMs)) ?? 1200
+            announceCapsLock = (try? c.decodeIfPresent(Bool.self, forKey: .announceCapsLock)) ?? true
+            speakDialogText = (try? c.decodeIfPresent(Bool.self, forKey: .speakDialogText)) ?? true
             reportNotifications = (try? c.decodeIfPresent(Bool.self, forKey: .reportNotifications)) ?? true
             announcePlugins = (try? c.decodeIfPresent(Bool.self, forKey: .announcePlugins)) ?? true
             progressBars = (try? c.decodeIfPresent(String.self, forKey: .progressBars)).flatMap { ProgressOutput.modes.contains($0) ? $0 : nil } ?? "beep"
@@ -540,6 +567,7 @@ public struct Config: Codable {
             try c.encode(verbosity, forKey: .verbosity); try c.encode(verbosityByApp, forKey: .verbosityByApp)
             try c.encode(reportObjectDescriptions, forKey: .reportObjectDescriptions); try c.encode(reportKeyboardShortcuts, forKey: .reportKeyboardShortcuts)
             try c.encode(reportObjectPositionInformation, forKey: .reportObjectPositionInformation); try c.encode(reportDynamicContentChanges, forKey: .reportDynamicContentChanges)
+            try c.encode(hintDelayMs, forKey: .hintDelayMs); try c.encode(announceCapsLock, forKey: .announceCapsLock); try c.encode(speakDialogText, forKey: .speakDialogText)
             try c.encode(speakHints, forKey: .speakHints); try c.encode(reportNotifications, forKey: .reportNotifications)
             try c.encode(announcePlugins, forKey: .announcePlugins); try c.encode(progressBars, forKey: .progressBars)
         }
@@ -567,6 +595,8 @@ public struct Config: Codable {
         /// Where "heading level 1", "link", "button" go when reading: "before" the words (NVDA), "after" them
         /// (VoiceOver: "AppleVis, heading level 1"), or "auto", by the keyboard style (a tester T, 7 Oct 2026).
         public var roleOrder = "auto"
+        /// NVDA's line indentation reporting: "off", "speech", "tones" or "both", as the caret moves by line.
+        public var lineIndentation = "off"
         /// The role and states come after the words.
         public var rolesAfterText: Bool { roleOrder == "after" || (roleOrder == "auto" && !config.general.windowsKeys) }
         public init() {}
@@ -584,6 +614,7 @@ public struct Config: Codable {
             tableCellCoordinates = b(.tableCellCoordinates, d.tableCellCoordinates)
             tableHeaders = b(.tableHeaders, d.tableHeaders)
             roleOrder = (try? c.decodeIfPresent(String.self, forKey: .roleOrder)) ?? d.roleOrder
+            lineIndentation = (try? c.decodeIfPresent(String.self, forKey: .lineIndentation)) ?? d.lineIndentation
         }
         static let defaults = DocumentFormatting()
     }

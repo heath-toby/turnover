@@ -337,22 +337,27 @@ func pureTests() {
         expect(lang("Hello there my friend", marked: "ru", chosen: ["ru"]), nil, "a marking the letters can't be in: ignored")
         expect(lang("12345 6789"), nil, "no letters: the output table")
         expect(lang("Ich habe heute leider keine Zeit.", chosen: []), nil, "nothing ticked: nothing switches")
+        var m2: (language: String, at: Date)? = nil
+        expect(BrailleLanguages.language(of: "Привет, как у тебя дела сегодня?", marked: nil, main: "ru", chosen: ["uk"], now: now, memory: &m2), nil, "a Russian reader with Ukrainian ticked: Russian lines in the output table")
+        expect(BrailleLanguages.language(of: "Привіт, як справи? Що нового у тебе сьогодні?", marked: nil, main: "ru", chosen: ["uk"], now: now, memory: &m2), "uk", "and Ukrainian ones in Ukrainian")
+        expect(lang("Bonjour tout le monde, comment allez-vous?", marked: "fr", chosen: ["de"]), nil, "a language the document names but isn't ticked: the output table, not a guess")
     }
     test("Languages: same-script text recognised among the chosen languages, as VoiceOver and Polyglot") {
         let now = Date()
-        Languages.lastRecognised = nil
-        func r(_ t: String, sticky: Bool = false) -> String? { Languages.recognise(t, main: "en", among: ["de", "ru"], sticky: sticky, now: now) }
+        var memory: (language: String, at: Date)? = nil
+        func r(_ t: String, sticky: Bool = false) -> String? { Languages.recognise(t, main: "en", among: ["de", "ru"], sticky: sticky, now: now, memory: &memory) }
         expect(r("Ich habe heute keine Zeit für dich"), "de", "a German sentence")
         expect(r("The quick brown fox jumps over"), nil, "an English one: the main voice")
         expect(r("Albert Einstein was born in Ulm"), nil, "English with German names")
         expect(r("I like Bratwurst and Sauerkraut"), nil, "English with German words")
         expect(r("Guten Tag"), "de", "two words the recogniser is sure of")
         expect(r("Bitte"), nil, "one word, alone: the main voice")
-        expect(Languages.recognise("Wir gehen nach Hause", main: "en", among: [], sticky: false, now: now), nil, "no languages chosen: nothing recognised")
+        var none: (language: String, at: Date)? = nil
+        expect(Languages.recognise("Wir gehen nach Hause", main: "en", among: [], sticky: false, now: now, memory: &none), nil, "no languages chosen: nothing recognised")
         _ = r("Wir gehen heute nach Hause", sticky: true)
         expect(r("Hund", sticky: true), "de", "a word moved to in German text: German")
         expect(r("the", sticky: true), nil, "an English word in it: English")
-        Languages.lastRecognised = nil
+        memory = nil
         expect(r("Hund", sticky: true), nil, "no German around it: the main voice")
     }
     test("languages: one Arabic letter goes to the Arabic voice, not the English voice's letter name") {
@@ -486,6 +491,14 @@ func pureTests() {
         expect(Symbols.process("a, b", level: .none), "a, b")
         expect(Symbols.process("a, b", level: .some), "a, b")
         expect(Symbols.process("a, b", level: .all), "a comma b")
+        // VoiceOver's text options (the settings audit, 14 Nov 2026).
+        expect(Indentation.leading("\t\t    x")?.columns, 12, "two tabs and four spaces: 12 columns")
+        expect(Indentation.leading("   ") == nil, true, "a blank line: no indentation to report")
+        expect(Indentation.words(tabs: 0, spaces: 4), "4 space", "spoken as NVDA")
+        expect(Indentation.words(tabs: 0, spaces: 0), "no indent", "back to the margin")
+        expect(Symbols.digitsApart("Room 1234, floor 2"), "Room 1 2 3 4, floor 2", "numbers as digits")
+        expect(Symbols.process("a ------- b", level: .all, countRepeats: true), "a 7 dash b", "repeated punctuation with a count")
+        expect(Symbols.process("a --- b", level: .all, countRepeats: true).contains("3 dash"), false, "three alike: each said")
         expect(Symbols.process("Markdown • 61 words • 356 characters", level: .some), "Markdown, 61 words, 356 characters")
         expect(Symbols.process("• first item", level: .some).hasPrefix("bullet"), true)
         expect(Symbols.process("50% off", level: .some), "50 percent off")

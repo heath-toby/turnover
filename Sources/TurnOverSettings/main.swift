@@ -349,6 +349,16 @@ struct SpeechView: View {
             Picker("Punctuation", selection: model.int("speech", "symbolLevel")) {
                 Text("None").tag(0); Text("Some").tag(1); Text("Most").tag(2); Text("All").tag(3)
             }
+            // VoiceOver's Verbosity, Text options (the settings audit, 14 Nov 2026).
+            Picker("Read numbers as", selection: model.string("speech", "readNumbers", "words")) {
+                Text("Words").tag("words"); Text("Digits").tag("digits")
+            }
+            Picker("Repeated punctuation", selection: model.string("speech", "repeatedSymbols", "always")) {
+                Text("Each one").tag("always"); Text("With a count, such as 5 dash").tag("count")
+            }
+            Picker("When deleting text", selection: model.string("speech", "deletionFeedback", "speak")) {
+                Text("Speak it").tag("speak"); Text("Speak it in a lower pitch").tag("pitch"); Text("Play a tone").tag("tone"); Text("Do nothing").tag("nothing")
+            }
             Picker("Where speech plays", selection: model.string("speech", "outputDevice", "")) {
                 Text("The Mac's default output").tag("")
                 ForEach(outputDevices, id: \.uid) { d in Text(d.name).tag(d.uid) }
@@ -358,6 +368,7 @@ struct SpeechView: View {
             Section("Capitals") {
                 Toggle("Say cap before a capital", isOn: model.bool("speech", "sayCapForCapitals"))
                     .accessibilityLabel("Say cap before a capital")
+                Toggle("Play a tone before a capital", isOn: model.bool("speech", "capitalTone"))
                 Slider(value: model.number("speech", "capitalPitch"), in: 0...100, step: 10) { Text("Raise the pitch for a capital") }
                     .accessibilityValue(model.number("speech", "capitalPitch").wrappedValue == 0 ? String(localized: "off", comment: "A setting that is off")
                         : String(localized: "\(Int(model.number("speech", "capitalPitch").wrappedValue)) percent", comment: "A slider's value"))
@@ -374,6 +385,9 @@ struct SpeechView: View {
                     LanguagesTable(languages: otherLanguages)
                 }
             }
+            // VoiceOver's Pronunciation tab, NVDA's speech dictionary (the settings audit, 14 Nov 2026): the file
+            // TurnOver already reads, pronunciations.txt, edited here.
+            Section(String(localized: "Pronunciations", comment: "A group in Speech settings")) { PronunciationsEditor() }
             // Folded away: the list is long by nature (every voice the rotor could step through).
             let rotorTitle = rotorChosen.isEmpty ? String(localized: "Show the voices in the rotor: every voice", comment: "A switch in Speech settings")
                 : String(localized: "Show the voices in the rotor: \(String(rotorChosen.count)) chosen", comment: "A switch in Speech settings")
@@ -420,12 +434,71 @@ struct OtherLanguage {
     let voices: [Voice]
 }
 
+/// Words said your way: a list of them, then the word and what to say, Add or change, and Remove. Written to
+/// TurnOver's pronunciations.txt, which TurnOver reads again within a second of a change.
+struct PronunciationsEditor: View {
+    @State private var entries: [(word: String, say: String)] = []
+    @State private var other: [String] = []   // comments and anything else in the file, kept as they are
+    @State private var selected: Int?
+    @State private var word = ""
+    @State private var say = ""
+    private var url: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("TurnOver", isDirectory: true).appendingPathComponent("pronunciations.txt")
+    }
+    private func load() {
+        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        entries = []; other = []
+        for raw in text.components(separatedBy: .newlines) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if !line.hasPrefix("#"), let eq = line.range(of: "="), !line[..<eq.lowerBound].trimmingCharacters(in: .whitespaces).isEmpty {
+                entries.append((line[..<eq.lowerBound].trimmingCharacters(in: .whitespaces), line[eq.upperBound...].trimmingCharacters(in: .whitespaces)))
+            } else if !line.isEmpty { other.append(raw) }
+        }
+    }
+    private func save() {
+        let text = (other + entries.map { "\($0.word) = \($0.say)" }).joined(separator: "\n") + "\n"
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? text.write(to: url, atomically: true, encoding: .utf8)
+    }
+    var body: some View {
+        if entries.isEmpty {
+            Text("No words yet. Type a word and how to say it, then Add.").font(.caption)
+        } else {
+            List(entries.indices, id: \.self, selection: $selected) { i in
+                Text(String(localized: "\(entries[i].word), said as \(entries[i].say)", comment: "A pronunciation in Speech settings")).tag(i)
+            }
+            .frame(minHeight: 80, maxHeight: 160)
+            .accessibilityLabel(String(localized: "Pronunciations", comment: "The list of pronunciations"))
+            .onChange(of: selected) { _, i in if let i, entries.indices.contains(i) { word = entries[i].word; say = entries[i].say } }
+        }
+        TextField(String(localized: "Word", comment: "A pronunciation's word"), text: $word)
+        TextField(String(localized: "Say it as", comment: "A pronunciation's replacement"), text: $say)
+        Button(String(localized: "Add or change", comment: "Adds a pronunciation, or changes the one for that word")) {
+            let w = word.trimmingCharacters(in: .whitespaces), sy = say.trimmingCharacters(in: .whitespaces)
+            guard !w.isEmpty, !w.contains("=") else { return }
+            if let i = entries.firstIndex(where: { $0.word.caseInsensitiveCompare(w) == .orderedSame }) { entries[i] = (w, sy) } else { entries.append((w, sy)) }
+            save(); word = ""; say = ""; selected = nil
+        }
+        Button(String(localized: "Remove", comment: "Removes the chosen pronunciation")) {
+            let w = word.trimmingCharacters(in: .whitespaces)
+            if let i = selected, entries.indices.contains(i) { entries.remove(at: i) }
+            else if let i = entries.firstIndex(where: { $0.word.caseInsensitiveCompare(w) == .orderedSame }) { entries.remove(at: i) }
+            else { return }
+            save(); word = ""; say = ""; selected = nil
+        }
+        .onAppear { load() }
+    }
+}
+
 /// The languages, one row each, and the chosen row's own settings after it: its voice (Automatic is the best one
 /// installed), rate, pitch and volume (the main voice's until changed), and whether text is recognised as it.
 struct LanguagesTable: View {
     @EnvironmentObject var model: Model
     let languages: [OtherLanguage]
     @State private var selected: String?
+    /// The order the table opened with: a row doesn't jump away as it is changed (a review).
+    @State private var frozen: [String] = []
 
     private func dict(_ key: String) -> [String: Any] { model.get("speech", key) as? [String: Any] ?? [:] }
     private func number(_ key: String, _ code: String) -> Double? { (dict(key)[code] as? NSNumber)?.doubleValue }
@@ -433,7 +506,7 @@ struct LanguagesTable: View {
     /// The languages recognised: the list once chosen, else those given anything of their own (Config's rule).
     private var recognised: Set<String> {
         if let list = model.get("speech", "detectLanguages") as? [String] { return Set(list) }
-        return Set(["languageVoices", "languageRates", "languagePitches", "languageVolumes"].flatMap { dict($0).keys })
+        return Set(dict("languageVoices").keys)
     }
     /// Ticked and configured languages first, then the rest by name.
     private var ordered: [OtherLanguage] {
@@ -460,13 +533,14 @@ struct LanguagesTable: View {
     }
 
     var body: some View {
-        let list = ordered
+        let byCode = Dictionary(languages.map { ($0.code, $0) }, uniquingKeysWith: { a, _ in a })
+        let list = frozen.isEmpty ? ordered : frozen.compactMap { byCode[$0] } + languages.filter { !frozen.contains($0.code) }
         List(list, id: \.code, selection: $selected) { l in
             Text(summary(l)).tag(l.code)
         }
         .frame(minHeight: 160, maxHeight: 220)
         .accessibilityLabel(String(localized: "Languages", comment: "The Speech settings' table of languages"))
-        .onAppear { if selected == nil { selected = list.first?.code } }
+        .onAppear { if frozen.isEmpty { frozen = ordered.map(\.code) }; if selected == nil { selected = list.first?.code } }
         if let code = selected, let l = languages.first(where: { $0.code == code }) {
             Picker(String(localized: "\(l.name) voice", comment: "A language's voice"), selection: Binding(
                 get: { dict("languageVoices")[code] as? String ?? "" },
@@ -509,7 +583,7 @@ struct BrailleLanguageProfiles: View {
             Text("Braille recognises the languages ticked here. With automatic language switching on, a line in one of them is shown in its table; every other line in the output table.").font(.caption)
             Form {
                 // In the order the sheet opened with, so a language doesn't jump away as it is ticked.
-                ForEach(order, id: \.self) { code in
+                ForEach(order.isEmpty ? all.compactMap { $0["code"] as? String } : order, id: \.self) { code in
                     if let lang = all.first(where: { $0["code"] as? String == code }) { row(lang, code: code) }
                 }
             }.formStyle(.grouped)
@@ -685,11 +759,13 @@ struct KeyboardView: View {
                     Text("Off").tag(0); Text("In edit fields").tag(1); Text("Always").tag(2)
                 }
                 Toggle("New line on Return", isOn: model.bool("keyboard", "speakNewLine"))
+                Toggle("Caps Lock on and off", isOn: model.bool("presentation", "announceCapsLock"))
                 Toggle("Command keys, as you press them", isOn: model.bool("keyboard", "speakCommandKeys"))
             }
             Section("Moving around") {
                 Toggle("VoiceOver keys move by groups", isOn: model.bool("general", "navigateByGroups"))
                 Toggle("NVDA and JAWS keys move by groups too", isOn: model.bool("general", "groupsInWindowsStyle"))
+                Toggle("At the end of a group, wrap round to its start", isOn: model.bool("general", "cursorWraps"))
                 Picker("Moving the cursor moves the keyboard focus", selection: model.string("general", "focusFollowsCursor", "auto")) {
                     Text("By style: VoiceOver keys only").tag("auto"); Text("Always").tag("on"); Text("Never").tag("off")
                 }
@@ -697,6 +773,15 @@ struct KeyboardView: View {
             Section("The keypad") {
                 Toggle("Keypad commands with VoiceOver keys (VO Clear switches)", isOn: model.bool("keyboard", "numpadCommander"))
                 Toggle("Keypad commands with NVDA keys (Clear switches)", isOn: model.bool("keyboard", "keypadCommands"))
+                // VoiceOver's Keyboard Commander, which only VO-Shift-K could turn on or off (the settings audit, 14 Nov 2026).
+                Toggle("Right Option with a letter runs a command (VoiceOver's Keyboard Commander)", isOn: model.bool("keyboard", "optionCommander"))
+            }
+            // NVDA's timing settings (its multiple key press timeout, and Advanced's caret move timeout).
+            Section("Timing") {
+                let press = model.number("keyboard", "multiPressTimeoutMs")
+                Stepper(value: press, in: 200...1500, step: 50) { Text("A key pressed again within \(Int(press.wrappedValue)) milliseconds counts as pressed twice") }
+                let caret = model.number("editableText", "caretMoveTimeoutMs")
+                Stepper(value: caret, in: 50...500, step: 25) { Text("Wait up to \(Int(caret.wrappedValue)) milliseconds for the caret to move after a key") }
             }
         }.formStyle(.grouped).navigationTitle("Keyboard")
     }
@@ -769,6 +854,9 @@ struct ItemsView: View {
             // never edit an app the picker no longer names (a code review, 27 Oct 2026).
             .onChange(of: frontApp?.bundle) { _, now in if scope != "everywhere", scope != now { scope = "everywhere" } }
             Toggle("Hints after a pause", isOn: model.bool("presentation", "speakHints"))
+            let hint = model.number("presentation", "hintDelayMs")
+            Stepper(value: hint, in: 300...5000, step: 100) { Text("Pause before a hint: \(String(format: "%.1f", hint.wrappedValue / 1000)) seconds") }
+            Toggle("Read a dialog's text as it opens", isOn: model.bool("presentation", "speakDialogText"))
             Toggle("Say which plugin an app has as it comes to the front", isOn: model.bool("presentation", "announcePlugins"))
             Picker("Heading, link and button: when to say them", selection: model.string("documentFormatting", "roleOrder", "auto")) {
                 Text("By keyboard style").tag("auto"); Text("Before the words, as NVDA").tag("before"); Text("After the words, as VoiceOver").tag("after")
@@ -800,6 +888,12 @@ struct DocumentsView: View {
                 Toggle("Font name", isOn: model.bool("documentFormatting", "reportFontName"))
                 Toggle("Font size", isOn: model.bool("documentFormatting", "reportFontSize"))
                 Toggle("Bold, italic and underline", isOn: model.bool("documentFormatting", "reportFontAttributes"))
+                Toggle("Colour", isOn: model.bool("documentFormatting", "reportColor"))
+            }
+            Section("Lines") {
+                Picker("Line indentation, as the caret moves by line", selection: model.string("documentFormatting", "lineIndentation", "off")) {
+                    Text("Off").tag("off"); Text("Spoken, such as 4 space").tag("speech"); Text("Tones, higher for deeper").tag("tones"); Text("Spoken and tones").tag("both")
+                }
             }
         }.formStyle(.grouped).navigationTitle("Documents")
     }

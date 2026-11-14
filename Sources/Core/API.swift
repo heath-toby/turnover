@@ -36,7 +36,11 @@ public enum API {
         let pid = obj?.pid ?? 0
         lock.lock(); let old = _focus; _focus = obj; _ancestors = ancestors; _interceptor = interceptor; lock.unlock()
         let changed = old.map { o in obj.map { !o.isSameElement(as: $0) } ?? true } ?? (obj != nil)
-        if changed { for h in focusChangeHandlers { h(old, obj) } }
+        if changed {
+            for h in focusChangeHandlers { h(old, obj) }
+            // The language of the text around belongs to where it was read (a review, 14 Nov 2026).
+            Languages.lastRecognised = nil; BrailleLanguages.forget()
+        }
         focusedPidValue.value = pid
         SoundChoices.place(at: obj?.element)   // positional sound: the focus's sounds come from where it is
     }

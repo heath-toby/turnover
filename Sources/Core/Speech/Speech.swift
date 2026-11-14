@@ -98,14 +98,17 @@ public enum Speech {
         Tones.focusTick()
     }
 
-    static func enqueue(_ text: String, language: String? = nil, onStart: (@Sendable () -> Void)? = nil, completion: (@Sendable (Bool) -> Void)? = nil) {
+    /// `decided`: the text's language was already worked out (a document's text: TextInfo.language()), so it isn't
+    /// recognised again piece by piece (a review, 14 Nov 2026).
+    static func enqueue(_ text: String, language: String? = nil, decided: Bool = false, onStart: (@Sendable () -> Void)? = nil, completion: (@Sendable (Bool) -> Void)? = nil) {
         if text.contains(capitalMark) {
             // Raised only when the capital is the whole utterance; inside longer speech ("word A") the mark just goes.
             let plain = text.replacingOccurrences(of: capitalMark, with: "")
             if text.hasPrefix(capitalMark), !plain.contains(capitalMark), cleaned(plain).count <= 6 {
-                pitchNext = 1 + Float(config.speech.capitalPitch) / 100
+                if config.speech.capitalPitch > 0 { pitchNext = 1 + Float(config.speech.capitalPitch) / 100 }
+                if config.speech.capitalTone, mode == .talk { Tones.beep(1760, 25, volume: 0.15) }
             }
-            return enqueue(plain, language: language, onStart: onStart, completion: completion)
+            return enqueue(plain, language: language, decided: decided, onStart: onStart, completion: completion)
         }
         if text.contains("\u{F8F0}") {
             // In another language's voice: TurnOver's words in the reader's voice, the text in the language's.
@@ -126,14 +129,14 @@ public enum Speech {
                 if parts.isEmpty { completion?(true) }
                 return
             }
-            return enqueue(text.replacingOccurrences(of: "\u{F8F0}", with: "").replacingOccurrences(of: "\u{F8F1}", with: ""), language: language, onStart: onStart, completion: completion)
+            return enqueue(text.replacingOccurrences(of: "\u{F8F0}", with: "").replacingOccurrences(of: "\u{F8F1}", with: ""), language: language, decided: decided, onStart: onStart, completion: completion)
         }
         // Unmarked text with no language given (a Word table cell, an object's name, a chat row): a piece in another
         // script goes to that language's voice, the rest stays in the reader's. Arabic cells in Word were silent
         // under an English voice (a tester, 12 Oct 2026). Only where letters beyond Latin appear.
         if language == nil, !splittingLanguages, config.speech.autoLanguageSwitching,
            text.unicodeScalars.contains(where: { $0.value > 0x024F && CharacterSet.letters.contains($0) })
-            || (!config.speech.recognisedLanguages.isEmpty && text.count >= 12) {
+            || (!decided && !config.speech.recognisedLanguages.isEmpty && text.count >= 12) {
             let pieces = Languages.splitByLanguage(text)
             if pieces.contains(where: { $0.language != nil }) {
                 splittingLanguages = true
@@ -195,6 +198,14 @@ public enum Speech {
                      voicePitch: langPitch, voiceVolume: langVolume, onStart: onStart, completion: completion)
     }
     private static var pitchNext: Float?
+    /// The language of the text being made into speech, when another language's voice reads it: the text goes to
+    /// that voice as written, so it names punctuation and says numbers in its own language, not TurnOver's English
+    /// names for them ("Komma", not "comma").
+    private static var foreignLanguage: String?
+    /// The indentation last reported, and the text it was in.
+    private static var lastIndent: (element: AXUIElement, tabs: Int, spaces: Int)?
+    /// The next utterance a little lower (VoiceOver's "When deleting text: Change pitch").
+    public static func lowerNextPitch() { pitchNext = 0.75 }
     /// Set by say all while it queues its text: Kokoro's "for reading" takes it.
     public static var readingNow = false
     /// The next utterance is private (the clipboard, a link's address, a notification: a copied password, a reset
@@ -265,9 +276,9 @@ public enum Speech {
     /// Words for the ear only: the display already shows what they are about ("new line" while it shows the new line,
     /// a window's name while it shows the focus, "messages" while it shows the message). As a braille message they
     /// hid the line for seconds on a 20-cell display (7 Oct 2026).
-    public static func speakOnly(_ text: String) {
+    public static func speakOnly(_ text: String, language: String? = nil) {
         lastRaw = text; rawPending = true
-        enqueue(text)
+        enqueue(text, language: language, decided: language != nil)
     }
 
     /// TurnOver's own cursor landed on an item (a held list, the menu, the VoiceOver cursor): spoken, and kept on the
@@ -307,8 +318,9 @@ public enum Speech {
         let t = text.replacingOccurrences(of: "\r\n", with: "\n")
         if t.count == 1, let c = t.first { return Symbols.name(of: c, locale: locale) }
         if Symbols.isAllSymbols(t) { return Symbols.spelled(t.filter { !$0.isWhitespace }) }
-        let flat = t.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ")
-        return Symbols.process(flat, level: symbolLevel ?? config.speech.symbolLevel)
+        var flat = t.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ")
+        if config.speech.readNumbers == "digits" { flat = Symbols.digitsApart(flat) }
+        return Symbols.process(flat, level: symbolLevel ?? config.speech.symbolLevel, countRepeats: config.speech.repeatedSymbols == "count")
     }
 
     /// Spell text character by character (NVDA: speakSpelling).
@@ -590,7 +602,17 @@ public enum Speech {
     /// Speak a range (NVDA: speakTextInfo). A character unit is spelled; a blank range says "blank".
     public static func speakTextInfo(_ info: TextInfo, unit: TextUnit? = nil, reason: OutputReason, onStart: (@Sendable () -> Void)? = nil, completion: (@Sendable (Bool) -> Void)? = nil) {
         lastRaw = info.text; rawPending = true
-        let language = unit == .character ? Languages.forCharacter(info.text, marked: info.language(at: info.start)) : info.language()
+        var language = unit == .character ? Languages.forCharacter(info.text, marked: info.language(at: info.start)) : info.language()
+        // A character that isn't a letter of another alphabet (a comma, a digit, ä) in a line in another language:
+        // the line's language, so the voice names it in that language (a tester, 14 Nov 2026: "punctuation reads in
+        // its language as well, and numbers").
+        if unit == .character, language == nil, let c = info.text.first, !c.isWhitespace, config.speech.autoLanguageSwitching,
+           !config.speech.recognisedLanguages.isEmpty {
+            let line = info.copy(); line.collapse(); line.expand(.line)
+            language = line.language()
+        }
+        foreignLanguage = language.flatMap { Languages.voice(for: $0) != nil ? $0 : nil }
+        defer { foreignLanguage = nil }
         let speech = textInfoSpeech(info, unit: unit, reason: reason)
         // A character in another language: "spelling error" in the interface's voice, the letter in its own (the
         // Arabic voice said the English words; a tester, 12 Oct 2026).
@@ -599,7 +621,7 @@ public enum Speech {
             enqueue(String(speech.dropFirst(characterPrefix.count + 1)), language: language, onStart: onStart, completion: completion)
             return
         }
-        enqueue(speech, language: language, onStart: onStart, completion: completion)
+        enqueue(speech, language: language, decided: true, onStart: onStart, completion: completion)
     }
     /// What the last character's speech began with (its formatting), so it can be said apart from the letter.
     private static var sayAllTones: [() -> Void] = []
@@ -650,6 +672,19 @@ public enum Speech {
             if reason == .sayAll { sayAllTones.append(contentsOf: tones) } else { tones.forEach { $0() } }
             info.pendingTones.removeAll()
         }
+        // Line indentation, as the caret moves by line, when it changes (NVDA). Not in say all.
+        if unit == .line, reason != .sayAll, config.documentFormatting.lineIndentation != "off" {
+            let mode = config.documentFormatting.lineIndentation
+            let element = info.obj.element
+            if let ind = Indentation.leading(rawText) {
+                let sameDoc = lastIndent.map { CFEqual($0.element, element) } ?? false
+                if !sameDoc || lastIndent?.tabs != ind.tabs || lastIndent?.spaces != ind.spaces {
+                    if mode == "speech" || mode == "both" { prefix.insert(Indentation.words(tabs: ind.tabs, spaces: ind.spaces), at: 0) }
+                    if mode == "tones" || mode == "both" { Tones.beep(Indentation.frequency(columns: ind.columns), 40, volume: 0.15) }
+                }
+                lastIndent = (element, ind.tabs, ind.spaces)
+            }
+        }
         let format = reason != .sayAll ? info.formatField() : nil
         var wasInMisspelling = false
         if unit == .character, reason != .sayAll {
@@ -681,6 +716,11 @@ public enum Speech {
             // One character that stands for more (an attachment: Mail's recipient token) is said whole.
             if text.count > 1 { return (prefix + [text]).joined(separator: " ") }
             if text.isEmpty { onlyBlank = prefix.isEmpty; return (prefix + [Phrases.blank]).joined(separator: " ") }
+            // In another language's voice: the character itself, which the voice names ("," is "Komma").
+            if foreignLanguage != nil, let c = text.first, !c.isWhitespace {
+                let mark = c.isUppercase && (config.speech.capitalPitch > 0 || config.speech.capitalTone) ? capitalMark : ""
+                return (prefix.map(ui) + [mark + text]).joined(separator: " ")
+            }
             // A capital read by character: lowered in its line's language when the line says it clearly (an English
             // line under a Turkish TurnOver: I is i), else in TurnOver's (Oliver's review of PR 123, 30 Oct 2026: this
             // return came before the check, so the line's language never reached it).
@@ -738,6 +778,14 @@ public enum Speech {
             return (prefix + [Phrases.blank]).joined(separator: " ")
         }
         let letterLocale = trimmed.count == 1 ? characterLocale(info, trimmed) : nil
+        // In another language's voice: the words as written, its symbols and numbers said by that voice.
+        if foreignLanguage != nil, trimmed.count > 1 {
+            let words = config.speech.readNumbers == "digits" ? Symbols.digitsApart(trimmed) : trimmed
+            if config.documentFormatting.rolesAfterText, !prefix.isEmpty {
+                return ([words] + [ui(prefix.reversed().joined(separator: ", "))]).filter { !$0.isEmpty }.joined(separator: ", ")
+            }
+            return ([ui(prefix.joined(separator: " "))] + [words]).filter { !$0.isEmpty }.joined(separator: " ")
+        }
         // VoiceOver's order: the words, then what they are, innermost first ("AppleVis, heading level 1").
         if config.documentFormatting.rolesAfterText, !prefix.isEmpty {
             return ([processed(trimmed, locale: letterLocale)] + [ui(prefix.reversed().joined(separator: ", "))]).filter { !$0.isEmpty }.joined(separator: ", ")

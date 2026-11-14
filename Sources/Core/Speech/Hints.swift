@@ -6,7 +6,7 @@ import AppKit
 
 public enum Hints {
     private static var generation = 0
-    public static var delay: Double = 1.2
+    public static var delay: Double { Double(max(300, min(5000, config.presentation.hintDelayMs))) / 1000 }
 
     /// Say the hint after the pause, unless a key comes first or hints are off.
     public static func schedule(_ text: String) {

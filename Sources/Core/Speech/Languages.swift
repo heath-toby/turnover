@@ -67,8 +67,9 @@ public enum Languages {
 
     // MARK: Recognising languages in the same script (VoiceOver's "Detect languages"; Polyglot for Orca's rules)
 
-    /// The language last recognised in a document's text, and when: short pieces nearby keep it.
-    nonisolated(unsafe) public static var lastRecognised: (language: String, at: Date)?
+    /// The language last recognised in a document's text, and when: short pieces nearby keep it. Main thread only;
+    /// cleared as the focus moves (API.setFocusObject).
+    public static var lastRecognised: (language: String, at: Date)?
 
     /// The main voice's language, as a base code ("en").
     static var mainLanguage: String? { AVSpeechSynthesisVoice(identifier: config.speech.voice).map { base($0.language) } }
@@ -85,7 +86,7 @@ public enum Languages {
     }
 
     /// The same, with the languages given (for the tests).
-    nonisolated public static func recognise(_ text: String, main: String, among chosen: [String], sticky: Bool, now: Date = Date()) -> String? {
+    public static func recognise(_ text: String, main: String, among chosen: [String], sticky: Bool, now: Date = Date()) -> String? {
         var memory = lastRecognised
         defer { lastRecognised = memory }
         return recognise(text, main: main, among: chosen, sticky: sticky, now: now, memory: &memory)
@@ -95,10 +96,15 @@ public enum Languages {
                                              memory lastRecognised: inout (language: String, at: Date)?) -> String? {
         let cleaned = String(String.UnicodeScalarView(text.unicodeScalars.map { s -> Unicode.Scalar in
             CharacterSet.letters.contains(s) ? s : " " }))
-        let words = cleaned.split(separator: " ").filter { $0.count > 1 || $0.unicodeScalars.first.map { $0.value > 0x7F } == true }
+        var words = cleaned.split(separator: " ").filter { $0.count > 1 || $0.unicodeScalars.first.map { $0.value > 0x7F } == true }
         guard !words.isEmpty else { return nil }
+        // Scripts written without spaces (Chinese, Japanese, Thai): every two characters count as a word.
+        let unspaced = cleaned.unicodeScalars.filter { (0x3040...0x9FFF).contains($0.value) || (0x0E00...0x0E7F).contains($0.value) }.count
+        if unspaced > 0 { words += Array(repeating: Substring("x"), count: unspaced / 2) }
         let r = NLLanguageRecognizer()
-        r.languageConstraints = ([main] + chosen).map { NLLanguage(rawValue: $0) }
+        // The recogniser knows Chinese only as simplified or traditional (a review).
+        func nl(_ code: String) -> [NLLanguage] { code == "zh" ? [.simplifiedChinese, .traditionalChinese] : [NLLanguage(rawValue: code)] }
+        r.languageConstraints = ([main] + chosen).flatMap(nl)
         // Two words the recogniser is all but certain of ("Guten Tag", "Die Welt": measured 100%, 14 Nov 2026).
         if words.count == 2 {
             r.processString(cleaned)
@@ -106,7 +112,7 @@ public enum Languages {
                 if sticky { lastRecognised = (base(lang.rawValue), now) }
                 return base(lang.rawValue)
             }
-            r.reset(); r.languageConstraints = ([main] + chosen).map { NLLanguage(rawValue: $0) }
+            r.reset(); r.languageConstraints = ([main] + chosen).flatMap(nl)
         }
         if words.count < 3 {
             guard sticky, let last = lastRecognised, now.timeIntervalSince(last.at) < 60, chosen.contains(last.language) else { return nil }

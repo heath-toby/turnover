@@ -461,12 +461,6 @@ public enum Braille {
             let line = shown.copy(); line.expand(byParagraph ? .paragraph : .line)
             source = .text(line, lineStart: line.start); lastObject = nil
             text = displayed(line.text)
-            // The line's language's table, with braille language switching on (BrailleLanguages).
-            if config.braille.autoLanguageSwitching {
-                let switched = BrailleLanguages.table(for: text, marked: line.language(at: line.start))
-                if switched != lastLineTable { Log.io("braille: line table \(switched ?? "the output table")"); lastLineTable = switched }
-                BrailleOutput.lineTable = switched
-            }
             // Read by paragraph, a paragraph's start can be marked (NVDA's paragraph start marker).
             if byParagraph { leadingCells = ["pilcrow": BrailleOutput.translate("¶", cursor: nil).cells + [0], "spaces": [0, 0]][config.braille.paragraphMarker] ?? [] }
             // A heading: "h4" before its line, as NVDA's display shows it (speech said "heading level 4" and the display
@@ -474,6 +468,14 @@ public enum Braille {
             if config.documentFormatting.headings != .off, let level = line.brailleHeadingLevel {
                 let mark = level > 0 && config.documentFormatting.reportHeadingLevel ? "h\(level)" : (roleShortForms[.heading] ?? "h")
                 leadingCells += BrailleOutput.translate(mark, cursor: nil).cells + [0]
+            }
+            // The line's language's table, with braille language switching on (BrailleLanguages). Set after the
+            // paragraph and heading marks, which stay in the reader's own table (a review, 14 Nov 2026).
+            if config.braille.autoLanguageSwitching {
+                let first = (line.text as NSString).rangeOfCharacter(from: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters).inverted).location
+                let switched = BrailleLanguages.table(for: text, marked: { line.language(at: line.start + (first == NSNotFound ? 0 : first)) })
+                if switched != lastLineTable { Log.io("braille: line table \(switched ?? "the output table")"); lastLineTable = switched }
+                BrailleOutput.lineTable = switched
             }
             // Bold, italic and underline, for the table's signs or dots 7 and 8 (asked of the app only when shown).
             if config.braille.formattingMarks != "off" { emphasis = line.emphasisRuns() }

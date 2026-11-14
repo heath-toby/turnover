@@ -638,6 +638,11 @@ public final class ObjectNavigator {
         if cur.isSame(container) { j = forward ? 0 : items.count - 1 }
         else if let i = indexIn(items, of: cur) { j = i + (forward ? 1 : -1) }
         else { j = forward ? 0 : items.count - 1 }
+        if !items.indices.contains(j), config.general.cursorWraps, items.count > 1 {
+            // VoiceOver's cursor wrapping: round to the other end, with its wrap sound.
+            if !VoiceOverSounds.play(forward ? "WrapForward.aiff" : "WrapBack.aiff") { Tones.beep(forward ? 880 : 440, 30) }
+            land(on: forward ? items[0] : items[items.count - 1]); return
+        }
         guard items.indices.contains(j) else { Tones.edge(); Log.io("review: edge of the group"); return }
         land(on: items[j])
     }
