@@ -153,13 +153,17 @@ public enum InputManager {
         // Shift-Return too: a new line in a chat box or a cell, which ended the word without saying it (a review, 13 Nov 2026).
         let saysWord = ["enter", "numpadEnter", "tab"].contains(gesture.keyName) && gesture.modifiers.isEmpty
             || ["enter", "numpadEnter"].contains(gesture.keyName) && gesture.modifiers == [.shift]
+        let interrupts = Announcements.keyInterruptsSpeech(keyName: gesture.keyName, plain: gesture.modifiers.isEmpty, typesCharacter: typing,
+                                                           forCharacters: config.keyboard.interruptSpeechForTypedCharacters,
+                                                           forEnter: config.keyboard.interruptSpeechForEnter)
         SayAll.keyArrivedDuringSayAll.value = SayAll.isRunning
         DispatchQueue.main.async {
             // Where say all had got to, before the cancel forgets it (the caret goes to that word: 18 Oct 2026).
             SayAll.noteStopPoint()
             // NVDA's "interrupt speech for typed characters": every key cuts what is being said, so the echo keeps
             // up with fast typing (letting each echo finish first left it seconds behind an e-mail address, 3 Oct).
-            Speech.cancel()
+            // Its two switches (14 Nov 2026) can leave typed characters and Return to queue behind what is said.
+            if interrupts { Speech.cancel() }
             if saysWord { Speech.finishTypedWord() } else if endsWord { Speech.clearTypedWordBuffer() }
             SayAll.stop(byGesture: true)
         }
@@ -250,6 +254,7 @@ public enum InputManager {
             ScriptHandler.clearLastScript()
             onPassThrough?(gesture)
             for w in passThroughWatchers { w(gesture) }
+            if let c = gesture.typedCharacter { Announcements.typed(c, flags: gesture.flags) }
             if let c = gesture.typedCharacter, let focus = API.focusObject {
                 EventHandler.queue(Event(.typedCharacter, focus, character: c))
             }

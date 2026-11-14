@@ -893,6 +893,7 @@ public enum Speech {
             typedWord.removeAll()
             backspacedSinceWord = false
             Log.io("typed word (\(word.count) characters)")
+            if editable, !(API.focusObject is TerminalText) { Announcements.typedWord(word) }
             lastTypedWordSpoken = nil
             if echoesTypedWords(editable: editable) {
                 lastTypedWordSpoken = word
@@ -985,6 +986,7 @@ public enum Speech {
         let word = String(typedWord)
         typedWord.removeAll()
         Log.io("typed word (\(word.count) characters)")
+        if !(API.focusObject is TerminalText) { Announcements.typedWord(word) }
         let mode = config.keyboard.speakTypedWords
         if mode != .off { echo(typedWordSpeech(word, locale: Symbols.typingLocale)) }
     }

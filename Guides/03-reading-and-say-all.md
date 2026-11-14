@@ -13,7 +13,8 @@ Say all reads from where you are to the end: **VO A** in the Mac style, **Caps L
 style (Caps Lock Down Arrow with the desktop keyboard layout). It moves the caret as it goes.
 
 - Any key stops it, and the caret is left on the word you had reached, not the start of the paragraph.
-- Up and Down during say all skim: they move a line and carry on reading from there.
+- Up and Down during say all skim: they move a line and carry on reading from there. To have them stop say all
+  instead, turn off Settings, Keyboard, **Line and paragraph keys skim through say all**.
 
 ## The say all voice
 

@@ -281,10 +281,24 @@ public struct Config: Codable {
         /// NVDA's keypad commands in the Windows style (on, as NVDA with Num Lock off; Clear types numbers instead).
         public var numpadCommander = false
         public var keypadCommands = true
+        // VoiceOver's Verbosity > Announcements and NVDA's Keyboard options (14 Nov 2026). Defaults keep what
+        // TurnOver did before: no modifier names, every key cuts speech, no caps lock or spelling sounds, skim reading.
+        /// VoiceOver's "Announce when a modifier key is pressed": a modifier pressed and let go on its own is named.
+        public var announceModifierKeys = false
+        /// NVDA's "Speech interrupt for typed characters" and "Speech interrupt for Enter key".
+        public var interruptSpeechForTypedCharacters = true
+        public var interruptSpeechForEnter = true
+        /// NVDA's "Beep if typing lowercase letters when caps lock is on".
+        public var beepForLowercaseWithCapsLock = false
+        /// NVDA's "Play sound for spelling errors while typing": a word just typed that is misspelt.
+        public var spellingErrorSoundWhileTyping = false
+        /// NVDA's "Allow skim reading in Say All": the line and paragraph keys move say all on rather than stop it.
+        public var allowSkimReading = true
         public init() {}
         /// The user's own keys (UserGestures): key identifier → "script:<name>", "app:<bundle id>" or "none".
         public var userGestures: [String: String] = [:]
-        enum Keys: String, CodingKey { case speakTypedCharacters, speakTypedWords, speakCommandKeys, multiPressTimeoutMs, layout, speakNewLine, userGestures, optionCommander, numpadCommander, keypadCommands }
+        enum Keys: String, CodingKey { case speakTypedCharacters, speakTypedWords, speakCommandKeys, multiPressTimeoutMs, layout, speakNewLine, userGestures, optionCommander, numpadCommander, keypadCommands,
+            announceModifierKeys, interruptSpeechForTypedCharacters, interruptSpeechForEnter, beepForLowercaseWithCapsLock, spellingErrorSoundWhileTyping, allowSkimReading }
         // Each setting falls back on its own, so adding one never resets the others.
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
@@ -297,6 +311,12 @@ public struct Config: Codable {
             optionCommander = (try? c.decodeIfPresent(Bool.self, forKey: .optionCommander)) ?? true
             numpadCommander = (try? c.decodeIfPresent(Bool.self, forKey: .numpadCommander)) ?? false
             keypadCommands = (try? c.decodeIfPresent(Bool.self, forKey: .keypadCommands)) ?? true
+            announceModifierKeys = (try? c.decodeIfPresent(Bool.self, forKey: .announceModifierKeys)) ?? false
+            interruptSpeechForTypedCharacters = (try? c.decodeIfPresent(Bool.self, forKey: .interruptSpeechForTypedCharacters)) ?? true
+            interruptSpeechForEnter = (try? c.decodeIfPresent(Bool.self, forKey: .interruptSpeechForEnter)) ?? true
+            beepForLowercaseWithCapsLock = (try? c.decodeIfPresent(Bool.self, forKey: .beepForLowercaseWithCapsLock)) ?? false
+            spellingErrorSoundWhileTyping = (try? c.decodeIfPresent(Bool.self, forKey: .spellingErrorSoundWhileTyping)) ?? false
+            allowSkimReading = (try? c.decodeIfPresent(Bool.self, forKey: .allowSkimReading)) ?? true
             userGestures = (try? c.decodeIfPresent([String: String].self, forKey: .userGestures)) ?? [:]
             // Saved before the code name went (12 Oct 2026): "kb:bosun+n" is "kb:turnover+n"; "script:bosunMenu" is
             // "script:turnOverMenu".
@@ -311,6 +331,10 @@ public struct Config: Codable {
             try c.encode(layout, forKey: .layout); try c.encode(speakNewLine, forKey: .speakNewLine)
             try c.encode(userGestures, forKey: .userGestures); try c.encode(optionCommander, forKey: .optionCommander)
             try c.encode(numpadCommander, forKey: .numpadCommander); try c.encode(keypadCommands, forKey: .keypadCommands)
+            try c.encode(announceModifierKeys, forKey: .announceModifierKeys)
+            try c.encode(interruptSpeechForTypedCharacters, forKey: .interruptSpeechForTypedCharacters); try c.encode(interruptSpeechForEnter, forKey: .interruptSpeechForEnter)
+            try c.encode(beepForLowercaseWithCapsLock, forKey: .beepForLowercaseWithCapsLock); try c.encode(spellingErrorSoundWhileTyping, forKey: .spellingErrorSoundWhileTyping)
+            try c.encode(allowSkimReading, forKey: .allowSkimReading)
         }
     }
     public struct EditableText: Codable {
@@ -543,8 +567,19 @@ public struct Config: Codable {
         /// A progress bar as it moves (ProgressOutput, NVDA+U): "beep", "speak", "both" or "off". Beeps by
         /// default, as NVDA does (Oliver, having heard them, 3 Nov 2026: "put the progress bar stuff in there").
         public var progressBars = "beep"
+        // VoiceOver's Verbosity > Announcements (14 Nov 2026), statusTextChanges and rowCountChanges as Announcements.changeModes.
+        /// Static or status text changing under the review cursor: "off" (as before), "tone" or "speak".
+        public var statusTextChanges = "off"
+        /// The focused table or outline gaining or losing rows: "off" (as before), "tone" or "speak".
+        public var rowCountChanges = "off"
+        /// VoiceOver's "When system dialogs are displayed": its alert sound as a dialog appears (off, as before). Whether
+        /// its text is read is speakDialogText.
+        public var dialogSound = false
+        /// VoiceOver's "Skip redundant labels": review steps past the text a label was taken from.
+        public var skipRedundantLabels = true
         public init() {}
-        enum Keys: String, CodingKey { case verbosity, verbosityByApp, reportObjectDescriptions, reportKeyboardShortcuts, reportObjectPositionInformation, reportDynamicContentChanges, speakHints, reportNotifications, announcePlugins, progressBars, hintDelayMs, announceCapsLock, speakDialogText }
+        enum Keys: String, CodingKey { case verbosity, verbosityByApp, reportObjectDescriptions, reportKeyboardShortcuts, reportObjectPositionInformation, reportDynamicContentChanges, speakHints, reportNotifications, announcePlugins, progressBars, hintDelayMs, announceCapsLock, speakDialogText,
+            statusTextChanges, rowCountChanges, dialogSound, skipRedundantLabels }
         // Each setting falls back on its own: a settings file from before speakHints keeps the others.
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
@@ -564,6 +599,10 @@ public struct Config: Codable {
             reportNotifications = (try? c.decodeIfPresent(Bool.self, forKey: .reportNotifications)) ?? true
             announcePlugins = (try? c.decodeIfPresent(Bool.self, forKey: .announcePlugins)) ?? true
             progressBars = (try? c.decodeIfPresent(String.self, forKey: .progressBars)).flatMap { ProgressOutput.modes.contains($0) ? $0 : nil } ?? "beep"
+            statusTextChanges = Announcements.mode(try? c.decodeIfPresent(String.self, forKey: .statusTextChanges), allowed: Announcements.changeModes, fallback: "off")
+            rowCountChanges = Announcements.mode(try? c.decodeIfPresent(String.self, forKey: .rowCountChanges), allowed: Announcements.changeModes, fallback: "off")
+            dialogSound = (try? c.decodeIfPresent(Bool.self, forKey: .dialogSound)) ?? false
+            skipRedundantLabels = (try? c.decodeIfPresent(Bool.self, forKey: .skipRedundantLabels)) ?? true
         }
         public func encode(to encoder: Encoder) throws {
             var c = encoder.container(keyedBy: Keys.self)
@@ -573,6 +612,8 @@ public struct Config: Codable {
             try c.encode(hintDelayMs, forKey: .hintDelayMs); try c.encode(announceCapsLock, forKey: .announceCapsLock); try c.encode(speakDialogText, forKey: .speakDialogText)
             try c.encode(speakHints, forKey: .speakHints); try c.encode(reportNotifications, forKey: .reportNotifications)
             try c.encode(announcePlugins, forKey: .announcePlugins); try c.encode(progressBars, forKey: .progressBars)
+            try c.encode(statusTextChanges, forKey: .statusTextChanges); try c.encode(rowCountChanges, forKey: .rowCountChanges)
+            try c.encode(dialogSound, forKey: .dialogSound); try c.encode(skipRedundantLabels, forKey: .skipRedundantLabels)
         }
     }
     public struct DocumentFormatting: Codable {

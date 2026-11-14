@@ -169,6 +169,8 @@ open class Dialog: TurnOverObject {
         Self.readAfresh(element)
         let list = choices.map(\.1)
         let text = config.presentation.speakDialogText ? dialogText : ""
+        // VoiceOver's "When system dialogs are displayed: play tone" (14 Nov 2026, off by default); the text is speakDialogText's.
+        if config.presentation.dialogSound { Announcements.dialogTone() }
         // AppKit's alerts have no title, only the description "alert" (loginwindow's Log Out, Restart and Shut Down,
         // 12 Nov 2026: "alert, dialog, Are you sure…"). That is the role already.
         let alertOnly = (element.string(kAXTitleAttribute) ?? "").isEmpty && name.lowercased() == "alert"

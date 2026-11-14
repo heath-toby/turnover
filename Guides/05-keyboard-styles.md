@@ -49,3 +49,17 @@ Page Down change the speed for that say all. Every other key is NVDA's.
 - Keyboard help (the TurnOver menu, Keys) says what any key does without doing it.
 - Command Control Comma, then Slash, lists every key that works where you are.
 - Your own keys (the TurnOver menu, Keys, My own keys) sit on top of any style.
+
+## Keys, speech and announcements
+
+Settings, Keyboard, **Keys and speech**, as VoiceOver's and NVDA's options:
+
+- Say a modifier key's name (shift, right command) when it is pressed and let go on its own. The TurnOver key is
+  never named while you use it. Control, which stops speech, is named only when nothing was being said. With NVDA
+  keys, Command and Option alone open menus and aren't named, and Shift, which pauses speech, is like Control.
+- Whether a typed character, and Return, stop what is being said. Off, the echo waits its turn.
+- A beep for a lowercase letter typed while Caps Lock is on, and a sound when a word you just typed is misspelt.
+
+Settings, Item details, **Announcements**, as VoiceOver's: when the text under the cursor changes (a status line, a
+timer), when the table or list you are in gains or loses rows, and a sound when a dialog appears (whether its text
+is read is **Read a dialog's text as it opens**). **Skip a label already said with its item** passes over the text a plugin's label came from.
