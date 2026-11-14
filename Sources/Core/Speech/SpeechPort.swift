@@ -15,6 +15,10 @@
 // An allowed app is heard only while it is the app in front (a game's words while you read Mail are not wanted, and
 // a program in the background mustn't speak, or stop TurnOver speaking, unseen). It can do nothing else: no settings,
 // no keys. TurnOver's own programs use the control channel instead (TurnOverControl).
+//
+// A helper tool (the tester's VO Drag And Drop, 14 Nov 2026) works from keys while another app is in front: it sends
+// "H" first, and TurnOver asks the user whether it may speak at any time, not only in front. Its words are then said
+// whatever app is in front, and it still can do nothing else.
 import Foundation
 import AppKit
 import Network
@@ -38,7 +42,7 @@ final class SpeechPort {
     private(set) var lines = 0
     private var retried = false
     /// The decisions, by the speaker's id.
-    private var decisions: [String: (name: String, allowed: Bool)] = [:]
+    private var decisions: [String: (name: String, allowed: Bool, anytime: Bool)] = [:]
     /// A question being asked, so it is asked once.
     private var asking = Set<String>()
     private var droppedBackground = 0
@@ -144,13 +148,15 @@ final class SpeechPort {
     private func handle(_ line: String, _ box: SpeakerBox) {
         lines += 1
         guard let speaker = box.speaker else { return }
-        let front = inFront(speaker)
+        if line == "H" { box.helper = true; return }   // a helper tool: may ask to speak whatever is in front
+        let anytime = decisions[speaker.id]?.anytime ?? false
+        let front = inFront(speaker) || anytime
         switch decisions[speaker.id]?.allowed {
         case false?:
             return
         case nil:
             // Asked only while the app is in front and TurnOver is reading, so the user knows which app it is.
-            if front, Core.active, case .speak = Games.bridgeCommand(line) { ask(speaker, then: line) }
+            if front || box.helper, Core.active, case .speak = Games.bridgeCommand(line) { ask(speaker, then: line, helper: box.helper) }
             return
         case true?:
             switch Games.bridgeAction(line, speakerInFront: front && Core.active) {
@@ -179,7 +185,7 @@ final class SpeechPort {
 
     // MARK: Asking the user
 
-    private func ask(_ found: Speaker, then line: String) {
+    private func ask(_ found: Speaker, then line: String, helper: Bool = false) {
         guard !asking.contains(found.id), !TurnOverMenu.shared.isOpen else { return }
         // A program's own name can say little ("godot" for every Godot game): its window's title too ("godot,
         // SubCities"), asked briefly.
@@ -194,7 +200,7 @@ final class SpeechPort {
             guard let self else { return }
             self.asking.remove(speaker.id)
             guard let allowed else { self.tellAll(speaker.id); Log.info("speech port: \(speaker.name): not now"); return }
-            self.decisions[speaker.id] = (speaker.name, allowed)
+            self.decisions[speaker.id] = (speaker.name, allowed, helper)
             self.save()
             self.tellAll(speaker.id)
             Log.info("speech port: \(speaker.name) \(allowed ? "allowed" : "not allowed")")
@@ -203,15 +209,17 @@ final class SpeechPort {
             // once after the user had switched away).
             if allowed, case .speak(let text) = Games.bridgeCommand(line) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    guard Core.active, self.inFront(speaker) else { Log.io("speech port: \(speaker.name) isn't in front; its first line is not said"); return }
+                    guard Core.active, helper || self.inFront(speaker) else { Log.io("speech port: \(speaker.name) isn't in front; its first line is not said"); return }
                     self.say(text, from: speaker)
                 }
             }
         }
         TurnOverMenu.shared.onClose = { [weak self] in if self?.asking.contains(speaker.id) == true { self?.asking.remove(speaker.id); self?.tellAll(speaker.id) } }
-        TurnOverMenu.shared.openList(verbatim: String(localized: "\(speaker.name) wants TurnOver to speak for it. Do you trust it?", comment: "An app asking to speak through TurnOver: its name"), items: [
+        let question = helper ? String(localized: "\(speaker.name), a helper tool, wants TurnOver to speak for it at any time, whatever app is in front. Do you trust it?", comment: "A helper tool asking to speak through TurnOver: its name")
+            : String(localized: "\(speaker.name) wants TurnOver to speak for it. Do you trust it?", comment: "An app asking to speak through TurnOver: its name")
+        TurnOverMenu.shared.openList(verbatim: question, items: [
             MenuItem("Don't allow", .action { decide(false) }, hint: "\(speaker.name) won't be heard; you can change this in Settings, Apps that speak through TurnOver"),
-            MenuItem("Allow", .action { decide(true) }, hint: "\(speaker.name) can make TurnOver say anything while it is the app in front, and nothing else"),
+            MenuItem("Allow", .action { decide(true) }, hint: helper ? "\(speaker.name) can make TurnOver say anything, at any time, and nothing else" : "\(speaker.name) can make TurnOver say anything while it is the app in front, and nothing else"),
             MenuItem("Not now", .action { decide(nil) }, hint: "Asked again the next time it wants to speak"),
         ])
     }
@@ -222,12 +230,12 @@ final class SpeechPort {
 
     private func load() {
         guard let data = try? Data(contentsOf: file), let d = (try? JSONSerialization.jsonObject(with: data)) as? [String: [String: Any]] else { return }
-        for (id, v) in d { if let name = v["name"] as? String, let allowed = v["allowed"] as? Bool { decisions[id] = (name, allowed) } }
+        for (id, v) in d { if let name = v["name"] as? String, let allowed = v["allowed"] as? Bool { decisions[id] = (name, allowed, v["anytime"] as? Bool ?? false) } }
     }
 
     private func save() {
         var d: [String: [String: Any]] = [:]
-        for (id, v) in decisions { d[id] = ["name": v.name, "allowed": v.allowed] }
+        for (id, v) in decisions { d[id] = ["name": v.name, "allowed": v.allowed, "anytime": v.anytime] }
         guard let data = try? JSONSerialization.data(withJSONObject: d, options: [.prettyPrinted, .sortedKeys]) else { return }
         FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600])
     }
@@ -235,7 +243,9 @@ final class SpeechPort {
     /// Settings, Apps that speak through TurnOver: each app asked about, allowed or not, Right Arrow to change.
     /// The apps that have asked to speak through TurnOver, for the Settings window: id, name, allowed.
     public var appDecisions: [(id: String, name: String, allowed: Bool)] {
-        decisions.sorted { $0.value.name.lowercased() < $1.value.name.lowercased() }.map { ($0.key, $0.value.name, $0.value.allowed) }
+        decisions.sorted { $0.value.name.lowercased() < $1.value.name.lowercased() }.map {
+            ($0.key, $0.value.anytime ? String(localized: "\($0.value.name), a helper tool, at any time", comment: "An app that may speak through TurnOver whatever is in front") : $0.value.name, $0.value.allowed)
+        }
     }
     public func setAllowed(_ id: String, _ on: Bool) {
         guard decisions[id] != nil else { return }
@@ -308,4 +318,6 @@ final class SpeechPort {
 final class SpeakerBox {
     var speaker: SpeechPort.Speaker?
     var held: [String] = []
+    /// It said "H": a helper tool, asking to speak whatever app is in front.
+    var helper = false
 }
