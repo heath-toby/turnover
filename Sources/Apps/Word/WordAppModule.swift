@@ -407,7 +407,7 @@ final class WordAppModule: AppModule {
             // Crossing a page is not a focus change to the user: adopt the new page area silently.
             // Only from one page to the next: coming back from a comment (also a Word text area) is news.
             if lastLostWasPage, let previous = lastDocument, previous.windowElement.map({ event.obj.element.element(kAXWindowAttribute)?.isSame($0) ?? false }) ?? false {
-                (event.obj as? EditableText)?.initAutoSelectDetection()
+                (event.obj as? EditableText)?.continueSelectionDetection()
                 lastDocument = (event.obj.element, event.obj.element.element(kAXWindowAttribute))
                 return
             }
@@ -456,7 +456,7 @@ final class WordAppModule: AppModule {
             if let f = API.focusObject as? WordDocument, !f.isSameElement(as: event.obj) {
                 // The caret moved to another page before Word said so: follow it without speaking.
                 API.setFocusObject(event.obj, ancestors: API.focusAncestors)
-                (event.obj as? EditableText)?.initAutoSelectDetection()
+                (event.obj as? EditableText)?.continueSelectionDetection()
                 lastDocument = (event.obj.element, event.obj.element.element(kAXWindowAttribute))
                 return
             }

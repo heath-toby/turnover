@@ -675,6 +675,17 @@ open class EditableText: TurnOverObject {
         hasContentChangedSinceLastSelection = false
         autoSelectDetection = true
     }
+    /// The same document, another text area (Word's pages): the selection goes on from the one the previous area
+    /// had. Command-A in Word moves the focus to the last page, already all selected, and the change was never heard:
+    /// the new page's selection was taken as the one to compare with (a tester, 14 Nov 2026). Word's offsets are the
+    /// document's, so the two compare.
+    public func continueSelectionDetection() {
+        let old = Self.leftSelection.flatMap { Date().timeIntervalSince($0.at) < 1 ? $0.info : nil }
+        Self.leftSelection = nil
+        initAutoSelectDetection()
+        guard let old, let new = lastSelection, !new.isSame(old) else { return }
+        Speech.speakSelectionChange(old: old, new: new, generalize: false)
+    }
     public func terminateAutoSelectDetection() { lastSelection = nil; autoSelectDetection = false }
 
     private var lastTypedAt = Date.distantPast
@@ -721,12 +732,15 @@ open class EditableText: TurnOverObject {
     }
     open override func event_loseFocus() {
         if let p = element.element(kAXParentAttribute) { Self.lastLeft = (element, p, Date()) }
+        if let sel = lastSelection { Self.leftSelection = (sel, Date()) }
         terminateAutoSelectDetection(); super.event_loseFocus()
     }
 
     /// The text box the focus last left, and its parent: LibreOffice's documents are one text box per paragraph, and
     /// every arrow over a paragraph's edge moved the focus and was read "edit, " and the whole paragraph (parts sweep,
     /// 14 Oct 2026). NVDA reads such a move as a caret move.
+    /// The selection of the text area the focus last left, for `continueSelectionDetection`.
+    private static var leftSelection: (info: TextInfo, at: Date)?
     nonisolated(unsafe) static var lastLeft: (element: AXUIElement, parent: AXUIElement, at: Date)?
 
     /// The focus came from a sibling text box by a caret key (an arrow, Home, End, Page Up or Down, with Shift or

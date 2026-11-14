@@ -910,10 +910,22 @@ public enum Speech {
 
     // MARK: - Selection
 
-    /// "selected" and the text; past 1000 characters, how many (a review, 13 Nov 2026: a whole long document's
-    /// selection was read out on focus, with no end). As the selection change says it.
+    /// NVDA's limit (MAX_LENGTH_FOR_SELECTION_REPORTING): longer, and only how many characters are said.
+    public static let selectionReadLimit = 512
+    /// The text and then "selected", as a tester asked (14 Nov 2026: "The following is a test document selected", with
+    /// no pause between); past the limit, "103456 characters selected".
     public static func selectedSpeech(_ t: String) -> String {
-        String(localized: "selected \(t.count > 1000 ? Phrases.characters(t.count) : processed(t))", comment: "Selected text, read: %@ is the text")
+        String(localized: "\(selectionWords(t)) selected", comment: "Selected text, read: %@ is the text, or how many characters")
+    }
+    /// The selection's words, without what would put a pause before "selected": the line break or spaces at its end,
+    /// and a full stop, question or exclamation mark that the punctuation level doesn't read out.
+    public static func selectionWords(_ t: String, level: SymbolLevel? = nil) -> String {
+        if t.count == 1 { return Symbols.name(of: t.first!) }
+        if t.count > selectionReadLimit { return Phrases.characters(t.count) }
+        var w = Substring(t)
+        while let c = w.last, c.isWhitespace || c.isNewline { w = w.dropLast() }
+        if (level ?? config.speech.symbolLevel) != .all, let c = w.last, ".!?".contains(c), w.count > 1 { w = w.dropLast() }
+        return processed(String(w), symbolLevel: level)
     }
 
     /// A selection changed: say only the difference. What is in the new selection and not the old was selected; what
@@ -937,13 +949,13 @@ public enum Speech {
         }
         let added = outside(after, before).map { new.textRange($0.start, $0.end) }
         let removed = outside(before, after).map { old.textRange($0.start, $0.end) }
-        func spoken(_ t: String) -> String { t.count == 1 ? Symbols.name(of: t.first!) : (t.count > 1000 ? Phrases.characters(t.count) : processed(t)) }
-        func selected(_ t: String) -> String { String(localized: "selected \(spoken(t))", comment: "Selected text, read: %@ is the text") }
+        func spoken(_ t: String) -> String { selectionWords(t) }
+        func selected(_ t: String) -> String { selectedSpeech(t) }
         if generalize {
             // Both added and removed: the new selection once, as "now selected" (a review, 13 Nov 2026: "selected X",
             // then "now selected X").
             if !removed.isEmpty { enqueue(new.isCollapsed ? String(localized: "selection removed", comment: "The selection went")
-                : String(localized: "now selected \(spoken(new.text))", comment: "The selection changed: %@ is what is selected now")) }
+                : String(localized: "\(spoken(new.text)) now selected", comment: "The selection changed: %@ is what is selected now")) }
             else if !added.isEmpty { enqueue(selected(new.text)) }
             return
         }
