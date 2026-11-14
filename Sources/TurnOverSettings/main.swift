@@ -96,7 +96,7 @@ final class Model: ObservableObject {
 
 enum Pane: String, CaseIterable, Identifiable {
     // NVDA's order, with TurnOver's own at the end: every setting the menu offered lives here since 21 Oct 2026.
-    case general = "General", speech = "Speech", sounds = "Sounds", braille = "Braille", keyboard = "Keyboard", items = "Item details", webPages = "Web pages", documents = "Documents",
+    case general = "General", speech = "Speech", sounds = "Sounds", braille = "Braille", vision = "Vision", keyboard = "Keyboard", items = "Item details", webPages = "Web pages", documents = "Documents",
          recognition = "Screen recognition", otherApps = "Other apps' speech", readers = "Screen reader behaviour"
     var id: String { rawValue }
     /// As the sidebar shows it. (The raw value stays English: TurnOver asks for a section by it.)
@@ -106,6 +106,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .speech: return String(localized: "Speech", comment: "A section of the Settings window")
         case .sounds: return String(localized: "Sounds", comment: "A section of the Settings window")
         case .braille: return String(localized: "Braille", comment: "A section of the Settings window")
+        case .vision: return String(localized: "Vision", comment: "A section of the Settings window")
         case .keyboard: return String(localized: "Keyboard", comment: "A section of the Settings window")
         case .items: return String(localized: "Item details", comment: "A section of the Settings window")
         case .webPages: return String(localized: "Web pages", comment: "A section of the Settings window")
@@ -136,6 +137,7 @@ struct ContentView: View {
                 case .speech: SpeechView()
                 case .sounds: SoundsView()
                 case .braille: BrailleView()
+                case .vision: VisionView()
                 case .keyboard: KeyboardView()
                 case .items: ItemsView()
                 case .webPages: WebPagesView()
@@ -933,6 +935,29 @@ struct WebPagesView: View {
             Slider(value: model.number("virtualBuffers", "maxLineLength"), in: 40...250, step: 10) { Text("Longest line") }
                 .accessibilityValue("\(Int(model.number("virtualBuffers", "maxLineLength").wrappedValue)) characters")
         }.formStyle(.grouped).navigationTitle("Web pages")
+    }
+}
+
+/// NVDA's Vision and VoiceOver's Visuals: for a sighted helper, or someone with low vision (14 Nov 2026).
+struct VisionView: View {
+    @EnvironmentObject var model: Model
+    var body: some View {
+        Form {
+            Toggle("Highlight what TurnOver is on", isOn: model.bool("vision", "highlight"))
+            Text("A coloured ring on the screen, like VoiceOver's cursor: blue round the focus, pink round the review cursor, yellow round the reading position on a web page.").font(.caption)
+            Toggle("Highlight the focus", isOn: model.bool("vision", "highlightFocus"))
+            Toggle("Highlight the review cursor", isOn: model.bool("vision", "highlightReview"))
+            Toggle("Highlight the reading position in browse mode", isOn: model.bool("vision", "highlightBrowse"))
+            Toggle("Show the caption panel", isOn: model.bool("vision", "captionPanel"))
+            Text("What TurnOver says, at the bottom of the screen.").font(.caption)
+            Toggle("Show the braille panel", isOn: model.bool("vision", "braillePanel"))
+            Text("What the braille display shows, as braille and as text, above the caption panel. It works without a display.").font(.caption)
+            Picker("Text size in the panels", selection: model.string("vision", "panelFontSize", "medium")) {
+                Text("Small").tag("small")
+                Text("Medium").tag("medium")
+                Text("Large").tag("large")
+            }
+        }.formStyle(.grouped).navigationTitle("Vision")
     }
 }
 

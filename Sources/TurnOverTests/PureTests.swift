@@ -948,6 +948,40 @@ func pureTests() {
         expect((Braille.displayed(s) as NSString).length, (s as NSString).length)
     }
 
+    test("vision: rings, panels and settings") {
+        // Accessibility's top-left frame on a 900-point-high main display, as AppKit's.
+        expect(VisionGeometry.cocoa(CGRect(x: 10, y: 100, width: 50, height: 20), primaryHeight: 900), CGRect(x: 10, y: 780, width: 50, height: 20))
+        // A display above the main one has negative accessibility y.
+        expect(VisionGeometry.cocoa(CGRect(x: 0, y: -200, width: 10, height: 10), primaryHeight: 900).minY, 1090)
+        let item = CGRect(x: 100, y: 100, width: 200, height: 50)
+        let strips = VisionGeometry.strips(around: item, gap: 3, width: 6)
+        expect(strips.count, 4)
+        // The ring's windows never cover the item (a hit test inside it must still find the item).
+        for s in strips { check(s.intersection(item).width * s.intersection(item).height == 0, "a strip over the item: \(s)") }
+        // Together they hold the whole ring path.
+        let path = VisionGeometry.ringPath(around: item, gap: 3, width: 6)
+        expect(path, CGRect(x: 94, y: 94, width: 212, height: 62))
+        let union = strips.reduce(CGRect.null) { $0.union($1) }
+        check(union.contains(path.insetBy(dx: -3, dy: -3)), "the strips hold the ring's outer edge")
+        expect(VisionGeometry.fontSize("small"), 13); expect(VisionGeometry.fontSize("large"), 26); expect(VisionGeometry.fontSize("odd"), 18)
+        expect(VisionGeometry.unicodeBraille([0, 1, 0x3F, 0xFF]), "\u{2800}\u{2801}\u{283F}\u{28FF}")
+        expect(VisionGeometry.caption(previous: "Mail", adding: "Inbox, table", continues: true), "Mail Inbox, table")
+        expect(VisionGeometry.caption(previous: "Mail", adding: "Inbox", continues: false), "Inbox")
+        expect(VisionGeometry.caption(previous: "", adding: String(repeating: "a", count: 400), continues: true).count, 301)
+        // Settings: all off by default, and an older file without the section reads the defaults.
+        let v = Config().vision
+        check(!v.highlight && !v.captionPanel && !v.braillePanel, "nothing shown by default")
+        check(v.highlightFocus && v.highlightReview && v.highlightBrowse, "all three rings once the highlight is on")
+        expect(v.panelFontSize, "medium")
+        let old = try? JSONDecoder().decode(Config.self, from: Data("{}".utf8))
+        expect(old?.vision, Config.Vision())
+        let partial = try? JSONDecoder().decode(Config.Vision.self, from: Data(#"{"highlight": true, "panelFontSize": 3}"#.utf8))
+        expect(partial?.highlight, true); expect(partial?.panelFontSize, "medium")
+        var round = Config.Vision(); round.braillePanel = true; round.highlightReview = false; round.panelFontSize = "large"
+        let back = (try? JSONEncoder().encode(round)).flatMap { try? JSONDecoder().decode(Config.Vision.self, from: $0) }
+        expect(back, round)
+    }
+
     test("media: labels are tidied") {
         expect(MediaView.tidy("Show · Example Podcast"), "Show, Example Podcast")
     }

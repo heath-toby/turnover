@@ -144,6 +144,7 @@ public enum Core {
         Ducking.apply()
         KokoroVoice.start()   // only where the "kokoro" default is set
         SettingsBridge.start()   // TurnOver Settings, the window (18 Oct 2026)
+        VisionAids.apply()   // the highlight and the caption and braille panels, if wanted (Vision settings)
         SpeechPort.shared.start(port: config.games.bridgePort)   // apps that speak through TurnOver, with the user's say-so
         InputSourceAnnouncer.start()   // the keyboard input source said as it changes ()
         SettingsProfiles.start()   // VO-X Activities / NVDA's configuration profiles, by app
@@ -162,6 +163,7 @@ public enum Core {
         BrailleDisplays.shared.stop()   // VoiceOver drives the display again
         Speech.cancel()
         Ducking.stop()   // VoiceOver reads now: other apps' sound goes back to them, unmuted
+        VisionAids.hideAll()   // VoiceOver's own cursor and panels take over
     }
 
     public static func stop() {

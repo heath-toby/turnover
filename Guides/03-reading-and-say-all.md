@@ -72,3 +72,18 @@ said after the line that holds them. TurnOver says the page as you move onto it.
 
 A PDF is read like a web page: line by line across pages, with "page 2 of 5" as you reach each page, and headings
 by H. Highlights, notes and text boxes, which Preview hides from VoiceOver, are read where they sit.
+
+## Showing it on the screen (Vision)
+
+For someone sitting beside you, or if you see a little: Settings, Vision. All of it is off until you turn it on.
+
+- **Highlight what TurnOver is on** draws a ring on the screen, like VoiceOver's cursor: blue round the focus, pink
+  round the review cursor once you move it away from the focus, and yellow round the reading position on a web page.
+  Each colour has its own switch. Where two are on the same item, the rings sit one inside the other.
+- **Show the caption panel** puts what TurnOver says in a dark panel at the bottom of the screen. Private speech, such
+  as what you type in a password field, is never shown.
+- **Show the braille panel** shows what the braille display shows, as braille and as text, above the caption panel.
+  It works without a display: a sighted helper can see what the display would say.
+- **Text size in the panels**: small, medium or large.
+
+These never take the keyboard or the mouse, and TurnOver does not read them. They go when VoiceOver takes over.

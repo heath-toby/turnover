@@ -296,6 +296,7 @@ public enum ScriptHandler {
         // script itself just put up stays.
         Braille.focusOrCaretMoved()
         Braille.refreshSoon()
+        VisionAids.soon()   // the highlight follows the review cursor and the reading position
         KeySettings.refresh()   // a script may have changed a setting the keyboard thread reads
         _running = false
         EventHandler.drain()
