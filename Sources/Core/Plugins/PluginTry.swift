@@ -158,7 +158,16 @@ public enum PluginTry {
         _ = AXUIElementSetAttributeValue(AXUIElementCreateApplication(app.processIdentifier), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         app.activate()
         let started = Date()
+        // The last moment the tried app was seen in front: what was said after it (another app, the person's own
+        // reading) isn't the AI's to see (a review, 14 Nov 2026). Checked as each step starts, a wait's end included.
+        var lastOnTarget = started
+        func onTarget() -> Bool { NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier }
         func step(_ i: Int) {
+            guard onTarget() else {
+                Log.info("plugin try: \(name) is no longer in front; stopped after \(i) steps")
+                done(stopped: "stopped after \(i) of \(steps.count) steps: \(name) is no longer in front"); return
+            }
+            lastOnTarget = Date()
             guard i < steps.count else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { done() }
                 return
@@ -169,18 +178,23 @@ public enum PluginTry {
                 DispatchQueue.main.asyncAfter(deadline: .now() + n) { step(i + 1) }
                 return
             }
-            // Only into the app it was asked for: if the person switched away, it stops.
-            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else {
-                Log.info("plugin try: \(name) is no longer in front; stopped after \(i) steps")
-                done(stopped: "stopped after \(i) of \(steps.count) steps: \(name) is no longer in front"); return
-            }
+            // Only into the app it was asked for: if the person switched away, it stopped above.
             if let g = KeyboardGesture(identifier: normalizeGestureIdentifier("kb:" + s)) { KeyboardGesture.typedPoster?(g) }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { step(i + 1) }
         }
         func done(stopped: String? = nil) {
-            let said = Speech.history.value.filter { $0.at >= started }.map(\.text)
+            var stopped = stopped
+            let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            // Still in front: everything up to now. Gone: only up to the last time it was seen in front (a review, 14 Nov 2026).
+            let onApp = front == app.processIdentifier
+            let until = onApp ? Date() : lastOnTarget
+            if !onApp, stopped == nil { stopped = "\(name) was no longer in front at the end; only what was said before is kept" }
+            let said = Speech.history.value.filter { $0.at >= started && $0.at <= until }.map(\.text)
                 .filter { $0 != Self.tryingWords(name) }
-            if let previous, previous.processIdentifier != app.processIdentifier, !previous.isTerminated {
+            // Back to the app the person was in only if they're still in the tried app (or TurnOver): if they
+            // switched elsewhere themselves, that's where they stay (a review, 14 Nov 2026).
+            let stillHere = onApp || front == ProcessInfo.processInfo.processIdentifier
+            if stillHere, let previous, previous.processIdentifier != app.processIdentifier, !previous.isTerminated {
                 _ = AXUIElementSetAttributeValue(AXUIElementCreateApplication(previous.processIdentifier), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
                 previous.activate()
             }

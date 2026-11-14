@@ -24,9 +24,16 @@ final class ActivityFlow {
     /// Put the Activity in (apps) or take it out (nil), then say how it went. About six seconds; the Utility shows.
     /// A request made while one runs: kept, and done when the running one ends (Command Control Period twice within
     /// ten seconds dropped the second and left two voices; a code review on 17 Oct 2026).
-    private var pending: (apps: [String]?, hush: Bool)?
+    /// The kept request carries its caller's completion, run when it's done (a review, 14 Nov 2026: the uninstall's
+    /// went unheard and it stopped). One replaced by a newer request is told so.
+    private var pending: (apps: [String]?, hush: Bool, completion: (String) -> Void)?
     func set(apps: [String]?, hush: Bool = false, completion: @escaping (String) -> Void) {
-        guard !running else { pending = (apps, hush); Log.info("activity: a request kept until the running one ends"); completion("VoiceOver's settings are being changed already; a moment."); return }
+        guard !running else {
+            let replaced = pending?.completion
+            pending = (apps, hush, completion); Log.info("activity: a request kept until the running one ends")
+            replaced?("A newer request to change VoiceOver's settings replaced this one.")
+            return
+        }
         running = true
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         // An archive left from last time would make the save sheet ask "Replace?" (16 Oct 2026): gone first.
@@ -129,6 +136,7 @@ final class ActivityFlow {
             self?.running = false
             Log.info("activity: export only \(file == nil ? "failed" : "done")")
             completion(file)
+            self?.runPending()   // as end() does: a request kept while this ran (a review, 14 Nov 2026)
         }
         VoiceOverSettings.quitUtility()
         retry(every: 0.3, first: 0.5, times: 15, { NSRunningApplication.runningApplications(withBundleIdentifier: VoiceOverSettings.utilityBundleID).isEmpty }) { _ in
@@ -152,9 +160,13 @@ final class ActivityFlow {
         running = false
         Log.info("activity: \(text)")
         completion(text)
+        runPending()
+    }
+
+    private func runPending() {
         if let p = pending {
             pending = nil
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.set(apps: p.apps, hush: p.hush) { Log.info("activity (kept request): \($0)") } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.set(apps: p.apps, hush: p.hush, completion: p.completion) }
         }
     }
 

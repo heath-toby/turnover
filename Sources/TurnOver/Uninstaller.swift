@@ -48,7 +48,8 @@ enum Uninstaller {
             ActivityFlow.shared.set(apps: nil) { text in
                 Log.info("uninstall: the Activity: \(text)")
                 // Not taken out: stop here and say why, rather than delete the record of it with the rest (a review).
-                if ActivityFlow.shared.marker.installed { Speech.speakMessage(text); return }
+                // Uninstall stays open to another go, and hand-overs aren't refused for the rest of the session (a review, 14 Nov 2026).
+                if ActivityFlow.shared.marker.installed { running = false; Speech.speakMessage(text); return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { removeEverything(keepSettings: keepSettings) }
             }
             return
