@@ -962,13 +962,16 @@ public enum ObjectFactory {
 public enum LiveRegions {
     private static var last: (String, Date) = ("", .distantPast)
 
-    /// The page's live regions (aria-live polite or assertive) and their words now. A walk of at most 1,500 elements,
-    /// not into a live region found.
-    static func snapshot(in root: AXUIElement) -> [(element: AXUIElement, text: String, assertive: Bool)] {
+    /// The page's live regions (aria-live polite or assertive) and their words now. A walk of at most 600 elements and
+    /// 50 ms, not into a live region found. It runs on main before every browse mode Enter and Space: up to 1,500
+    /// elements, two questions each, held the key on a long page (a review, 14 Nov 2026). A region past the limit is
+    /// still said when the browser posts its change; only Safari's silent ones (watchAfterPress) are missed there.
+    static func snapshot(in root: AXUIElement, limit: Int = 600, seconds: TimeInterval = 0.05) -> [(element: AXUIElement, text: String, assertive: Bool)] {
         var out: [(AXUIElement, String, Bool)] = []
-        var queue = [root], seen = 0
-        while !queue.isEmpty, seen < 1500 {
-            let e = queue.removeFirst(); seen += 1
+        var queue = [root], next = 0
+        let until = Date().addingTimeInterval(seconds)
+        while next < queue.count, next < limit, Date() < until {
+            let e = queue[next]; next += 1
             if let live = e.string("AXARIALive"), live == "polite" || live == "assertive" {
                 out.append((e, ElementMatcher.text(of: e), live == "assertive")); continue
             }

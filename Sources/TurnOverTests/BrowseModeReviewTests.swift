@@ -182,4 +182,26 @@ func browseModeReviewTests() {
         expect(BrowseModeDocument.backToBrowseModeHint(keyName: "TurnOver", windowsKeys: true), "TurnOver Space returns to browse mode")
         expect(BrowseModeDocument.backToBrowseModeHint(keyName: "VO", windowsKeys: false), "VO Q returns to browse mode")
     }
+
+    test("browse mode review: a copy found dead is a reload only at the address it was found at (a review, 14 Nov 2026)") {
+        let t = Date()
+        check(BrowseModeDocument.reloadMarkHolds((url: "https://example.com/a", at: t), url: "https://example.com/a", now: t.addingTimeInterval(2)), "Command R: the same address")
+        check(!BrowseModeDocument.reloadMarkHolds((url: "https://example.com/a", at: t), url: "https://example.com/b", now: t.addingTimeInterval(2)), "found dead as the next page loaded: not its reload")
+        check(!BrowseModeDocument.reloadMarkHolds((url: "https://example.com/a", at: t), url: "https://example.com/a", now: t.addingTimeInterval(31)), "too long ago")
+        check(!BrowseModeDocument.reloadMarkHolds(nil, url: "https://example.com/a", now: t), "no mark")
+        check(!BrowseModeDocument.reloadMarkHolds((url: "", at: t), url: "", now: t), "no address")
+    }
+
+    test("browse mode review: an address rewritten in place is told by its unchanged path (a review, 14 Nov 2026)") {
+        check(BrowseModeDocument.isSameDocumentPath("https://en.wikipedia.org/wiki/Boson", "https://en.wikipedia.org/wiki/Boson?wprov=srpw1_0"), "Wikipedia's wprov stripped")
+        check(BrowseModeDocument.isSameDocumentPath("https://example.com/a?id=1", "https://example.com/a?id=1&utm_source=x"), "utm_ stripped")
+        check(BrowseModeDocument.isSameDocumentPath("https://EXAMPLE.com/a?x=1#top", "https://example.com/a"), "a query and an anchor added")
+        check(!BrowseModeDocument.isSameDocumentPath("https://example.com/b", "https://example.com/a?x=1"), "another path")
+        check(!BrowseModeDocument.isSameDocumentPath("https://other.example/a", "https://example.com/a?x=1"), "another host")
+        check(!BrowseModeDocument.isSameDocumentPath("http://example.com/a", "https://example.com/a?x=1"), "another scheme")
+        check(!BrowseModeDocument.isSameDocumentPath("https://example.com/a#b", "https://example.com/a"), "an anchor only: isSamePage's")
+        check(!BrowseModeDocument.isSameDocumentPath("https://example.com/app?x=1#/inbox", "https://example.com/app#/inbox"), "a web app's route")
+        check(!BrowseModeDocument.isSameDocumentPath("https://example.com/a", "https://example.com/a"), "unchanged")
+        check(!BrowseModeDocument.isSameDocumentPath("https://example.com/a?x=1", ""), "the first look")
+    }
 }

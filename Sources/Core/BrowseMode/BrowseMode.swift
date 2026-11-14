@@ -123,10 +123,20 @@ public final class BrowseModeDocument: ScriptableObject {
     /// `byKey`: asked by a key (an arrow, a letter, Tab), not by the focus or the page's news. A new page found so is
     /// not announced later: its address taken as announced, the focus arriving on the web area much later announced it
     /// and read it all out, long after the key had read its line (a review, 13 Nov 2026).
+    /// `loadSeen`: the page's own AXLoadComplete came with this news (AXHandlerNotifications).
     @discardableResult
-    public func refreshIfNavigated(announce: Bool = false, byKey: Bool = true) -> Bool {
+    public func refreshIfNavigated(announce: Bool = false, byKey: Bool = true, loadSeen: Bool = false) -> Bool {
         let now = url
-        guard now != lastURL else { return false }
+        let loadSeen = loadSeen || AXHandler.shared.loadCompleteSeen
+        var lateNewPage = false
+        if now == lastURL {
+            // An address taken as rewritten in place (below) that turned out to be a new page after all: its copy dead,
+            // or its load finished with a reload noticed at it. Read as the new page it is.
+            guard let r = rewrittenInPlace, r.url == now, Date().timeIntervalSince(r.at) < 30,
+                  (!buffer.lines.isEmpty && pageIsGone()) || (loadSeen && reloadNoticed) else { return false }
+            Log.io("browse mode: the address rewritten in place was a new page after all")
+            rewrittenInPlace = nil; lateNewPage = true
+        }
         let first = lastURL.isEmpty
         // The same page, another anchor (a contents link, a footnote, "Jump to content"): to the target, read there,
         // not the page again from the top with its title (a review, 13 Nov 2026; NVDA moves to the target). Its anchor
@@ -165,10 +175,26 @@ public final class BrowseModeDocument: ScriptableObject {
             }
             return false
         }
+        // The page's script rewrote its own address (history.replaceState stripping utm_ or Wikipedia's &wprov=): the same
+        // scheme, host and path, the copy still alive and no load finished. Taken for a new page, its title was said
+        // again, a say all restarted and the reading put back at the top (a review, 14 Nov 2026). Not by Back or
+        // Forward, which come back to a page. Kept in mind for a while: if the copy dies or the page loads, it was one.
+        if !first, !lateNewPage, Self.isSameDocumentPath(now, lastURL), !loadSeen, !BrowseModeHandler.cameBackByHistory,
+           !buffer.lines.isEmpty, !pageIsGone() {
+            Log.io("browse mode: the page rewrote its address in place; the reading stays")
+            if announcedURL == lastURL { announcedURL = now }
+            if BrowseModeHandler.wasAnnounced(webArea, url: lastURL) { BrowseModeHandler.noteAnnounced(webArea, url: now) }
+            lastURL = now
+            rewrittenInPlace = (now, Date())
+            BrowseModeHandler.shared.remember(url: now, position: position, text: lineText(at: position))
+            return false
+        }
+        rewrittenInPlace = nil
         // A web app's view changed under focus mode (Gmail's o on a message: #inbox to #inbox/FM…): the user is working
         // in the app, so focus mode stays and the view is not announced or read from its top; only browse mode treats
         // it as a new page. Ended, focus mode was lost silently (a review, 13 Nov 2026).
         let keepFocusMode = !first && passThrough && Self.isRouteChange(now, lastURL)
+        let wasPassThrough = passThrough
         let wasEmpty = buffer.lines.isEmpty
         lastURL = now
         // Back or Forward counts for this arrival only: true for 10 s, it made a link followed after Back resume
@@ -197,6 +223,9 @@ public final class BrowseModeDocument: ScriptableObject {
                 singleLetterNavigation = true; lastFocusElement = nil
             }
             selectionAnchor = nil
+            // A mark of the page before found dead (read in the moment before this address came) is not a reload of
+            // this one (a review, 14 Nov 2026).
+            pageGone = nil
             // And the places kept for it: where it was before it emptied, a module's wish to enter it at its last
             // control, its line said instead of a say all. Left over, they placed or silenced the new page (a review,
             // 13 Nov 2026). A wish made in the last second, or while the page before was still empty (it never arrived:
@@ -215,7 +244,11 @@ public final class BrowseModeDocument: ScriptableObject {
         let at = resumeOffset(saved)
         position = at
         Log.io("browse mode: page \(Log.words(BrowseModeHandler.shortURL(now))) — resuming at \(position)\(saved == nil ? "" : " (saved \(saved!.offset))")")
-        if announce, !buffer.lines.isEmpty { announcePage() }
+        // Focus mode just ended for this page (Enter in Google's search box): the page's news found it with `announce`
+        // false, as it was asked while focus mode was still on, and neither announced it nor read its line; with no
+        // later focus from Safari, the new page was silent (a review, 14 Nov 2026).
+        let focusModeEnded = !first && !byKey && wasPassThrough && !keepFocusMode
+        if announce || focusModeEnded, !buffer.lines.isEmpty { announcePage() }
         else if !first, byKey, !buffer.lines.isEmpty { arrivedByKey() }
         GoogleDocs.checkSoon(self)
         if !first, buffer.lines.isEmpty, webArea.role != "AXWebArea" { followReplacedRoot(tries: 10) }
@@ -229,6 +262,16 @@ public final class BrowseModeDocument: ScriptableObject {
     package static func isSamePage(_ now: String, _ last: String) -> Bool {
         guard now != last, !now.isEmpty, !last.isEmpty, urlBase(now) == urlBase(last), now.contains("#") || last.contains("#") else { return false }
         return !isRoute(now) && !isRoute(last)
+    }
+    /// An address the page rewrote in place (refreshIfNavigated), and when.
+    var rewrittenInPlace: (url: String, at: Date)?
+    /// Whether `now` is `last` with only its query (or with it, its plain anchor) changed: the same scheme, host, port and
+    /// path; a route on either side is a web app's view, not this. Pure.
+    package static func isSameDocumentPath(_ now: String, _ last: String) -> Bool {
+        guard now != last, !now.isEmpty, !last.isEmpty, !isRoute(now), !isRoute(last),
+              let a = URLComponents(string: now), let b = URLComponents(string: last), a.scheme != nil, a.host != nil else { return false }
+        return a.scheme?.lowercased() == b.scheme?.lowercased() && a.host?.lowercased() == b.host?.lowercased()
+            && a.port == b.port && a.path == b.path && a.query != b.query
     }
     /// Whether `now` is another view of the web app at `last`: the same address before the "#", a route on either side.
     /// Pure.
@@ -346,7 +389,7 @@ public final class BrowseModeDocument: ScriptableObject {
             speakUnit(.line)
             return
         }
-        if BrowseModeHandler.wasAnnounced(webArea, url: url), Date().timeIntervalSince(pageGoneAt) > 30 {
+        if BrowseModeHandler.wasAnnounced(webArea, url: url), !reloadNoticed {
             Log.io("browse mode: back on a page announced before; its title and line are said, not a say all")
             let title = pageTitle()
             if !title.isEmpty { Speech.speakMessage(title) }
@@ -380,8 +423,21 @@ public final class BrowseModeDocument: ScriptableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// When a read of the page again found the copy's elements gone (`pageIsGone`): the page was reloaded.
-    var pageGoneAt = Date.distantPast
+    /// When a read of the page again found the copy's elements gone (`pageIsGone`), and the address then: the page was
+    /// reloaded, if it is still at that address. Marked by any read that finds the copy dead, so also by a read in the
+    /// moment before a new page's address arrives (Down while the next page loads, a press watch finishing as the page
+    /// goes): by time alone, that page's AXLoadComplete was taken for a reload, its say all stopped and its title said
+    /// twice, and Back to an announced page was read out whole (a review, 14 Nov 2026).
+    var pageGone: (url: String, at: Date)?
+    func markPageGone() { pageGone = (url, Date()) }
+    /// A reload noticed in the last 30 s, at the address the page is at now.
+    var reloadNoticed: Bool { Self.reloadMarkHolds(pageGone, url: url, now: Date()) }
+    /// Whether a mark of the copy found dead (`pageGone`) means a reload of the page at `url`: made at that address, in
+    /// the last 30 s. Pure, for the tests.
+    package static func reloadMarkHolds(_ mark: (url: String, at: Date)?, url: String, now: Date) -> Bool {
+        guard let mark, !url.isEmpty, mark.url == url else { return false }
+        return now.timeIntervalSince(mark.at) < 30
+    }
 
     /// The page finished loading at the same address (AXLoadComplete, from AXHandlerNotifications): read again keeping
     /// the place; and if it was a reload (Command R: the same address and web area, every element made anew), its title
@@ -389,8 +445,8 @@ public final class BrowseModeDocument: ScriptableObject {
     /// (a review, 13 Nov 2026).
     public func pageLoadCompleted() {
         // A reload is told by the copy's elements gone, asked before anything is read again.
-        if !buffer.lines.isEmpty, pageIsGone() { pageGoneAt = Date() }
-        guard Date().timeIntervalSince(pageGoneAt) < 30 else {
+        if !buffer.lines.isEmpty, pageIsGone() { markPageGone() }
+        guard reloadNoticed else {
             // Only changed: not read again under a say all of this page (its offsets would mean other text), nor more
             // often than a key may (a slow page held the main thread, a review, 13 Nov 2026). The next key reads it.
             if SayAll.isReading(self) || !mayRebuildNow() {
@@ -416,9 +472,9 @@ public final class BrowseModeDocument: ScriptableObject {
     /// reads the page again at its end, once, and clears this.
     var loadedUnderSayAll: Int?
 
-    /// A reload noticed (pageGoneAt): said by its title, as a page arriving says it.
+    /// A reload noticed (pageGone): said by its title, as a page arriving says it.
     func sayReloaded() {
-        pageGoneAt = .distantPast
+        pageGone = nil
         Log.io("browse mode: the page was reloaded; read again at \(position)")
         guard !passThrough else { return }
         let title = pageTitle()
@@ -451,7 +507,7 @@ public final class BrowseModeDocument: ScriptableObject {
         VoiceOverSounds.play("WebAreaLoaded.aiff")   // VoiceOver's "web area loaded", the sound its list has for a page
         Log.io("browse mode: page arrived — resuming at \(position)\(kept ? " (where it was before it emptied)" : saved == nil ? "" : " (saved \(saved!.offset))")")
         if announce, url != announcedURL { announcePage(); return true }
-        if kept, announce, Date().timeIntervalSince(pageGoneAt) < 30 { sayReloaded() }   // a reload read mid-way: said, not silent
+        if kept, announce, reloadNoticed { sayReloaded() }   // a reload read mid-way: said, not silent
         // Not announced here: the line-instead-of-say-all placeOnArrival may have set was for this arrival only; left
         // set, it silenced the say all of a later page (a review, 13 Nov 2026).
         noAutoRead = false
