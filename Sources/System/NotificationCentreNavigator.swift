@@ -55,6 +55,10 @@ package enum NotificationCentreNavigator {
     /// The item's place in its app, so one of two notifications with the same words is told apart (both used to
     /// resolve to the first, and Down stuck there: a review, 13 Nov 2026), and a closed one's neighbour is next.
     private static var itemIndex: Int?
+    /// Until a close's landing (half a second after it): the remembered place is where TurnOver is, as the review
+    /// element has gone and Notification Centre's moved focus isn't the next one. A second Delete in that time closed
+    /// whatever the focus moved to (a review, 13 Nov 2026).
+    private static var closeLandingUntil = Date.distantPast
     /// Inside a widget (Return or Space on it): its lines, read with Up and Down, as on the desktop; Return or Space
     /// opens its app at the line, Escape comes back out (a tester, 13 Nov 2026).
     private static var widget: (name: String, lines: [DesktopNavigator.Line], index: Int)?
@@ -325,7 +329,7 @@ package enum NotificationCentreNavigator {
     static func close() {
         let gs = groups()
         guard !gs.isEmpty else { return }
-        let (g, i) = place(in: gs)
+        let (g, i) = place(in: gs, useCursor: Date() >= closeLandingUntil)
         let item = gs[g].items[min(i, gs[g].items.count - 1)]
         let action = item.kind == .stack ? "Clear All" : "Close"
         guard item.kind == .notification || item.kind == .stack, let full = customAction(item.element, named: action) else { Tones.edge(); return }
@@ -336,6 +340,7 @@ package enum NotificationCentreNavigator {
         Speech.speakMessage(item.kind == .stack ? String(localized: "\(gs[g].name) cleared", comment: "An app's notifications cleared: %@ is the app") : String(localized: "closed", comment: "A notification closed"))
         // The closed one's place: what moved up into it is next. The cursor's element has gone, so it isn't found.
         groupName = gs[g].name; itemIndex = i; itemWords = nil
+        closeLandingUntil = Date().addingTimeInterval(0.6)   // past the landing: it remembers where it landed
         // On to what is there now, once the panel has settled.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             let now = groups()
