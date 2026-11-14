@@ -419,6 +419,21 @@ open class EditableText: TurnOverObject {
                     caretMoved(speak: .word, gesture: gesture, info: next)
                     return
                 }
+                // No word after it: the punctuation ending the text is the next stop, said at once. It took three
+                // presses, "dog", "dog" again, then "question mark" (a tester, 14 Nov 2026).
+                if target >= limit {
+                    var e = n.start
+                    while e < limit, e - n.start < 10, let c = n.textRange(e, e + 1).first, !c.isWhitespace, !isWordChar(String(c)) { e += 1 }
+                    if e > n.start {
+                        let marks = n.textRange(n.start, e)
+                        let after = type(of: n).init(obj: n.obj, start: e, end: e)
+                        after.updateCaret()
+                        _ = hasCaretMoved(from: n.bookmark)
+                        caretMoved(speak: nil, gesture: gesture, info: after)
+                        Speech.speakMessage(marks.map { Symbols.name(of: $0) }.joined(separator: " "))
+                        return
+                    }
+                }
             }
             if isWordChar(n.textRange(n.start - 1, n.start)), !isWordChar(n.textRange(n.start, n.start + 1)) {
                 caretMoved(speak: nil, gesture: gesture, info: n)

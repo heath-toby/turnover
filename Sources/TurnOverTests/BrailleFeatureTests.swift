@@ -41,6 +41,14 @@ func brailleMapTests() {
         expect(BrailleOutput.fillInvalid([-1, 0], length: 1), [0, 0])
         expect(BrailleOutput.fillInvalid([], length: 0), [])
     }
+    test("Word selection: the parts on each page joined into one") {
+        let parts: [Int: (Int, Int)] = [0: (0, 79), 1: (79, 95)]
+        let p = { (j: Int) in parts[j] }
+        expect(WordSelection.joined((79, 95), page: 1, pages: 2, part: p) == (0, 95), true, "Command-A: the last page's part and page 1's")
+        expect(WordSelection.joined((0, 79), page: 0, pages: 2, part: p) == (0, 95), true, "from page 1")
+        let gap: [Int: (Int, Int)] = [0: (10, 20), 1: (79, 95)]
+        expect(WordSelection.joined((79, 95), page: 1, pages: 2, part: { gap[$0] }) == (79, 95), true, "a part that doesn't meet it: not joined")
+    }
     test("Word lines: a line running two characters late is put back on the row it is drawn on") {
         // "ab⏎" then a paragraph drawn ten characters to a row; Word's lines start two characters late, and the
         // paragraph's first two characters are lines of their own (Dead Souls, 14 Nov 2026).

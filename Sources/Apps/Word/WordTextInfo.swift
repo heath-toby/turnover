@@ -12,8 +12,20 @@ final class WordTextInfo: AXTextInfo {
         return neighbourSelection().map { $0.location + $0.length }
     }
     override func selectionOffsets() -> (Int, Int)? {
-        if let s = super.selectionOffsets() { return s }
-        return neighbourSelection().map { ($0.location, $0.location + $0.length) }
+        guard let s = super.selectionOffsets() ?? neighbourSelection().map({ ($0.location, $0.location + $0.length) }) else { return nil }
+        guard s.1 > s.0 else { return s }
+        // Each page area answers with its own part of a selection over several pages: after Command-A, the last page
+        // said only its own text and what page 1 had was "unselected" (a tester, 14 Nov 2026). The parts joined.
+        let shared = textElement.elements("AXSharedTextUIElements")
+        guard shared.count > 1 else { return s }
+        func part(_ j: Int) -> (Int, Int)? {
+            guard let r = cfRange(shared[j].attr(kAXSelectedTextRangeAttribute)), r.location != Int.max, r.location >= 0 else { return nil }
+            return (r.location, r.location + r.length)
+        }
+        // The page the part came from: this one, or the neighbour the caret crossed to (identity checks cost nothing).
+        guard let i = shared.firstIndex(where: { $0.isSame(textElement) }),
+              let here = [i, i + 1, i - 1].first(where: { shared.indices.contains($0) && part($0).map { $0 == s } == true }) else { return s }
+        return WordSelection.joined(s, page: here, pages: shared.count, part: part)
     }
     /// The pages before and after this one, when the caret has moved off it.
     private func neighbourSelection() -> CFRange? {
@@ -137,6 +149,19 @@ final class WordTextInfo: AXTextInfo {
 }
 
 /// Word's lines as drawn (pure, tested).
+package enum WordSelection {
+    /// A selection's part on page `page` joined with the parts on the pages either side that meet it end to start.
+    /// Bounded at 500 pages each way.
+    package static func joined(_ s: (Int, Int), page: Int, pages: Int, part: (Int) -> (Int, Int)?) -> (Int, Int) {
+        var a = s.0, b = s.1
+        var j = page - 1
+        while j >= 0, page - j <= 500, let p = part(j), p.1 > p.0, p.1 == a { a = p.0; j -= 1 }
+        j = page + 1
+        while j < pages, j - page <= 500, let p = part(j), p.1 > p.0, p.0 == b { b = p.1; j += 1 }
+        return (a, b)
+    }
+}
+
 package enum WordLines {
     /// Word's line checked against where it draws the text, and the row it is really on if they differ. In some
     /// documents (Dead Souls, a Word 97 file in compatibility mode, 14 Nov 2026) Word's lines run two characters late:
