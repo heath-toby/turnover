@@ -654,6 +654,9 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
     /// and so on) instead of two moves. Held keys repeat as moves. nil: not Quick Nav's; otherwise swallowed.
     private func quickNavArrow(_ type: CGEventType, _ event: CGEvent, _ code: Int64, _ settings: KeySettings) -> Unmanaged<CGEvent>?? {
         guard let name = Self.arrowNames[code], type == .keyDown || type == .keyUp else { return nil }
+        // The key itself is wanted (pass next key; the keyboard commands editor or MenuAnywhere waiting for a key): the
+        // press goes the usual way, where InputManager hands it on or captures it (a review, 14 Nov 2026).
+        if type == .keyDown, InputManager.passNextKey || InputManager.isCapturing { return nil }
         if type == .keyUp {
             if code == arrowDownWhileOff { arrowDownWhileOff = nil }
             guard code == arrowHeld else { return nil }   // the chord's second arrow is let go through `quarantined`
@@ -705,6 +708,9 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         }
         // A new press: one kept from an earlier press whose release went by unseen must not swallow this one's.
         if event.getIntegerValueField(.keyboardEventAutorepeat) == 0 { keypadTaken.remove(code) }
+        // Pass next key and a key capture (the keyboard commands editor, MenuAnywhere) want the key itself: it goes the
+        // usual way, where InputManager hands it on or captures it (a review, 14 Nov 2026).
+        if InputManager.passNextKey || InputManager.isCapturing { keypadZeroDown = false; return nil }
         let f = event.flags
         let vo = f.contains(.maskControl) && f.contains(.maskAlternate)
         let windows = s.windowsKeys
@@ -721,8 +727,8 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             return taken()
         }
         guard windows ? s.keypadCommands : s.numpadCommander else { keypadZeroDown = false; return nil }
-        // Pass next key, sleep mode and TurnOver's own screens take the keypad as any other key (the code review).
-        if InputManager.passNextKey || InputManager.isAsleep(bundle: WindowsRemap.front) { keypadZeroDown = false; return nil }
+        // Sleep mode and TurnOver's own screens take the keypad as any other key (the code review); pass next key above.
+        if InputManager.isAsleep(bundle: WindowsRemap.front) { keypadZeroDown = false; return nil }
         if !windows, vo { return nil }   // VO-Clear and other VO keys: the usual way
         // Keypad 0 held is the keypad's modifier (VoiceOver's 0 layer; NVDA's numpad Insert).
         if code == Keypad.zero { keypadZeroDown = true; return taken() }
