@@ -606,6 +606,12 @@ public final class SettingsPanePlugin: GlobalPlugin {
             if r != .success { g.send() } else { SystemPrompts.checkPress(of: b, name: ObjectFactory.make(b).name) }
         }.isAvailable = { Self.returnWouldMissFocus && !AXHandler.shared.isMenuOpen }   // (a menu's Return is the menu's, a review, 14 Nov 2026)
         script("settings_pressHeld", String(localized: "In a settings pane: presses the control TurnOver is holding", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:space", "kb:enter"], category: "Settings") { [weak self] g in self?.pressHeld(g) }.isAvailable = { Self.holdingFocus }
+        script("settings_closePopover", String(localized: "In a popover TurnOver went into: closes it, back to the control that opened it", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:escape"], category: "Settings") { [weak self] g in self?.closeHeldPopover(g) }.isAvailable = {
+            guard Self.holdingFocus, let v = Self.virtual else { return false }
+            var p: AXUIElement? = v, hops = 0
+            while let x = p, hops < 12 { if x.role == "AXPopover" { return true }; p = x.element(kAXParentAttribute); hops += 1 }
+            return false
+        }
         // A grid's arrows (Chess's board): Up and Down a row, Left and Right a column.
         let inGrid = { Self.holdingFocus && Self.virtual.flatMap { Self.rowList(of: $0) }.map { Self.gridColumns($0.container) != nil } == true }
         for (name, key, dir) in [("grid_up", "kb:upArrow", -1), ("grid_down", "kb:downArrow", 1), ("grid_left", "kb:leftArrow", -2), ("grid_right", "kb:rightArrow", 2)] {
@@ -930,6 +936,54 @@ public final class SettingsPanePlugin: GlobalPlugin {
                 }
             }
             if ["AXCheckBox", "AXRadioButton"].contains(v.role) { DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { Speech.speakCheckState(of: v) } }
+            // A popover the press opened (FaceTime's More, 14 Nov 2026): TurnOver's place goes into it, on its first
+            // control, as the focus would in a Mac app; Tab then goes round inside it, and Escape closes it.
+            if let window, !["AXCheckBox", "AXRadioButton"].contains(v.role) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    guard Self.virtual.map({ CFEqual($0, v) }) == true, let pop = Self.popover(in: window), let first = Self.firstControl(in: pop) else { return }
+                    Log.io("settings: the press opened a popover; into it")
+                    Self.popoverOpener = v
+                    Self.holdVirtual(first)
+                }
+            }
+        }
+    }
+    /// The control that opened the popover TurnOver's place is in, to go back to when it closes.
+    static var popoverOpener: AXUIElement?
+    /// A popover in the window (at most 300 parts looked at, eight deep).
+    static func popover(in window: AXUIElement) -> AXUIElement? {
+        var queue: [(AXUIElement, Int)] = [(window, 0)], seen = 0
+        while !queue.isEmpty, seen < 300 {
+            let (e, d) = queue.removeFirst(); seen += 1
+            if e.role == "AXPopover" { return e }
+            if d < 8 { queue += e.elements(kAXChildrenAttribute).map { ($0, d + 1) } }
+        }
+        return nil
+    }
+    /// The first control inside a container, in reading order.
+    static func firstControl(in c: AXUIElement) -> AXUIElement? {
+        let controls: Set<String> = ["AXButton", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXMenuButton", "AXSlider", "AXTextField", "AXMenuItem", "AXLink"]
+        var queue = c.elements(kAXChildrenAttribute), seen = 0
+        while !queue.isEmpty, seen < 200 {
+            let e = queue.removeFirst(); seen += 1
+            if controls.contains(e.role) { return e }
+            queue.insert(contentsOf: e.elements(kAXChildrenAttribute), at: 0)
+        }
+        return nil
+    }
+    /// Escape in a popover TurnOver went into: closed (its Cancel action), and back to the control that opened it.
+    private func closeHeldPopover(_ g: KeyboardGesture) {
+        guard let v = Self.virtual else { g.send(); return }
+        var p: AXUIElement? = v, hops = 0
+        while let x = p, hops < 12, x.role != "AXPopover" { p = x.element(kAXParentAttribute); hops += 1 }
+        guard let pop = p, pop.role == "AXPopover" else { g.send(); return }
+        let r = AXUIElementPerformAction(pop, "AXCancel" as CFString)
+        Log.io("settings: Escape in a popover → \(describeError(r))")
+        if r != .success { g.send() }
+        let back = Self.popoverOpener
+        Self.popoverOpener = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            if let back, back.role != "?" { Self.holdVirtual(back) } else { Self.dropDeadHold() }
         }
     }
     /// A held place on a control the app has since thrown away (a pane rebuilt): let go, and back to the app's focus.
