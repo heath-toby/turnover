@@ -125,6 +125,9 @@ public enum InputManager {
             DispatchQueue.main.async { capture(gesture.keyName == "escape" && gesture.modifiers.isEmpty ? nil : gesture) }
             return true
         }
+        // Its repeats are swallowed too: an arrow held while moving a window (VoiceOverKeysPlugin.adjust) went on to
+        // the app (a review, 14 Nov 2026).
+        if captureNext != nil, gesture.isRepeat { return true }
         lastKeyIdentifier = gesture.identifier
         // A shortcut may have opened a panel in an app TurnOver isn't watching (a launcher's hotkey): looked for after.
         if !gesture.modifiers.intersection([.command, .control, .option]).isEmpty, !gesture.modifiers.contains(.turnover),
@@ -168,7 +171,10 @@ public enum InputManager {
         // field ("Password, password edit") while macOS left the keyboard in Mail: the password went into an e-mail
         // (5 Oct 2026). A typed key, Backspace or Return while TurnOver's focus is a password field in an application
         // that does not have the keyboard is held back, and TurnOver tries again to give that field the keyboard.
-        if typing || ["backspace", "enter", "numpadEnter"].contains(gesture.keyName), gesture.modifiers.subtracting(.shift).isEmpty,
+        // A typed key whatever its modifiers: Option types too (@ on German layouts, €, |), and typedCharacter already
+        // leaves out Command, Control and the TurnOver key (a review, 14 Nov 2026). Backspace and Return with Shift alone.
+        let editKey = ["backspace", "enter", "numpadEnter"].contains(gesture.keyName)
+        if editKey ? gesture.modifiers.subtracting(.shift).isEmpty : typing,
            let f = API.focusObject, f.role == .passwordEdit, let front = NSWorkspace.shared.frontmostApplication?.processIdentifier,
            front != f.element.pid {
             Log.io("input held back: TurnOver's focus is a password field in pid \(f.element.pid), the keyboard is with pid \(front)")

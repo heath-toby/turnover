@@ -67,6 +67,8 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
     /// Keys whose press went on to the app and whose release hasn't been seen: a later repeat TurnOver takes must not
     /// swallow that release, or the app sees the key held (a review, 13 Nov 2026).
     private var passedDown = Set<Int64>()
+    /// TurnOver chords dropped during the watchdog's bypass, whose release is dropped too.
+    private var bypassDropped = Set<Int64>()
     /// Keys translated on the way down (the Windows style), and what each became: its release is given the same.
     private var remapped: [Int64: KeyTranslation] = [:]
     private var echoCode: Int64 = -1
@@ -210,7 +212,7 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         layer = mine
         // Nothing carried over from the tap before (a restart after the watchdog): a code still in `quarantined`
         // would swallow the next real key-up, and the app would see a key held down (a code review, 14 Oct 2026).
-        quarantined.removeAll(); passedDown.removeAll(); remapped.removeAll(); keypadTaken.removeAll(); capsDown = false; chordFired = false; keypadZeroDown = false
+        quarantined.removeAll(); passedDown.removeAll(); bypassDropped.removeAll(); remapped.removeAll(); keypadTaken.removeAll(); capsDown = false; chordFired = false; keypadZeroDown = false
         arrowDownWhileOff = nil
         Self.capsHeld.value = false
         loneControl.cancel(); loneShift.cancel(); loneOption.cancel(); loneCommand.cancel()
@@ -307,8 +309,13 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
         // While the watchdog's bypass is on, Caps Lock's release is still seen: only that it is up, no double tap or
         // lock. Ignored, the TurnOver key stayed held after the bypass, and every key became a TurnOver chord (a
         // review, 14 Nov 2026).
+        // Its press is tracked too, so a TurnOver chord made during a long hang is dropped, not typed (Caps L typed
+        // "l"), and the real Caps Lock is held where it was: each press toggled it, and after recovery everything was
+        // in capitals (a review, 14 Nov 2026). No double tap or lock.
         if Self.bypass {
             if IOHIDValueGetIntegerValue(value) == 0 { capsDown = false; Self.capsHeld.value = false; lastCapsUp = 0 }
+            else if KeySettings.current.capsIsTurnOver { capsDown = true; chordFired = false; Self.capsHeld.value = true }
+            if KeySettings.current.capsIsTurnOver { setLock(realCapsOn) }
             return
         }
         // Caps Lock is an ordinary key when the TurnOver key is Control+Option alone.
@@ -406,8 +413,20 @@ nonisolated final class KeyboardHandler: @unchecked Sendable {
             // Their key-ups pass now, untouched: none must be swallowed or translated later, and a held Quick Nav
             // arrow is no longer held (remapped and arrowHeld were kept: a review, 13 Nov 2026).
             forgetHeldKeys()
+            // A TurnOver chord (Caps held) is dropped, its release and repeats with it, as askMain's stuckDecision
+            // drops it in the first seconds: passed, Caps L typed "l" through a 10 s hang (a review, 14 Nov 2026).
+            if type == .keyDown || type == .keyUp {
+                let code = event.getIntegerValueField(.keyboardEventKeycode)
+                if type == .keyUp { return bypassDropped.remove(code) != nil ? nil : Unmanaged.passUnretained(event) }
+                if bypassDropped.contains(code) { return nil }
+                if capsDown, case .taken = ScriptHandler.stuckDecision(for: KeyboardGesture(keyCode: code, modifiers: [.turnover], characters: "", timestamp: 0, isRepeat: false, flags: event.flags), turnOverKeyLocked: InputManager.turnOverKeyLocked) {
+                    bypassDropped.insert(code); return nil
+                }
+            }
             return Unmanaged.passUnretained(event)
         }
+        // A chord dropped in the bypass, let go after it ended: its release is dropped too (a review, 14 Nov 2026).
+        if type == .keyUp, !bypassDropped.isEmpty, bypassDropped.remove(event.getIntegerValueField(.keyboardEventKeycode)) != nil { return nil }
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             Log.warning("keyboard: tap disabled (\(type.rawValue)), re-enabling")
             if let t = tap { CGEvent.tapEnable(tap: t, enable: true) }

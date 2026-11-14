@@ -695,8 +695,22 @@ public enum ArrowQuickNav {
 
     /// One arrow, let go without another joining it. Not Quick Nav's here after all: the key goes to the app.
     public static func single(_ key: String) {
+        guard !handedElsewhere([key]) else { return }
         guard isActiveHere else { KeyboardGesture(identifier: "kb:\(key)")?.send(); return }
         run(key)
+    }
+
+    /// The arrows wanted elsewhere since the keyboard thread last looked (arrowsElsewhere is a quarter second behind):
+    /// the keys go the usual way. An arrow just after VO-M, Find or a recognition result went to Quick Nav (a review,
+    /// 14 Nov 2026).
+    private static func handedElsewhere(_ keys: [String]) -> Bool {
+        guard arrowsWantedElsewhere else { return false }
+        for key in keys {
+            guard let g = KeyboardGesture(identifier: "kb:\(key)") else { continue }
+            if !InputManager.handleKeyDown(g) { g.send() }
+        }
+        refresh()
+        return true
     }
 
     static func run(_ key: String) {
@@ -721,6 +735,7 @@ public enum ArrowQuickNav {
 
     /// Two arrows pressed together, in either order.
     public static func chord(_ a: String, _ b: String) {
+        guard !handedElsewhere([a, b]) else { return }
         let pair = Set([a, b])
         Log.io("Quick Nav chord: \(pair.sorted().joined(separator: " and "))")
         let page = API.focusTreeInterceptor.flatMap { $0.passThrough ? nil : $0 }
