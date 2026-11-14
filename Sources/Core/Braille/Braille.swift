@@ -690,7 +690,8 @@ public enum Braille {
         if TurnOverMenu.shared.isOpen {
             let key: String? = {
                 switch key {
-                case .routing: return "enter"
+                // Only over the item's own cells: a stray key over the blanks after "Remove" removed the plugin.
+                case .routing(let i): if windowStart + i >= cells.count || messageUntil != nil { Tones.edge(); return nil }; return "enter"
                 case .key(let name):
                     switch keyMap[name] {
                     case "previousLine": return "upArrow"
@@ -876,7 +877,7 @@ public enum Braille {
     private static func startAutoScroll() {
         autoScroll?.invalidate()
         autoScroll = Timer.scheduledTimer(withTimeInterval: config.braille.autoScrollSeconds, repeats: true) { _ in
-            MainActor.assumeIsolated { if display != nil { pan(forward: true, fromTimer: true) } else { autoScroll?.invalidate(); autoScroll = nil } }
+            MainActor.assumeIsolated { if display != nil { if messageUntil == nil { pan(forward: true, fromTimer: true) } } else { autoScroll?.invalidate(); autoScroll = nil } }
         }
     }
     public static func autoScrollRate(faster: Bool) {
@@ -905,19 +906,20 @@ public enum Braille {
         guard case .text = source else {
             if !fromTimer, case .object(let o) = source, [.tableRow, .listItem, .treeViewItem, .cell, .tableCell].contains(o.role),
                !inGrid(o) {
-                if !forward { objectEndWanted = Date() }
+                objectEndWanted = forward ? nil : Date()
                 press(forward ? "downArrow" : "upArrow")
                 // The list's end: nothing moved, so the edge sound, as before.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    if case .object(let now) = source, now.isSameElement(as: o) { Tones.edge() }
+                    if case .object(let now) = source, now.isSameElement(as: o) { Tones.edge(); objectEndWanted = nil }
                 }
                 return
             }
-            // Auto scroll at an item's end: stopped, not an edge sound every few seconds for ever.
-            if fromTimer { autoScroll?.invalidate(); autoScroll = nil; Speech.speakMessage(String(localized: "auto scroll off", comment: "Spoken message")); return }
+            // Auto scroll at an item's end: stopped, not an edge sound every few seconds for ever. (Only an item's: a
+            // message showing waits, above, and auto scroll went off three seconds after "auto scroll on".)
+            if fromTimer, { if case .message = source { return false }; return true }() { autoScroll?.invalidate(); autoScroll = nil; Speech.speakMessage(String(localized: "auto scroll off", comment: "Spoken message")); return }
             Tones.edge(); return
         }
-        line(forward ? 1 : -1, toEnd: !forward)
+        line(forward ? 1 : -1, toEnd: !forward, fromTimer: fromTimer)
     }
 
     /// The keyboard key a display key stands for, run as if pressed: TurnOver's own script for it, or the app's.
@@ -928,12 +930,16 @@ public enum Braille {
 
     /// Move the caret a line, and say it. On an item rather than
     /// text (Mail's message list, a menu), up and down move to the previous or next item, as VoiceOver's do.
-    private static func line(_ direction: Int, toEnd: Bool = false) {
+    private static func line(_ direction: Int, toEnd: Bool = false, fromTimer: Bool = false) {
         guard case .text(let info, _) = source else { press(direction > 0 ? "downArrow" : "upArrow"); return }
         let r = info.copy()
         r.collapse()
         let unit: TextUnit = config.braille.readByParagraph ? .paragraph : .line
-        guard r.move(unit, direction) != 0 else { Tones.edge(); return }
+        guard r.move(unit, direction) != 0 else {
+            // Auto scroll at the end of the text: stopped, not an edge sound every few seconds (a review, 14 Nov 2026).
+            if fromTimer { autoScroll?.invalidate(); autoScroll = nil; Speech.speakMessage(String(localized: "auto scroll off", comment: "Spoken message")); return }
+            Tones.edge(); return
+        }
         // The caret follows the display (Panning moves the cursor), so the arrows carry on from the line read on the
         // display, not from where reading began (VoiceOver left the caret behind: a tester, 21 Oct 2026).
         switch panFollow(setting: config.braille.panMovesCaret, tether: config.braille.tether) {

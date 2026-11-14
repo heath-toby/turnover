@@ -195,8 +195,13 @@ public enum ScriptHandler {
                 Log.warning("keyboard: \(handled.logDescription()) answered after \(Int(ms)) ms: \(taken ? "its script runs now" : "sent on to the application now")")
                 // Posted, not sent at once: an earlier late key's script (Backspace) is queued on main ahead of it, and
                 // this key went to the app first ("teh" stayed "teh": a review, 14 Nov 2026).
-                if !taken { DispatchQueue.main.async { handled.send() } }
-                outstandingLate.lock.lock(); outstandingLate.unsafeValue -= 1; outstandingLate.lock.unlock()
+                // The count comes down in the same posted block, after the send (and after a taken key's script,
+                // queued before it): counted down at once, a key typed in between wasn't held behind it and reached
+                // the app first ("ba" for "ab": a review, 14 Nov 2026).
+                DispatchQueue.main.async {
+                    if !taken { handled.send() }
+                    outstandingLate.lock.lock(); outstandingLate.unsafeValue -= 1; outstandingLate.lock.unlock()
+                }
             } else { done.signal() }
         } }
         if behindLate { return (.deferred, false) }

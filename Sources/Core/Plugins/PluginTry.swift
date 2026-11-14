@@ -86,6 +86,12 @@ public enum PluginTry {
         if destructive.map({ normalizeGestureIdentifier("kb:" + $0) }).contains(id) { return "\(s) quits, closes or deletes" }
         if PluginPolicy.refusedSentKeys.map({ normalizeGestureIdentifier("kb:" + $0) }).contains(id) { return "\(s) reaches outside the app or uses the clipboard" }
         let m = g.modifiers, k = g.keyName.lowercased()
+        if k == "tab", m.contains(.command), m.contains(.option) { return "\(s) opens TurnOver's application chooser" }
+        // In the Windows style Control letters are the Mac's Command ones (Control V pastes): checked as those.
+        if KeySettings.current.windowsKeys, m.contains(.control), !m.contains(.command), ["c", "x", "v", "a", "z", "s", "o", "n", "p", "f", "w", "t"].contains(k) {
+            let asCommand = s.replacingOccurrences(of: "control", with: "command", options: .caseInsensitive)
+            if let why = refusal(asCommand) { return "\(s) (Command in the Windows style): \(why)" }
+        }
         if m.contains(.command) && m.contains(.control) { return "\(s): Command Control keys are TurnOver's own and the Mac's" }
         if k == "escape", m.contains(.control), m.contains(.shift) { return "\(s) opens Force Quit" }
         if m.contains(.command) && m.contains(.option) && m.contains(.shift) { return "\(s) reaches the whole Mac" }
@@ -162,6 +168,7 @@ public enum PluginTry {
         // The last moment the tried app was seen in front: what was said after it (another app, the person's own
         // reading) isn't the AI's to see (a review, 14 Nov 2026). Checked as each step starts, a wait's end included.
         var lastOnTarget = started
+        var lastKeyAt = started
         func onTarget() -> Bool { NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier }
         func step(_ i: Int) {
             guard onTarget() else {
@@ -170,9 +177,14 @@ public enum PluginTry {
             }
             // TurnOver's own menus, choosers and navigators never take the front, so the app check passes while one is
             // open, and the keys drove it: Force Quit, Quit TurnOver (a review, 14 Nov 2026). Stopped before each key.
-            if TurnOverMenu.shared.isOpen || FindPrompt.shared.isOpen || DesktopNavigator.active || MenuNavigationPlugin.heldBar != nil {
+            if TurnOverMenu.shared.isOpen || FindPrompt.shared.isOpen || DesktopNavigator.active || MenuNavigationPlugin.heldBar != nil
+                || MenuNavigationPlugin.heldStatus != nil || NotificationCentrePanel.isOpen || NotificationCentreNavigator.active {
                 Log.info("plugin try: TurnOver's own menu or navigator opened; stopped after \(i) steps")
-                done(stopped: "stopped after \(i) of \(steps.count) steps: a key opened TurnOver's own menu or navigator, which keys from an AI may not drive"); return
+                // What it said (notifications, other apps' windows) isn't the AI's: cut before the key that opened it,
+                // and the menu put away again (a review, 14 Nov 2026).
+                lastOnTarget = lastKeyAt
+                if TurnOverMenu.shared.isOpen { TurnOverMenu.shared.close() }
+                done(stopped: "stopped after \(i) of \(steps.count) steps: a key opened TurnOver's own menu or navigator, which keys from an AI may not drive", cut: true); return
             }
             lastOnTarget = Date()
             guard i < steps.count else {
@@ -186,15 +198,24 @@ public enum PluginTry {
                 return
             }
             // Only into the app it was asked for: if the person switched away, it stopped above.
+            // A TurnOver key, checked by the command it runs here: reading keys are fine, but not ones that quit the
+            // reader, turn speech off, copy, or open TurnOver's menus, lists and notifications (a review, 14 Nov 2026).
+            if let g = KeyboardGesture(identifier: normalizeGestureIdentifier("kb:" + s)), g.modifiers.contains(.turnover),
+               let name = ScriptHandler.findScript(for: g)?.name.lowercased(),
+               ["quit", "copy", "clipboard", "menu", "notification", "speechmode", "sleep", "curtain", "chooser", "desktop", "force", "uninstall", "statusmenus", "dock", "plugin"].contains(where: { name.contains($0) }) {
+                Log.info("plugin try: \(s) runs TurnOver's \(name); stopped")
+                done(stopped: "stopped after \(i) of \(steps.count) steps: \(s) runs TurnOver's own \(name), which keys from an AI may not"); return
+            }
+            lastKeyAt = Date()
             if let g = KeyboardGesture(identifier: normalizeGestureIdentifier("kb:" + s)) { KeyboardGesture.typedPoster?(g) }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { step(i + 1) }
         }
-        func done(stopped: String? = nil) {
+        func done(stopped: String? = nil, cut: Bool = false) {
             var stopped = stopped
             let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
             // Still in front: everything up to now. Gone: only up to the last time it was seen in front (a review, 14 Nov 2026).
             let onApp = front == app.processIdentifier
-            let until = onApp ? Date() : lastOnTarget
+            let until = onApp && !cut ? Date() : lastOnTarget
             if !onApp, stopped == nil { stopped = "\(name) was no longer in front at the end; only what was said before is kept" }
             let said = Speech.history.value.filter { $0.at >= started && $0.at <= until }.map(\.text)
                 .filter { $0 != Self.tryingWords(name) }

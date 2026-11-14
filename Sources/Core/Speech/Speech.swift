@@ -410,7 +410,10 @@ public enum Speech {
         if reason == .focus, let until = dropForFocusUntil {
             dropForFocusUntil = nil
             if Date() < until, !words.isEmpty {
-                cancel(); Log.io("focus moved on at once: the speech for the focus before it dropped")
+                // The cut belongs to the words before, not these new ones (marked cut, a repeat of them was said again).
+                let cut = lastFocusWordsCut
+                cancel(); lastFocusWordsCut = cut
+                Log.io("focus moved on at once: the speech for the focus before it dropped")
                 // The window or dialog just entered isn't the focus before: it is where the new one is. The logout
                 // dialog's question was cut off 20 ms in by its focus going checkbox, Cancel, checkbox as it opened (a
                 // tester, 12 Nov 2026: neither its title nor its words were heard). Said again, ahead of the focus.

@@ -114,6 +114,9 @@ public final class FindPrompt {
         if ["AXTable", "AXOutline", "AXList"].contains(here.role), let row = here.elements(kAXSelectedRowsAttribute).first { here = row }
         let needle = s.lowercased()
         let from = here   // fixed for the walk
+        // Where the person was: a result that comes after they moved on (Command Tab, Down) is only logged; it
+        // selected a Mail message and spoke over Safari (a review, 14 Nov 2026).
+        let keyAt = InputManager.lastKeyDownAt, pidAt = AXHandler.shared.activePid
         walkQueue.async {
             let deadline = Date().addingTimeInterval(3)
             let names = [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute, kAXChildrenAttribute] as CFArray
@@ -174,6 +177,7 @@ public final class FindPrompt {
             let found = timedOut && !forward ? nil : hit
             DispatchQueue.main.async {
                 Log.io("find: \(visited) items searched\(timedOut ? ", stopped at 3 s" : "")")
+                guard InputManager.lastKeyDownAt == keyAt, AXHandler.shared.activePid == pidAt else { Log.io("find: the person moved on; the result is dropped"); return }
                 if timedOut, found == nil {
                     Speech.speakMessage(String(localized: "Search stopped before finishing. Try again.", comment: "Spoken message")); return
                 }

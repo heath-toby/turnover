@@ -141,6 +141,8 @@ open class SelectableList: TurnOverObject {
         let key = g.keyName
         let toTop = key == "home" || (key == "upArrow" && g.modifiers.contains(.option))
         let toBottom = key == "end" || (key == "downArrow" && g.modifiers.contains(.option))
+        // A list TurnOver walks itself (its selection can't be set): its own ends (a review, 14 Nov 2026).
+        if virtualRow != nil, toTop || toBottom { moveVirtually(toTop ? "home" : "end"); return }
         if toTop || toBottom {
             if selectEnd(first: toTop) {
                 if !waitForSelection() { readSelection() }   // some lists post nothing when the selection is set for them

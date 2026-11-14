@@ -34,7 +34,9 @@ final class CalculatorAppModule: AppModule {
     }
 
     override func handleEvent(_ event: Event, next: () -> Void) {
-        guard event.kind == .typedCharacter, event.obj.pid == pid, let c = event.character else { next(); return }
+        // Over a menu or a sheet the keys are theirs: Return passed on there still said "equals" through this typed
+        // character (a review, 14 Nov 2026).
+        guard event.kind == .typedCharacter, event.obj.pid == pid, let c = event.character, onKeypad() else { next(); return }
         let words: String?
         switch c {
         case "0"..."9": words = String(c)

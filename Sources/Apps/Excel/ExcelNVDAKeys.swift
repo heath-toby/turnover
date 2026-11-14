@@ -92,11 +92,16 @@ extension ExcelAppModule {
         read(row, column)
         func next(_ r: Int, _ c: Int) {
             InputManager.captureNext = { g in
-                // Excel left (another app in front): the review ends and the key goes on, rather than every next key
-                // there being taken for the review (a review, 14 Nov 2026).
-                if let g, API.focusPid != pid {
+                // The review ends and the key does what it always does: in another app (Excel left), and for any
+                // Command or Control key or TurnOver command but TO Space here (Command Tab, Command S and the time
+                // were each taken for the review and dropped: a review, 14 Nov 2026). Escape (nil) away from Excel
+                // goes on to what is in front.
+                let away = API.focusPid != pid
+                let other = g.map { !$0.modifiers.isDisjoint(with: [.command, .control]) || ($0.modifiers.contains(.turnover) && $0.keyName != "space") } ?? false
+                if away || other {
                     Speech.speakMessage(String(localized: "cell review off", comment: "Spoken message"))
-                    if !g.modifiers.contains(.turnover) { g.send() }
+                    guard let g else { KeyboardGesture(identifier: "kb:escape")?.send(); return }
+                    if let s = ScriptHandler.findScript(for: g) { ScriptHandler.executeScript(s, gesture: g) } else { g.send() }
                     return
                 }
                 guard let g,!["escape", "space"].contains(g.keyName) || (g.keyName == "space" && !g.modifiers.contains(.turnover)) else { Speech.speakMessage(String(localized: "cell review off", comment: "Spoken message")); return }
