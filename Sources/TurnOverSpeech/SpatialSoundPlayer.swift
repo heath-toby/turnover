@@ -121,8 +121,15 @@ public final class SpatialSoundPlayer: @unchecked Sendable {
 
     // MARK: On the queue
 
+    /// The Mac's default output when the engine was built: an engine stays on the device it started on, and a change
+    /// of default output (headphones, AirPods, a device chosen in Control Centre) didn't always tell it, so the sounds
+    /// went to a device no longer in use (the tester, 14 Nov 2026). Asked before each sound; a change rebuilds.
+    private var engineDevice: AudioDeviceID = 0
+
     private func ensureEngine() -> Bool {
-        if let engine, engine.isRunning { return true }
+        let device = SpeechPlayer.defaultOutputDevice()
+        if let engine, engine.isRunning, device == engineDevice { return true }
+        if engine != nil, device != engineDevice { NSLog("spatial sounds: the default output changed; starting again on it") }
         if engine != nil { teardown() }
         let engine = AVAudioEngine()
         let environment = AVAudioEnvironmentNode()
@@ -163,6 +170,7 @@ public final class SpatialSoundPlayer: @unchecked Sendable {
             return false
         }
         self.engine = engine; self.environment = environment; self.reverb = reverb
+        engineDevice = device
         spatialNodes = spatial; stereoNodes = flat; nextSpatial = 0; nextStereo = 0
         // The output changed (headphones in or out, a device chosen): the engine has stopped. It is dropped and the
         // next sound builds it again on the new output.

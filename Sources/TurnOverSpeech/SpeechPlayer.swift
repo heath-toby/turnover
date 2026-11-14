@@ -306,7 +306,7 @@ public final class SpeechPlayer: @unchecked Sendable {
         let r2 = AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &devicesAddress, queue, block)
         if r2 == noErr { devicesListener = block } else { NSLog("speech: could not watch the device list (%d)", r2) }
     }
-    private static func defaultOutputDevice() -> AudioDeviceID {
+    static func defaultOutputDevice() -> AudioDeviceID {
         var dev = AudioDeviceID(0); var size = UInt32(MemoryLayout<AudioDeviceID>.size); var address = defaultOutputAddress
         let r = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &dev)
         return r == noErr ? dev : 0
