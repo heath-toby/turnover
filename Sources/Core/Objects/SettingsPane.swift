@@ -604,7 +604,7 @@ public final class SettingsPanePlugin: GlobalPlugin {
             let r = AXUIElementPerformAction(b, kAXPressAction as CFString)
             Log.io("Return on a focused button that is not the default: pressed it → \(r.rawValue)")
             if r != .success { g.send() } else { SystemPrompts.checkPress(of: b, name: ObjectFactory.make(b).name) }
-        }.isAvailable = { Self.returnWouldMissFocus }
+        }.isAvailable = { Self.returnWouldMissFocus && !AXHandler.shared.isMenuOpen }   // (a menu's Return is the menu's, a review, 14 Nov 2026)
         script("settings_pressHeld", String(localized: "In a settings pane: presses the control TurnOver is holding", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:space", "kb:enter"], category: "Settings") { [weak self] g in self?.pressHeld(g) }.isAvailable = { Self.holdingFocus }
         // A grid's arrows (Chess's board): Up and Down a row, Left and Right a column.
         let inGrid = { Self.holdingFocus && Self.virtual.flatMap { Self.rowList(of: $0) }.map { Self.gridColumns($0.container) != nil } == true }
@@ -944,7 +944,9 @@ public final class SettingsPanePlugin: GlobalPlugin {
     /// and Return) only then. The focus following TurnOver's cursor elsewhere left the old place held, and Up and
     /// Down read the old list (a review, 14 Nov 2026).
     static var holdingFocus: Bool {
-        guard holdingVirtual, let v = virtual else { return false }
+        // Nor with a menu open over it: Space and Return are the menu's, and pressed the held control under it, and the
+        // arrows moved in the held list (a review, 14 Nov 2026).
+        guard holdingVirtual, let v = virtual, !AXHandler.shared.isMenuOpen else { return false }
         return API.focusObject?.isSameElement(as: v) == true
     }
     private static var _holding = false
