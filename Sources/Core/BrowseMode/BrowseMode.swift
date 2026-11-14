@@ -59,6 +59,9 @@ public final class BrowseModeDocument: ScriptableObject {
         // Not while the page is empty (still arriving after Back): "the top of nothing" overwrote the place it was
         // left, so Back on MacRumors started at the top (3 Oct 2026).
         didSet {
+            // Any move but a selection's own ends the selection (Tab, the bottom, a page read again): Command C
+            // copied from an old anchor to wherever the reading had gone (a review, 14 Nov 2026).
+            if !selecting { selectionAnchor = nil }
             positionMovedAt = Date()
             // A read of the page again goes on at least this far (a long chat read on past its first part, issue 227).
             buffer.readingAt = position
@@ -68,6 +71,8 @@ public final class BrowseModeDocument: ScriptableObject {
     /// When the reading position last moved: a keyboard focus that moved since (Tab onto a control the buffer does
     /// not hold yet) is what Enter and Space mean.
     var positionMovedAt = Date.distantPast
+    /// The selection itself is moving the position.
+    var selecting = false
     /// The text of the buffer line at an offset (what Back looks for when the page comes back rearranged).
     func lineText(at offset: Int) -> String {
         guard let i = buffer.lineIndex(at: offset) else { return "" }
@@ -666,7 +671,7 @@ public final class BrowseModeDocument: ScriptableObject {
         }
         script("selectAll", String(localized: "Selects the whole document", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:command+a"], category: sel) { [weak self] _ in
             guard let self else { return }
-            selectionAnchor = 0; position = buffer.text.length
+            selecting = true; selectionAnchor = 0; position = buffer.text.length; selecting = false
             Speech.speakMessage(String(localized: "all selected", comment: "Spoken message"), remember: false)
         }
         script("copySelection", String(localized: "Copies what is selected in the document; with nothing selected, the application's own copy", comment: "A command, as the key list and keyboard help say it"), gestures: ["kb:command+c"], category: sel) { [weak self] g in

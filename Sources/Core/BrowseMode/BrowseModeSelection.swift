@@ -44,7 +44,7 @@ extension BrowseModeDocument {
         }
         guard new != old else { Tones.edge(); return }
         selectionAnchor = anchor
-        position = new
+        selecting = true; position = new; selecting = false
         let changed = text(min(old, new), max(old, new))
         let growing = (new - anchor).signum() == (old - anchor).signum() || old == anchor ? abs(new - anchor) > abs(old - anchor) : false
         let said = changed.trimmingCharacters(in: .whitespacesAndNewlines)

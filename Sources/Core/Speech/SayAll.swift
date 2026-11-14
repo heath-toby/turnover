@@ -7,8 +7,16 @@ import Foundation
 
 public enum SayAll {
     private static var reader: TextInfo? {
-        didSet { runningLock.lock(); running = reader != nil; runningLock.unlock() }
+        didSet {
+            runningLock.lock(); running = reader != nil; runningLock.unlock()
+            // Asked for (speech on demand's key just pressed) when it began: only such a reading reads on in that
+            // mode; a page's own automatic say all stays as quiet as the mode (a review, 14 Nov 2026).
+            if oldValue == nil, reader != nil { demanded = Date() < Speech.demandedUntil }
+            if reader == nil { demanded = false }
+        }
     }
+    /// The say all running was asked for while speech was on demand.
+    public private(set) static var demanded = false
     // Read on the keyboard thread; the reader itself is only touched on main (E6 audit, 4 Oct 2026).
     nonisolated private static let runningLock = NSLock()
     // Written on main by `reader`'s didSet, read by `isRunning` from any thread: both only under runningLock, which

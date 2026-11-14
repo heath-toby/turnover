@@ -153,7 +153,8 @@ public enum Braille {
         // Every time TurnOver takes the display, including back from VoiceOver at an app switch: over Bluetooth that
         // takes a few seconds, and the sound says when it is ready (6 Oct 2026).
         Tones.brailleConnected()
-        refresh()
+        // A message held (until a key, or the history): shown on the new display too, not a blank one.
+        if let until = messageUntil, Date() < until { layout(); show() } else { refresh() }
     }
 
     public static func detach(_ driver: BrailleDisplayDriver) {
@@ -352,7 +353,8 @@ public enum Braille {
 
     /// Typing on the braille keyboard: a message gives way, so the cells typed show (NVDA dismisses it at any key).
     public static func dismissMessage() {
-        guard messageUntil != nil, historyIndex == nil else { return }
+        historyIndex = nil   // typing leaves the announcement history too
+        guard messageUntil != nil else { return }
         messageUntil = nil
     }
 
@@ -370,11 +372,14 @@ public enum Braille {
         if !s.isEmpty, history.first != s {
             history.insert(s, at: 0); historyPrivate.insert(Speech.isPrivateNow, at: 0)
             if history.count > 30 { history.removeLast(); historyPrivate.removeLast() }
+            // Browsing the history: the entry shown keeps its place as the new one goes on top.
+            if let i = historyIndex { historyIndex = min(i + 1, history.count - 1) }
         }
         guard historyIndex == nil else { return }
         guard let d = display, !s.isEmpty, config.braille.showMessages != "off" else { return }
         source = .message
         plain()
+        messagePrivate = Speech.isPrivateNow   // a private notification or code: its length only in the log
         text = displayed(s); cursor = nil; windowStart = 0; selection = nil
         layout()
         let widths = Double((cells.count + d.cellCount - 1) / max(d.cellCount, 1))
@@ -464,7 +469,10 @@ public enum Braille {
             // Panned back onto this line: its end is shown, once the app's caret has really reached it (Chromium
             // moves it a moment later, and the line's start was shown instead: a review, 14 Nov 2026).
             if let t = endOfLineWanted, Date().timeIntervalSince(t.at) < 1.5 {
-                if t.start == line.start { windowStart = windows.last ?? 0; endOfLineWanted = nil }
+                if t.start == line.start {
+                    windowStart = windows.last ?? 0; endOfLineWanted = nil
+                    DispatchQueue.main.async { caretToWindow() }   // "to the text shown": once the line has really come
+                }
             } else { endOfLineWanted = nil }
             lastCaret = caret.start
         } else if let focus = API.focusObject {
@@ -637,8 +645,21 @@ public enum Braille {
         // by accessibility raced the typed word, which landed at the routed place or the caret ended up early
         // (a review, 14 Nov 2026).
         if BrailleInput.hasWord {
+            // A routing key's place worked out now, against the cells shown: after the word goes in, the line is laid
+            // out again and the same key number is another character (a review, 14 Nov 2026).
+            var target: Int?
+            if case .routing(let i) = key, case .text(_, let lineStart) = source, let cc = cursorCell {
+                let typing = BrailleInput.pending, cell = windowStart + i, at = cc - typing.count
+                let added = typing.isEmpty ? 0 : (BrailleInput.backTranslate(typing, true) as NSString).length
+                let length = (text as NSString).length
+                func offset(_ c: Int) -> Int { c < cellMap.count ? cellMap[c] : length }
+                let rel = cell < at ? offset(cell) : cell < cc ? (cursor ?? 0) + added : offset(cell) + added
+                target = lineStart + rel
+            }
             BrailleInput.flush()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { handle(key) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                if let t = target { routeToText(t) } else { handle(key) }
+            }
             return
         }
         // The TurnOver menu open: the display's keys drive it, not the application behind (the joystick moved through
@@ -684,13 +705,15 @@ public enum Braille {
             return
         }
         // In the announcement history: up and down move through it, panning reads along; anything else leaves.
-        if historyIndex != nil, case .routing = key { historyIndex = nil; messageUntil = nil; refresh() }   // (it stayed half on)
+        // Leaving the history is all a key does there: a routing key pressed the focused item behind it as well, and
+        // the history key reopened it (a review, 14 Nov 2026).
+        if historyIndex != nil, case .routing = key { historyIndex = nil; messageUntil = nil; refresh(); return }
         if historyIndex != nil, case .key(let name) = key {
             switch keyMap[name] {
             case "previousLine": historyIndex = min(history.count - 1, historyIndex! + 1); showHistory(); return
             case "nextLine": historyIndex = max(0, historyIndex! - 1); showHistory(); return
             case "scrollBack", "scrollForward": break
-            default: historyIndex = nil; messageUntil = nil; refresh()
+            default: historyIndex = nil; messageUntil = nil; refresh(); return
             }
         }
         // A message showing: panning reads on through it; any other key puts the display back.
@@ -875,8 +898,9 @@ public enum Braille {
         refresh()
         if toEnd {
             endOfLineWanted = (spoken.start, Date())
-            if case .text(_, let s) = source, s == spoken.start { windowStart = windows.last ?? 0; endOfLineWanted = nil; show() }
-            caretToWindow()
+            // The caret to the window only once the display is on that line (in Chromium it comes a moment later, and
+            // the old line's start was put back: a review, 14 Nov 2026); refresh does it then.
+            if case .text(_, let s) = source, s == spoken.start { windowStart = windows.last ?? 0; endOfLineWanted = nil; show(); caretToWindow() }
         }
     }
 
@@ -922,6 +946,16 @@ public enum Braille {
             _ = AXUIElementPerformAction(f.element, kAXPressAction as CFString)
         }
         refreshSoon()
+    }
+
+    /// The caret (or the review cursor) to an offset in the text shown, as a routing key does.
+    private static func routeToText(_ offset: Int) {
+        guard case .text(let info, _) = source else { refresh(); return }
+        let r = info.copy()
+        r.start = offset; r.end = offset
+        if cursorIsReview { TextReview.set(r); if config.braille.routingMovesCaret == "always" { r.updateCaret() } } else { r.updateCaret() }
+        if config.braille.speakOnRouting { let c = r.copy(); c.expand(.character); Speech.cancel(); Speech.speakTextInfo(c, unit: .character, reason: .caret) }
+        refresh()
     }
 
     /// A routing key: in text, put the caret on the character (and in browse mode, activate what is there, as

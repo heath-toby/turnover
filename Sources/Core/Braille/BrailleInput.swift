@@ -146,7 +146,14 @@ public enum BrailleInput {
 
     /// Space with dots: VoiceOver's braille commands (BrailleCommands). A word half typed is typed first.
     private static func command(_ dots: Set<Int>) {
+        let hadWord = !word.isEmpty
         flush()
+        // The word typed goes in before the command acts: a pan onto the next line moved the caret ahead of the
+        // typed keys, and the word landed there (a review, 14 Nov 2026).
+        if hadWord, BrailleCommands.table.contains(where: { $0.0 == dots }) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { _ = BrailleCommands.run(dots) }
+            return
+        }
         if !BrailleCommands.run(dots) {
             // Space pressed a moment before the word's last cell was let go: "the" (2 3 4 6) became space with 2 3 4 6,
             // no command, and the word was lost (7 Oct 2026). A chord that is no command is that cell, then the space.

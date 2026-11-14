@@ -80,12 +80,26 @@ public final class ObjectNavigator {
 
     /// The focus TurnOver gave to what its cursor landed on, and when, in which window.
     private var followed: (element: AXUIElement, at: Date, window: AXUIElement?)?
-    private func noteFollowed(_ e: AXUIElement) { followed = (e, Date(), e.element(kAXWindowAttribute)) }
+    /// The last few elements focused by following, each with when: news of an earlier one, after the cursor had moved
+    /// on with a quick second VO-Right, was read as a new focus (a review, 14 Nov 2026).
+    private var recentFollowed: [(element: AXUIElement, at: Date)] = []
+    private func noteFollowed(_ e: AXUIElement) {
+        followed = (e, Date(), e.element(kAXWindowAttribute))
+        recentFollowed.removeAll { Date().timeIntervalSince($0.at) >= 1.5 }
+        recentFollowed.append((e, Date()))
+        if recentFollowed.count > 3 { recentFollowed.removeFirst() }
+    }
     public func isFollowedFocus(_ e: AXUIElement) -> Bool {
-        // No key since: a Tab away and Shift Tab back within the time is the user's own move, and is spoken (a review,
-        // 14 Nov 2026).
-        guard let f = followed, Date().timeIntervalSince(f.at) < 1.5, InputManager.lastKeyDownAt <= f.at else { return false }
-        return CFEqual(f.element, e)
+        // A key since that follow (not counting the cursor's own next move): a Tab away and Shift Tab back within the
+        // time is the user's own move, and is spoken (a review, 14 Nov 2026).
+        guard let i = recentFollowed.firstIndex(where: { CFEqual($0.element, e) }) else { return false }
+        let f = recentFollowed[i]
+        guard Date().timeIntervalSince(f.at) < 1.5 else { return false }
+        let next = recentFollowed.indices.contains(i + 1) ? recentFollowed[i + 1].at : Date.distantFuture
+        // Keys up to the next follow are the cursor's own moves; one after the last follow is the user's.
+        guard InputManager.lastKeyDownAt <= f.at || (next != .distantFuture && InputManager.lastKeyDownAt <= next) else { return false }
+        recentFollowed.remove(at: i)
+        return true
     }
 
     /// A focus move that is the app bouncing what TurnOver just did, not the user moving on: within `limit` of it,

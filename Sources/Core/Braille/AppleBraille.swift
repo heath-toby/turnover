@@ -42,6 +42,7 @@ final class AppleBrailleDriver: BrailleDisplayDriver {
 
     func close() {
         closed = true
+        chordTimer?.invalidate(); chordTimer = nil
         repeatTimer?.invalidate(); repeatTimer = nil; repeating = false   // (a held dot 7 kept deleting after the display went, 8 Oct 2026)
         display.close()
     }
@@ -91,13 +92,52 @@ final class AppleBrailleDriver: BrailleDisplayDriver {
             }
             return
         }
-        guard pressed else { return }
         switch kind {
-        case 0: Braille.handle(.routing(key))
+        case 0: if pressed { Braille.handle(.routing(key)) }
         case 3: break   // status cells' routing keys: nothing on them yet
         default:
-            if let command = display.keyCommands[NSNumber(value: v)] { Braille.handle(.key(command)) }
-            else { Braille.handle(.key(kind == 2 ? "brailleKeyboard\(key)" : "key\(kind).\(key)")) }
+            // Display keys act when let go, so two held together can be one of the model's chords ("65793.68097": the
+            // Focus's rocker down with a selector is VoiceOver's start interacting); each key ran its own command
+            // before, moving down a line and pressing the item (a review, 14 Nov 2026).
+            // Only keys some chord uses wait for their release (with a second's safety, should a driver not say it);
+            // the rest act at once, as before (the Mantis has no chords).
+            let id = v | 0x10000
+            if pressed {
+                if keysDown.isEmpty, !chordKeys.contains(id) { runKeys([id]); return }
+                if !keysDown.contains(id) { keysDown.append(id) }
+                keysHeld.insert(id)
+                chordTimer?.invalidate()
+                chordTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { [weak self] _ in MainActor.assumeIsolated {
+                    guard let self, !self.keysDown.isEmpty else { return }
+                    let keys = self.keysDown; self.keysDown = []; self.keysHeld = []
+                    self.runKeys(keys)
+                } }
+                return
+            }
+            keysHeld.remove(id)
+            guard keysHeld.isEmpty, !keysDown.isEmpty else { return }
+            chordTimer?.invalidate(); chordTimer = nil
+            let keys = keysDown; keysDown = []
+            runKeys(keys)
         }
     }
+
+    private func runKeys(_ keys: [Int]) {
+        if keys.count >= 2 {
+            let ids = keys.map(String.init)
+            if let chord = display.chordCommands[ids.joined(separator: ".")] ?? display.chordCommands[ids.reversed().joined(separator: ".")] {
+                Braille.handle(.key(chord)); return
+            }
+        }
+        for k in keys {
+            if let command = display.keyCommands[NSNumber(value: k)] { Braille.handle(.key(command)) }
+            else { Braille.handle(.key("key\(k & 0xFF).\((k >> 8) & 0xFF)")) }
+        }
+    }
+    /// Every key that is part of one of the model's chords.
+    private lazy var chordKeys: Set<Int> = Set(display.chordCommands.keys.flatMap { $0.split(separator: ".").compactMap { Int($0) } })
+    private var chordTimer: Timer?
+    /// Display keys pressed since all were last let go, in order, and those still down.
+    private var keysDown: [Int] = []
+    private var keysHeld = Set<Int>()
 }
