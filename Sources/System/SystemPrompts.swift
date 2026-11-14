@@ -83,13 +83,12 @@ public final class SystemPrompts {
     }
 
     private func check() {
-        // (Dead windows forgotten.)
-        ignored.removeAll { $0.role == "?" }
-        emptyLooks.removeAll { $0.window.role == "?" }
         var windows: [(AXUIElement, pid_t)] = []
+        var running: Set<pid_t> = []
         for bundle in Self.agents {
             for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundle) {
                 let pid = app.processIdentifier
+                running.insert(pid)
                 AXHandler.shared.observe(pid)
                 // Resting after failures: its prompts are kept as they were, not counted as another miss.
                 if let until = restUntil[pid], Date() < until {
@@ -102,7 +101,10 @@ public final class SystemPrompts {
                 var value: CFTypeRef?
                 if AXUIElementCopyAttributeValue(ax, kAXWindowsAttribute as CFString, &value) == .success {
                     failures[pid] = nil; restUntil[pid] = nil
-                    windows += ((value as? [AXUIElement]) ?? []).map { ($0, pid) }
+                    let list = (value as? [AXUIElement]) ?? []
+                    windows += list.map { ($0, pid) }
+                    // An empty window is remembered only while its agent still lists it: no question per window.
+                    emptyLooks.removeAll { e in e.pid == pid && !list.contains { $0.isSame(e.window) } }
                 } else {
                     failures[pid, default: 0] += 1
                     let rest = Self.rest(afterFailures: failures[pid, default: 0])
@@ -114,6 +116,7 @@ public final class SystemPrompts {
                 }
             }
         }
+        emptyLooks.removeAll { !running.contains($0.pid) }   // (its agent quit)
         // Gone only when missed twice running: an agent's list can come back empty for a moment, and the prompts were
         // taken as closed, the app refocused, and each read out again (11 Nov 2026).
         let missing = shown.filter { w in !windows.contains { $0.0.isSame(w) } }
@@ -144,7 +147,15 @@ public final class SystemPrompts {
             }
             returnTo = nil
         }
-        for (w, pid) in windows where !shown.contains(where: { $0.isSame(w) }) && !ignored.contains(where: { $0.isSame(w) }) {
+        for (w, pid) in windows where !shown.contains(where: { $0.isSame(w) }) {
+            // A window found empty six times is looked into every fourth look after (two seconds), for as long as its
+            // agent lists it: a slow prompt is still read, without walking an empty helper twice a second (a review,
+            // 14 Nov 2026). Only windows its agent has just listed get here, so a hung agent's rest covers them.
+            if let i = emptyLooks.firstIndex(where: { $0.window.isSame(w) }) {
+                emptyLooks[i].count += 1
+                let n = emptyLooks[i].count
+                if n > 6, n % 4 != 0 { continue }
+            }
             let first = shown.isEmpty
             shown.append(w)
             if handsToVoiceOver {
@@ -175,13 +186,11 @@ public final class SystemPrompts {
     func announceFront(pid: pid_t) {
         if handsToVoiceOver { return }
         let ax = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(ax, 0.25)
         guard let w = ax.element(kAXFocusedWindowAttribute) ?? ax.elements(kAXWindowsAttribute).first else { return }
-        // A window given up on (empty for half a minute) is looked at again when its agent comes forward, and the
-        // regular look tries it afresh (a review, 14 Nov 2026).
-        if ignored.contains(where: { $0.isSame(w) }) {
-            ignored.removeAll { $0.isSame(w) }
-            emptyLooks.removeAll { $0.window.isSame(w) }
-        }
+        // Asked for: always looked into, and an empty window's count starts again, so the regular look tries it
+        // twice a second afresh (a review, 14 Nov 2026).
+        emptyLooks.removeAll { $0.window.isSame(w) }
         if shown.contains(where: { $0.isSame(w) }), Date().timeIntervalSince(lastAnnounced) < 2 { return }
         if !shown.contains(where: { $0.isSame(w) }) { shown.append(w) }
         announce(w, pid: pid)
@@ -202,43 +211,29 @@ public final class SystemPrompts {
         read.contains { $0.key == key && !same($0.window, window) && open($0.window) }
     }
 
+    /// Windows found with nothing to read yet, and how many looks found them so (check() counts and spaces the looks).
+    /// Such a window is kept out of `shown`, so it is looked at again: put there, it was never read when it later had
+    /// words, and `shown` never emptied, so the focus didn't come back to the app when a real prompt closed (a review,
+    /// 14 Nov 2026). Forgotten when its agent no longer lists it.
+    private var emptyLooks: [(window: AXUIElement, pid: pid_t, count: Int)] = []
+
     /// `fromTimer`: found by the regular look, where the same prompt in a new window isn't read again; asked for
     /// (the agent came to the front, the user went to it), it always is (a review, 11 Nov 2026).
-    /// Windows found with nothing to read yet, and how many looks found them so.
-    private var emptyLooks: [(window: AXUIElement, count: Int)] = []
-    /// Windows given up on, empty for 60 looks: kept out of `shown` (left there, one was never read when it later had
-    /// words, and `shown` never emptied, so the focus didn't come back to the app when a real prompt closed) and not
-    /// looked into by the regular look until their agent comes to the front (a review, 14 Nov 2026).
-    private var ignored: [AXUIElement] = []
-
-    /// Out of `shown`, so the next look retries; after 60 empty looks, given up on until its agent comes forward.
-    private func notYet(_ window: AXUIElement, looks n: Int) {
-        shown.removeAll { $0.isSame(window) }
-        if n >= 60, !ignored.contains(where: { $0.isSame(window) }) { ignored.append(window) }
-    }
-
     private func announce(_ window: AXUIElement, pid: pid_t, fromTimer: Bool = false) {
-        // A window found empty six times is looked into every fourth look after (two seconds), for half a minute:
-        // a slow prompt is still read, without walking an empty helper twice a second (a review, 14 Nov 2026).
-        // Only the regular look: asked for (the agent came to the front), it is always looked into (a review, 14 Nov 2026).
-        if fromTimer, let i = emptyLooks.firstIndex(where: { $0.window.isSame(window) }), emptyLooks[i].count >= 6 {
-            emptyLooks[i].count += 1
-            let n = emptyLooks[i].count
-            guard n % 4 == 0 else { notYet(window, looks: n); return }
-        }
         lastAnnounced = Date()
         var texts: [String] = []
         var stack = [window]; var visited = 0
         while let e = stack.popLast(), visited < 200 {
             visited += 1
+            // (Each element its own short wait: a hung agent held main a second per question.)
+            AXUIElementSetMessagingTimeout(e, 0.25)
             if e.role == "AXStaticText", let v = e.string(kAXValueAttribute)?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty { texts.append(v) }
             stack.append(contentsOf: e.elements(kAXChildrenAttribute).reversed())
         }
         // Nothing to read yet: out of `shown` again, so the next look retries; check() had already put it there, and
         // the prompt was never read nor given the keyboard. The focus is the app's: a window answers none (a review,
         // 14 Nov 2026).
-        // Retried six looks at most (three seconds), the app asked with a short timeout, and its focus counted only
-        // when it is in this window: an empty helper window was walked twice a second for ever, and another window's
+        // The app asked with a short timeout, and its focus counted only when it is in this window: another window's
         // focus let it say "dialog" over the real prompt (a review, 14 Nov 2026).
         let hasFocusHere: Bool = {
             let app = AXUIElementCreateApplication(pid)
@@ -249,11 +244,8 @@ public final class SystemPrompts {
             return w.isSame(window)
         }()
         guard !texts.isEmpty || hasFocusHere else {
-            emptyLooks.removeAll { $0.window.role == "?" }
-            let n = (emptyLooks.first { $0.window.isSame(window) }?.count ?? 0) + 1
-            emptyLooks.removeAll { $0.window.isSame(window) }
-            emptyLooks.append((window, n))
-            notYet(window, looks: n)
+            shown.removeAll { $0.isSame(window) }
+            if !emptyLooks.contains(where: { $0.window.isSame(window) }) { emptyLooks.append((window, pid, 1)) }
             return
         }
         emptyLooks.removeAll { $0.window.isSame(window) }

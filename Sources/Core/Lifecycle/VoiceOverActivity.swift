@@ -56,7 +56,12 @@ nonisolated public enum VoiceOverActivity {
     /// `touched` names the person's own profiles (by name: VoiceOver gives every profile a new key on import, so a
     /// key never matches across a round trip; found 16 Oct 2026) given the setting last time, so they can be undone.
     /// Returns the new archive and the profiles touched this time.
-    public static func archive(_ data: Data, apps: [String]?, touched: [String], hush: Bool = false, masks: [String: Int] = [:]) throws -> (data: Data, touched: [String], masks: [String: Int]) {
+    /// `originals`: each touched profile's own values for `changedKeys` (a key it didn't have is left out), saved on
+    /// install as `masks` is and put back on removal. VoiceOver's defaults were put back instead, so a person's own
+    /// Activity lost its typing echo, verbosity, quick nav and the rest when TurnOver's went (a review, 14 Nov 2026).
+    /// A profile with no originals known falls back to the defaults, as before.
+    public static func archive(_ data: Data, apps: [String]?, touched: [String], hush: Bool = false, masks: [String: Int] = [:],
+                               originals: [String: [String: Any]] = [:]) throws -> (data: Data, touched: [String], masks: [String: Int], originals: [String: [String: Any]]) {
         guard var top = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               var export = top["export"] as? [String: Any] else { throw ArchiveError.notAnArchive }
         guard let defaults = export["default"] as? [String: Any] else { throw ArchiveError.noDefaults }
@@ -64,6 +69,7 @@ nonisolated public enum VoiceOverActivity {
         profiles.removeAll { (($0["profileInfo"] as? [String: Any])?["profileName"] as? String) == profileName }
         var touchedNow: [String] = []
         var masksNow: [String: Int] = [:]
+        var originalsNow: [String: [String: Any]] = [:]
         for i in profiles.indices {
             guard var info = profiles[i]["profileInfo"] as? [String: Any], var values = profiles[i]["profileValues"] as? [String: Any] else { continue }
             let key = info["profileName"] as? String ?? ""
@@ -71,6 +77,11 @@ nonisolated public enum VoiceOverActivity {
             let mask = (info["profileMask"] as? NSNumber)?.intValue ?? 0
             if let apps, theirApps.contains(where: { apps.contains($0) }) {
                 masksNow[key] = masks[key] ?? mask   // their own mask, kept for the undo (a second install keeps the first's)
+                // Their own values likewise. A profile TurnOver changed last time keeps what was saved then (its values
+                // now are TurnOver's own; none saved, its undo falls back to the defaults); any other profile's values
+                // now are the person's, taken over anything older saved for its name.
+                if !touched.contains(key) { originalsNow[key] = values.filter { changedKeys.contains($0.key) } }
+                else if let saved = originals[key] { originalsNow[key] = saved }
                 if hush {
                     values[speechOffKey] = defaults[speechOffKey] ?? false
                     for (k, v) in hushValues { values[k] = v }
@@ -82,8 +93,12 @@ nonisolated public enum VoiceOverActivity {
                 }
                 touchedNow.append(key)
             } else if touched.contains(key) {
-                values[speechOffKey] = defaults[speechOffKey] ?? false
-                for k in hushValues.keys { if let v = defaults[k] { values[k] = v } else { values[k] = nil } }
+                if let saved = originals[key] {
+                    for k in changedKeys { values[k] = saved[k] }   // (a key it never had: removed again)
+                } else {
+                    values[speechOffKey] = defaults[speechOffKey] ?? false
+                    for k in hushValues.keys { if let v = defaults[k] { values[k] = v } else { values[k] = nil } }
+                }
                 info["profileMask"] = masks[key] ?? (mask & ~speechMask)
             }
             profiles[i]["profileInfo"] = info; profiles[i]["profileValues"] = values
@@ -97,7 +112,33 @@ nonisolated public enum VoiceOverActivity {
         export["allProfiles"] = profiles
         top["export"] = export
         let out = try PropertyListSerialization.data(fromPropertyList: top, format: .xml, options: 0)
-        return (out, touchedNow, masksNow)
+        return (out, touchedNow, masksNow, originalsNow)
+    }
+
+    /// Every key TurnOver's Activity changes in a person's own profile: the ones whose own values are saved and put back.
+    static var changedKeys: Set<String> { Set(hushValues.keys).union(trackingValues.keys).union([speechOffKey]) }
+
+    /// Each profile's own values for `changedKeys`, by name, from the export made before TurnOver's first install: the
+    /// fallback when the marker has none (as `masks` falls back to the same export).
+    public static func originalValues(in data: Data) -> [String: [String: Any]] {
+        guard let top = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let export = top["export"] as? [String: Any], let profiles = export["allProfiles"] as? [[String: Any]] else { return [:] }
+        var out: [String: [String: Any]] = [:]
+        for p in profiles {
+            guard let info = p["profileInfo"] as? [String: Any], let name = info["profileName"] as? String, name != profileName,
+                  let values = p["profileValues"] as? [String: Any] else { continue }
+            out[name] = values.filter { changedKeys.contains($0.key) }
+        }
+        return out
+    }
+
+    /// `originals` as a property list for the marker file (property-list values, not Codable), and back.
+    public static func encode(originals: [String: [String: Any]]) -> Data? {
+        try? PropertyListSerialization.data(fromPropertyList: originals, format: .binary, options: 0)
+    }
+    public static func decodeOriginals(_ data: Data?) -> [String: [String: Any]] {
+        guard let data, let v = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: [String: Any]] else { return [:] }
+        return v
     }
 
     /// Whether an archive holds TurnOver's Activity, and for which apps.

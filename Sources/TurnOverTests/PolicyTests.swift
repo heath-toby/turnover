@@ -110,13 +110,44 @@ func activityTests() {
         expect((((web["profileInfo"] as! [String: Any])["profileMask"] as? NSNumber)?.intValue), 32767, "every category applied to the person's own Activity (speech off, tracking off; its own mask kept for the undo)")
         let turnOver = profiles.first { (($0["profileInfo"] as! [String: Any])["profileName"] as! String) == "TurnOver" }!
         expect(((turnOver["profileValues"] as! [String: Any])["SCRVerbosity_SCRVerbosityLevel"] as? String), "SCRVerbosityMedium", "the defaults are the profile's values")
-        let off = try VoiceOverActivity.archive(on.data, apps: nil, touched: on.touched, masks: on.masks)
+        let off = try VoiceOverActivity.archive(on.data, apps: nil, touched: on.touched, masks: on.masks, originals: on.originals)
         check(VoiceOverActivity.installedApps(in: off.data) == nil, "removed")
         let top2 = try PropertyListSerialization.propertyList(from: off.data, format: nil) as! [String: Any]
         let web2 = ((top2["export"] as! [String: Any])["allProfiles"] as! [[String: Any]]).first { (($0["profileInfo"] as! [String: Any])["profileName"] as! String) == "Web Browsing" }!
-        expect(((web2["profileValues"] as! [String: Any])["SCRCategories_SCRCategorySystemWide_SCRSpeechComponentSettings_SCRDisableSpeech"] as? Bool), false, "the person's profile put back")
+        check(((web2["profileValues"] as! [String: Any])["SCRCategories_SCRCategorySystemWide_SCRSpeechComponentSettings_SCRDisableSpeech"] as? Bool) != true, "the person's profile put back")
         expect((((web2["profileInfo"] as! [String: Any])["profileMask"] as? NSNumber)?.intValue), 16392)
         expect(off.touched, [], "nothing touched on removal")
+        let webValues2 = web2["profileValues"] as! [String: Any]
+        expect(webValues2["SCRVerbosity_SCRVerbosityLevel"] as? String, "SCRVerbosityLow", "the person's own verbosity put back, not VoiceOver's default")
+        check(webValues2["SCRTypingEchoFeedback"] == nil && webValues2["SCRCUserDefaultsCursorTrackingEnabled"] == nil
+              && webValues2["SCRCategories_SCRCategorySystemWide_SCRSpeechComponentSettings_SCRDisableSpeech"] == nil,
+              "keys the profile never had are taken out again")
+    }
+
+    test("VoiceOver Activity: the person's own values survive a reinstall and the marker round trip; none saved falls back to the defaults") {
+        let export: [String: Any] = ["ArchiveVersion": "993", "export": [
+            "default": ["SCRVerbosity_SCRVerbosityLevel": "SCRVerbosityMedium", "SCRTypingEchoFeedback": "SCRTypingEchoCharacters"],
+            "allProfiles": [["profileInfo": ["profileApps": ["com.apple.Safari"], "profileKey": "profile-ABC", "profileMask": 16392, "profileName": "Web Browsing"],
+                             "profileValues": ["SCRVerbosity_SCRVerbosityLevel": "SCRVerbosityHigh", "SCRTypingEchoFeedback": "SCRTypingEchoWords", "Other": 7]]],
+        ]]
+        let data = try PropertyListSerialization.data(fromPropertyList: export, format: .xml, options: 0)
+        func web(_ d: Data) throws -> [String: Any] {
+            let top = try PropertyListSerialization.propertyList(from: d, format: nil) as! [String: Any]
+            let p = ((top["export"] as! [String: Any])["allProfiles"] as! [[String: Any]]).first { (($0["profileInfo"] as! [String: Any])["profileName"] as! String) == "Web Browsing" }!
+            return p["profileValues"] as! [String: Any]
+        }
+        let on = try VoiceOverActivity.archive(data, apps: ["com.apple.Safari"], touched: [], hush: true)
+        let stored = VoiceOverActivity.decodeOriginals(VoiceOverActivity.encode(originals: on.originals))
+        // Installed again (a new recipe): the hushed values must not replace the saved ones.
+        let again = try VoiceOverActivity.archive(on.data, apps: ["com.apple.Safari"], touched: on.touched, hush: true, masks: on.masks, originals: stored)
+        expect(again.originals["Web Browsing"]?["SCRVerbosity_SCRVerbosityLevel"] as? String, "SCRVerbosityHigh", "a reinstall keeps the first install's values")
+        let off = try VoiceOverActivity.archive(again.data, apps: nil, touched: again.touched, masks: again.masks, originals: again.originals)
+        let v = try web(off.data)
+        expect(v["SCRVerbosity_SCRVerbosityLevel"] as? String, "SCRVerbosityHigh")
+        expect(v["SCRTypingEchoFeedback"] as? String, "SCRTypingEchoWords")
+        expect(v["Other"] as? Int, 7, "keys TurnOver never changes are left alone")
+        let lost = try VoiceOverActivity.archive(again.data, apps: nil, touched: again.touched, masks: again.masks)
+        expect(try web(lost.data)["SCRVerbosity_SCRVerbosityLevel"] as? String, "SCRVerbosityMedium", "nothing saved: VoiceOver's defaults, as before")
     }
 }
 

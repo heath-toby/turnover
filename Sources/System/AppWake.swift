@@ -32,6 +32,14 @@ public enum AppWake {
             AXUIElementSetMessagingTimeout(target, 4)
             _ = AXUIElementSetAttributeValue(target, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
             DispatchQueue.main.async {
+                // The person moved on during the switch (Command Tab to another app): that app stays in front, not
+                // pulled back under them (a review, 14 Nov 2026). Only TurnOver or the app itself in front is ours.
+                let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+                guard front == getpid() || front == pid else {
+                    nudgingUntil = Date()
+                    Log.io("wake: pid \(front ?? -1) came to the front meanwhile; \(app.localizedName ?? "the app") not brought back")
+                    return
+                }
                 app.activate()
                 nudgingUntil = Date().addingTimeInterval(0.8)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
