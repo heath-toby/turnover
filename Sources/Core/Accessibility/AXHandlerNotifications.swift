@@ -168,26 +168,7 @@ extension AXHandler {
                 let pageLoaded = name == "AXLoadComplete" && element.isSame(d.webArea)
                 if pageLoaded { loadCompleteSeen = true }
                 // Back, Forward or a link: the page in this web area changed. Once it settles, resume where it was left.
-                if !navigationCheckPending {
-                    navigationCheckPending = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + (pageLoaded ? 0.1 : 0.6)) { [weak self] in
-                        guard let self else { return }
-                        navigationCheckPending = false
-                        // Another page in front now: its load is not this one's.
-                        guard let d2 = API.focusTreeInterceptor, d2 === d else { loadCompleteSeen = false; return }
-                        // Kept while a script runs, for the next check: reset before this guard, a load that came while a
-                        // script ran was dropped, and the page was never read again (a review, 13 Nov 2026).
-                        guard !ScriptHandler.isScriptRunning else { return }
-                        let loaded = loadCompleteSeen
-                        loadCompleteSeen = false
-                        if d2.refreshIfNavigated(announce: !d2.passThrough, byKey: false) { Log.io("browse mode: page changed under the document (\(name))") }
-                        else if d2.loadedAfterBlank(announce: !d2.passThrough) { Log.io("browse mode: page finished loading (\(name))") }
-                        // Read while still loading, now finished: read again, the reading kept where it is, so say all
-                        // and the arrows have the whole page (a review, 13 Nov 2026).
-                        // A reload (the same address) is told by the document, which says the title (pageLoadCompleted).
-                        else if loaded { d2.pageLoadCompleted() }
-                    }
-                }
+                if !navigationCheckPending { scheduleNavigationCheck(after: pageLoaded ? 0.1 : 0.6, name: name) }
             }
         case kAXWindowCreatedNotification, kAXDrawerCreatedNotification, kAXHelpTagCreatedNotification, kAXSelectedColumnsChangedNotification,
              kAXCreatedNotification, kAXRowCountChangedNotification,
@@ -297,6 +278,31 @@ extension AXHandler {
     }
 
     /// The object for a notification: the live focus object when it is the same element, so its state carries.
+    /// Once a web page's news settles: whether the page in the browse mode document in front changed (Back, Forward, a
+    /// link), arrived after being blank, or finished loading. One check pending at a time.
+    func scheduleNavigationCheck(after delay: Double, name: String) {
+        navigationCheckPending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            navigationCheckPending = false
+            guard let d = API.focusTreeInterceptor else { loadCompleteSeen = false; return }
+            // Checked for the document in front now, not the one whose news scheduled this: dropped when another tab
+            // had come to the front, a check pending for one tab blocked the next tab's AXLoadComplete, which was never
+            // read again (a review, 13 Nov 2026). The load seen may then be the tab left's: at worst the tab in front is
+            // read again keeping its place. A script running: checked again in a moment, the load kept; it waited for
+            // news that might never come (a review, 13 Nov 2026).
+            guard !ScriptHandler.isScriptRunning else { scheduleNavigationCheck(after: 0.2, name: name); return }
+            let loaded = loadCompleteSeen
+            loadCompleteSeen = false
+            if d.refreshIfNavigated(announce: !d.passThrough, byKey: false) { Log.io("browse mode: page changed under the document (\(name))") }
+            else if d.loadedAfterBlank(announce: !d.passThrough) { Log.io("browse mode: page finished loading (\(name))") }
+            // Read while still loading, now finished: read again, the reading kept where it is, so say all and the
+            // arrows have the whole page (a review, 13 Nov 2026).
+            // A reload (the same address) is told by the document, which says the title (pageLoadCompleted).
+            else if loaded { d.pageLoadCompleted() }
+        }
+    }
+
     func object(for element: AXUIElement) -> TurnOverObject {
         if let f = API.focusObject, f.isSameElement(as: element) { return f }
         return ObjectFactory.make(element)
