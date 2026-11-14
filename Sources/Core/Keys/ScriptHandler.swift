@@ -199,7 +199,9 @@ public enum ScriptHandler {
                 // queued before it): counted down at once, a key typed in between wasn't held behind it and reached
                 // the app first ("ba" for "ab": a review, 14 Nov 2026).
                 DispatchQueue.main.async {
-                    if !taken { handled.send() }
+                    // Keys went ahead in a hang since this key's lookup (its own lookup may have been what hung): dropped.
+                    if !taken, hangEpoch.value != epoch { Log.warning("keyboard: \(handled.logDescription()) dropped; keys went through while main was stuck") }
+                    else if !taken { handled.send() }
                     outstandingLate.lock.lock(); outstandingLate.unsafeValue -= 1; outstandingLate.lock.unlock()
                 }
             } else { done.signal() }

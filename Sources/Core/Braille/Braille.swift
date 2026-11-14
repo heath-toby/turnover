@@ -672,7 +672,7 @@ public enum Braille {
             // out again and the same key number is another character (a review, 14 Nov 2026).
             var target: Int?
             if case .routing(let i) = key, case .text(_, let lineStart) = source, let cc = cursorCell {
-                let typing = BrailleInput.pending, cell = windowStart + i, at = cc - typing.count
+                let typing = BrailleInput.pending, cell = routedCell(i), at = cc - typing.count
                 let added = typing.isEmpty ? 0 : (BrailleInput.backTranslate(typing, true) as NSString).length
                 let length = (text as NSString).length
                 func offset(_ c: Int) -> Int { c < cellMap.count ? cellMap[c] : length }
@@ -691,7 +691,12 @@ public enum Braille {
             let key: String? = {
                 switch key {
                 // Only over the item's own cells: a stray key over the blanks after "Remove" removed the plugin.
-                case .routing(let i): if windowStart + i >= cells.count || messageUntil != nil { Tones.edge(); return nil }; return "enter"
+                case .routing(let i):
+                    // A hint showing: the key puts the item back (it only beeped, and the menu seemed dead). Past the
+                    // item's own cells: nothing (a review, 14 Nov 2026).
+                    if messageUntil != nil { messageUntil = nil; refresh(); return nil }
+                    if windowStart + i >= min(cells.count, windowEnd(windowStart)) { Tones.edge(); return nil }
+                    return "enter"
                 case .key(let name):
                     switch keyMap[name] {
                     case "previousLine": return "upArrow"
@@ -716,7 +721,7 @@ public enum Braille {
         if let mk = modalKey, modalShowing {
             switch key {
             case .routing(let i):
-                let cell = windowStart + i
+                let cell = routedCell(i)
                 mk("route:\(cell < cellMap.count ? cellMap[cell] : (text as NSString).length)")
             case .key(let name):
                 switch keyMap[name] {
@@ -755,7 +760,7 @@ public enum Braille {
         }
         switch key {
         case .routing(let i):
-            route(to: windowStart + i)
+            route(to: routedCell(i))
         case .key(let name):
             switch keyMap[name] {
             case "scrollBack": pan(forward: false)
@@ -910,13 +915,15 @@ public enum Braille {
                 press(forward ? "downArrow" : "upArrow")
                 // The list's end: nothing moved, so the edge sound, as before.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    if case .object(let now) = source, now.isSameElement(as: o) { Tones.edge(); objectEndWanted = nil }
+                    if case .object(let now) = source, now.isSameElement(as: o) { Tones.edge() }
                 }
                 return
             }
             // Auto scroll at an item's end: stopped, not an edge sound every few seconds for ever. (Only an item's: a
             // message showing waits, above, and auto scroll went off three seconds after "auto scroll on".)
-            if fromTimer, { if case .message = source { return false }; return true }() { autoScroll?.invalidate(); autoScroll = nil; Speech.speakMessage(String(localized: "auto scroll off", comment: "Spoken message")); return }
+            // A message source with nothing held (speech output mode, screen recognition): waits quietly for more.
+            if fromTimer, case .message = source { return }
+            if fromTimer { autoScroll?.invalidate(); autoScroll = nil; Speech.speakMessage(String(localized: "auto scroll off", comment: "Spoken message")); return }
             Tones.edge(); return
         }
         line(forward ? 1 : -1, toEnd: !forward, fromTimer: fromTimer)
@@ -1003,6 +1010,14 @@ public enum Braille {
             _ = AXUIElementPerformAction(f.element, kAXPressAction as CFString)
         }
         refreshSoon()
+    }
+
+    /// The cell under routing key `i`. Over the blanks padding a window that ended early at a space (keep words whole),
+    /// the window's end, as NVDA does: it was a character of the next window, unseen (a review, 14 Nov 2026).
+    private static func routedCell(_ i: Int) -> Int {
+        var end = windowEnd(windowStart)
+        if let c = cursorCell, c == cells.count, end == cells.count { end += 1 }   // the cursor cell after the line's end
+        return min(windowStart + i, end)
     }
 
     /// The caret (or the review cursor) to an offset in the text shown, as a routing key does.

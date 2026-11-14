@@ -101,7 +101,9 @@ extension ExcelAppModule {
                 if away || other {
                     Speech.speakMessage(String(localized: "cell review off", comment: "Spoken message"))
                     guard let g else { KeyboardGesture(identifier: "kb:escape")?.send(); return }
-                    if let s = ScriptHandler.findScript(for: g) { ScriptHandler.executeScript(s, gesture: g) } else { g.send() }
+                    // Posted again through the keyboard's own path, so the Windows style's translation applies (Control S
+                    // reached Excel as Control S and nothing was saved: a review, 14 Nov 2026), and TurnOver's keys run.
+                    if let post = KeyboardGesture.typedPoster { post(g) } else { g.send() }
                     return
                 }
                 guard let g,!["escape", "space"].contains(g.keyName) || (g.keyName == "space" && !g.modifiers.contains(.turnover)) else { Speech.speakMessage(String(localized: "cell review off", comment: "Spoken message")); return }

@@ -748,7 +748,12 @@ public final class ChatView {
             var tries = 0
             func settle() {
                 let open = openTitle()
-                let matches = open.map { $0.isEmpty || wanted.contains($0.lowercased()) } ?? true   // no title: nothing to check against
+                // The open chat's title must be what the heard words start with ("Ali" is not "Alison", nor a preview that
+        // mentions Mum: the wrong chat's box was entered, a review, 14 Nov 2026).
+        let matches = open.map { t in
+            let title = t.lowercased()
+            return title.isEmpty || wanted == title || wanted.hasPrefix(title + ", ") || wanted.hasPrefix(title + " ")
+        } ?? true   // no title: nothing to check against
                 if !matches, tries == 0 {
                     tries += 1
                     Log.io("chat: the open conversation is \(Log.words(open ?? "")), not the one pressed; selecting the row")
