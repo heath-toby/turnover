@@ -146,6 +146,14 @@ func browseModeReviewTests() {
         check(BrowseModeDocument.isSamePage("https://example.com/a#section-2", "https://example.com/a#section-1"), "plain anchors still are")
     }
 
+    test("browse mode review: a web app's route change keeps focus mode; a new page does not") {
+        check(BrowseModeDocument.isRouteChange("https://mail.example.com/mail/u/0/#inbox/FMfcg", "https://mail.example.com/mail/u/0/#inbox"), "a message opened")
+        check(BrowseModeDocument.isRouteChange("https://example.com/app/", "https://example.com/app/#/a"), "the route gone")
+        check(!BrowseModeDocument.isRouteChange("https://example.com/a#b", "https://example.com/a"), "a plain anchor")
+        check(!BrowseModeDocument.isRouteChange("https://example.com/b#/x", "https://example.com/a#/x"), "another page")
+        check(!BrowseModeDocument.isRouteChange("https://example.com/a#/x", ""), "the first look")
+    }
+
     test("browse mode review: focus mode for a list box or grid, not for a plain list or table that took the focus (NVDA)") {
         expect(BrowseModeDocument.focusModeContainer(.list, subrole: "AXContentList", roleDescription: "list"), false)
         expect(BrowseModeDocument.focusModeContainer(.list, subrole: "AXDescriptionList", roleDescription: nil), false)

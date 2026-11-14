@@ -165,6 +165,10 @@ public final class BrowseModeDocument: ScriptableObject {
             }
             return false
         }
+        // A web app's view changed under focus mode (Gmail's o on a message: #inbox to #inbox/FM…): the user is working
+        // in the app, so focus mode stays and the view is not announced or read from its top; only browse mode treats
+        // it as a new page. Ended, focus mode was lost silently (a review, 13 Nov 2026).
+        let keepFocusMode = !first && passThrough && Self.isRouteChange(now, lastURL)
         lastURL = now
         // Back or Forward counts for this arrival only: true for 10 s, it made a link followed after Back resume
         // part way down too (a review, 13 Nov 2026). The page still arriving resumes by it (historyURL).
@@ -179,11 +183,19 @@ public final class BrowseModeDocument: ScriptableObject {
             // A new page starts in browse mode, as NVDA's new document does. Focus mode carried over from the page
             // before (Google's search box) kept the new page from being announced, and its keys went to the page
             // (a tester, 12 Oct 2026). A page that puts the focus in a field switches again by itself.
-            if passThrough { Log.io("browse mode: a new page; focus mode from the last one ended") }
-            passThrough = false; disableAutoPassThrough = false
-            // The rest of what belonged to the page left: its letters turned off, a selection, the control the focus
-            // was last on (a review, 13 Nov 2026).
-            singleLetterNavigation = true; selectionAnchor = nil; lastFocusElement = nil
+            if keepFocusMode {
+                // The view taken as announced: leaving focus mode later does not read it from its top.
+                Log.io("browse mode: a web app's view changed in focus mode; focus mode kept")
+                announcedURL = now
+                BrowseModeHandler.noteAnnounced(webArea, url: now)
+            } else {
+                if passThrough { Log.io("browse mode: a new page; focus mode from the last one ended") }
+                passThrough = false; disableAutoPassThrough = false
+                // The rest of what belonged to the page left: its letters turned off, the control the focus was last
+                // on (a review, 13 Nov 2026).
+                singleLetterNavigation = true; lastFocusElement = nil
+            }
+            selectionAnchor = nil
             // And the places kept for it: where it was before it emptied, a module's wish to enter it at its last
             // control, its line said instead of a say all. Left over, they placed or silenced the new page (a review,
             // 13 Nov 2026). A request made in the last second is for this arrival (Mail's Shift Tab, as it moves on).
@@ -191,7 +203,7 @@ public final class BrowseModeDocument: ScriptableObject {
             if let r = Self.lastControlRequest, r.area.isSame(webArea), Date().timeIntervalSince(r.at) > 1 { Self.lastControlRequest = nil }
             // Safari reuses one web area per tab: a page reached again by a link is a new arrival, read again; only
             // Back and Forward come back to one announced (a review, 13 Nov 2026).
-            if !byHistory { BrowseModeHandler.forgetAnnounced(webArea, url: now) }
+            if !byHistory, !keepFocusMode { BrowseModeHandler.forgetAnnounced(webArea, url: now) }
         }
         let saved = byHistory ? BrowseModeHandler.shared.savedPosition(for: now) : nil
         let at = resumeOffset(saved)
@@ -211,6 +223,12 @@ public final class BrowseModeDocument: ScriptableObject {
     package static func isSamePage(_ now: String, _ last: String) -> Bool {
         guard now != last, !now.isEmpty, !last.isEmpty, urlBase(now) == urlBase(last), now.contains("#") || last.contains("#") else { return false }
         return !isRoute(now) && !isRoute(last)
+    }
+    /// Whether `now` is another view of the web app at `last`: the same address before the "#", a route on either side.
+    /// Pure.
+    package static func isRouteChange(_ now: String, _ last: String) -> Bool {
+        guard now != last, !now.isEmpty, !last.isEmpty, urlBase(now) == urlBase(last) else { return false }
+        return isRoute(now) || isRoute(last)
     }
     /// The address's fragment is a web app's route (#/inbox, #!/a, #inbox/FM…). Pure.
     package static func isRoute(_ url: String) -> Bool {
