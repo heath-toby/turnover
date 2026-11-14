@@ -321,7 +321,7 @@ public final class TurnOverMenu {
     private func rootItems() -> [MenuItem] {
         var items: [MenuItem] = []
         if let app = thisAppItem() { items.append(app) }
-        items.append(MenuItem("Settings", .submenu { self.settingsItems() }, hint: "The Settings window's sections, speech dictionaries and keyboard shortcuts"))
+        items.append(MenuItem("Settings", .submenu { self.settingsItems() }, hint: "The Settings window, speech dictionaries and keyboard shortcuts"))
         items.append(MenuItem("Tools", .submenu { self.toolItems() }, hint: "The apps TurnOver reads, the VoiceOver settings copy, feedback, force quit, plugins"))
         items.append(MenuItem("Help", .submenu { self.helpItems() }, hint: "The guide, about TurnOver, updates and previous builds"))
         items.append(Self.supportItem)
@@ -456,20 +456,16 @@ public final class TurnOverMenu {
         })
     }
 
-    /// Settings (14 Nov 2026, Oliver: "in NVDA's style"): NVDA's Preferences submenu. Each section of the Settings
-    /// window opens it there; then the speech dictionaries, and the keys (NVDA keeps Input Gestures under
-    /// Preferences), which were a "Keys" item of their own at the top until then.
+    /// Settings (14 Nov 2026, Oliver: "in NVDA's style"): NVDA's Preferences submenu. Settings opens the window at
+    /// General, as the single Settings item did; then the speech dictionaries, and the keys (NVDA keeps Input Gestures
+    /// under Preferences), which were a "Keys" item of their own at the top until then. An item per section of the
+    /// window was tried the same day and taken out (Oliver: just Settings, Speech dictionaries, Keyboard shortcuts).
     private func settingsItems() -> [MenuItem] {
-        // The window's sidebar, in its order (Sources/TurnOverSettings/main.swift, Pane), without Speech dictionaries:
-        // that one has its own submenu below.
-        let sections = ["General", "Speech", "Sounds", "Braille", "Vision", "Keyboard", "Mouse", "Item details", "Web pages", "Documents",
-                        "Screen recognition", "Other apps' speech", "Screen reader behaviour"]
-        var items = sections.map { section in
-            MenuItem(verbatim: SettingsBridge.sectionName(section), .action { SettingsBridge.open(section: section) })
-        }
-        items.append(MenuItem("Speech dictionaries", .submenu { self.dictionaryItems() }, hint: "Words said your way: for every voice, for this language, or for this voice"))
-        items.append(MenuItem("Keyboard shortcuts", .submenu { self.keysItems() }, hint: "Every shortcut here, keyboard help, and your own keys"))
-        return items
+        [
+            MenuItem("Settings", .action { SettingsBridge.open(section: "General") }, hint: "Opens the Settings window"),
+            MenuItem("Speech dictionaries", .submenu { self.dictionaryItems() }, hint: "Words said your way: for every voice, for this language, or for this voice"),
+            MenuItem("Keyboard shortcuts", .submenu { self.keysItems() }, hint: "Every shortcut here, keyboard help, and your own keys"),
+        ]
     }
 
     /// The three speech dictionaries of the voice in use, each opening the Settings window on it.

@@ -11,8 +11,9 @@ This page is the short tour. Each section links to the guide that goes into deta
 1. **Command Control Comma** is the way in to everything TurnOver: press it, hear "TurnOver", then a letter. M is the
    TurnOver menu, S the Settings window, K the keyboard style, H these guides. Any other key reads the list.
    **Command Control M** opens the menu in one press. The menu is short: This app, Settings, Tools, Help,
-   Support TurnOver, Quit. Every setting lives in the Settings window, in sections down the side; the menu's
-   Settings opens it at any section, and holds Speech dictionaries and Keyboard shortcuts, as NVDA's Preferences.
+   Support TurnOver, Quit. Every setting lives in the Settings window, in sections down the side. The menu's
+   Settings holds three items, as NVDA's Preferences: Settings, which opens the window at General; Speech
+   dictionaries (the default, this language's and this voice's); and Keyboard shortcuts.
 2. **Command Control Period** turns TurnOver off and on, from anywhere. Off, VoiceOver reads as usual.
 3. If TurnOver ever stops responding, VoiceOver comes on within a few seconds and TurnOver starts again.
 

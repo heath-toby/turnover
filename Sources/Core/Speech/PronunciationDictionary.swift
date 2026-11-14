@@ -6,7 +6,10 @@
 //     TurnOver = turn over
 //     LBRF = L B R F
 //     # a comment
-// The word on the left is matched whole, whatever its case; the right is what the voice says. It changes speech only:
+// The word on the left is matched whole, whatever its case; the right is what the voice says. Since 14 Nov 2026 an
+// entry has a type as in NVDA (whole word, anywhere, regular expression, phonemes) and may be case sensitive; the
+// format is in SpeechDictionaries.lines(fromText:). Entries apply in the order listed, as NVDA's do (until then the
+// longest word went first). It changes speech only:
 // braille, the copy of the last thing said and the log keep the text as written. A file is read again when it
 // changes, so an edit applies at once.
 //
@@ -20,9 +23,18 @@ import TurnOverVoices
 
 public enum PronunciationDictionary {
     public typealias IPAMark = SpeechPlayer.IPAMark
-    public typealias Entries = [(NSRegularExpression, String)]
+    public typealias Entries = [Compiled]
     /// The default dictionary.
     public static var fileURL: URL { SpeechDictionaries.fileURL(.standard) }
+
+    /// An entry made ready: its pattern and what a match becomes.
+    public final class Compiled {
+        let re: NSRegularExpression
+        let template: String
+        /// Set when it ran too long or grew the text too much: skipped until its file changes.
+        var disabled = false
+        init(re: NSRegularExpression, template: String) { self.re = re; self.template = template }
+    }
 
     /// Each file as last read, by path, and when it was last looked at (no more than once a second).
     private struct Loaded { var stamp: Date?; var checkedAt: Date; var entries: Entries }
@@ -37,29 +49,32 @@ public enum PronunciationDictionary {
         let pattern = "(?<![\\p{L}\\p{N}\\x{F8F5}\\x{F8F6}])" + NSRegularExpression.escapedPattern(for: word) + "(?![\\p{L}\\p{N}\\x{F8F6}\\x{F8F7}])"
         return try? NSRegularExpression(pattern: pattern, options: ignoreCase ? [.caseInsensitive] : [])
     }
-    /// What a word becomes: the text to say, or, between slashes, the word marked with its IPA.
-    package static func template(say: String) -> String {
-        // Between slashes, the pronunciation in IPA: the word stays, marked with its phonemes, which the Mac's
-        // voices take (AVSpeechSynthesisIPANotationAttribute: measured with Daniel, 14 Nov 2026, the same
-        // sound as SSML phonemes; VoiceOver itself has no way to do this).
-        if say.count > 2, say.hasPrefix("/"), say.hasSuffix("/") { return ipaTemplate(String(say.dropFirst().dropLast())) }
-        return NSRegularExpression.escapedTemplate(for: say)
-    }
+    /// The word marked with its sounds: the Mac's voices take IPA (AVSpeechSynthesisIPANotationAttribute: measured
+    /// with Daniel, 14 Nov 2026, the same sound as SSML phonemes; VoiceOver itself has no way to do this).
     private static func ipaTemplate(_ ipa: String) -> String { "\u{F8F5}" + NSRegularExpression.escapedTemplate(for: ipa) + "\u{F8F6}$0\u{F8F7}" }
 
-    /// The entries of a dictionary file's text (for the tests too).
-    package static func parse(_ text: String) -> [(NSRegularExpression, String)] {
-        var out: [(NSRegularExpression, String)] = []
-        for raw in text.components(separatedBy: .newlines) {
-            let line = raw.trimmingCharacters(in: .whitespaces)
-            guard !line.isEmpty, !line.hasPrefix("#"), let eq = line.range(of: "=") else { continue }
-            let word = line[..<eq.lowerBound].trimmingCharacters(in: .whitespaces)
-            let say = line[eq.upperBound...].trimmingCharacters(in: .whitespaces)
-            guard !word.isEmpty else { continue }
-            if let re = wordPattern(word, ignoreCase: true) { out.append((re, template(say: say))) }
+    /// An entry as a pattern and template; nil when it can't be used (`Entry.problem`: an invalid regular expression
+    /// is skipped, never a failure).
+    package static func compile(_ e: SpeechDictionaries.Entry) -> Compiled? {
+        guard e.problem == nil else { return nil }
+        let options: NSRegularExpression.Options = e.caseSensitive ? [] : [.caseInsensitive]
+        switch e.kind {
+        case .word:
+            return wordPattern(e.pattern, ignoreCase: !e.caseSensitive).map { Compiled(re: $0, template: NSRegularExpression.escapedTemplate(for: e.replacement)) }
+        case .phonemes:
+            return wordPattern(e.pattern, ignoreCase: !e.caseSensitive).map { Compiled(re: $0, template: ipaTemplate(e.replacement)) }
+        case .anywhere:
+            return (try? NSRegularExpression(pattern: NSRegularExpression.escapedPattern(for: e.pattern), options: options))
+                .map { Compiled(re: $0, template: NSRegularExpression.escapedTemplate(for: e.replacement)) }
+        case .regex:
+            // The replacement as the user wrote it: $1 for the first group, \$ for a dollar sign.
+            return (try? NSRegularExpression(pattern: e.pattern, options: options)).map { Compiled(re: $0, template: e.replacement) }
         }
-        // Longest first: "New York City" before "New York".
-        return out.sorted { $0.0.pattern.count > $1.0.pattern.count }
+    }
+
+    /// The entries of a dictionary file's text, in the order listed (for the tests too).
+    package static func parse(_ text: String) -> Entries {
+        SpeechDictionaries.entries(fromText: text).compactMap(compile)
     }
 
     /// A file's entries, read again if it changed (looked at no more than once a second).
@@ -142,11 +157,62 @@ public enum PronunciationDictionary {
         return (out, marks)
     }
 
-    package static func apply(_ text: String, _ list: [(NSRegularExpression, String)]) -> String {
+    /// Each entry in turn on the text the one before left.
+    package static func apply(_ text: String, _ list: Entries) -> String {
         var s = text
-        for (re, say) in list {
-            s = re.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: say)
+        for c in list where !c.disabled {
+            if let out = replaceOutsideMarks(s, c.re, c.template) { s = out }
+            else {
+                c.disabled = true
+                // Never the pattern: it is the user's, and can be a name.
+                Log.warning("pronunciations: an entry took too long or made the text too long, and is skipped until its dictionary changes")
+            }
         }
         return s
+    }
+
+    /// The longest one entry may take on a text, and how far it may grow it, before it is given up (a guard against a
+    /// regular expression that backtracks without end, or one that puts its replacement everywhere: 14 Nov 2026).
+    /// NSRegularExpression has no time limit of its own; with reportProgress its block is called while it works, and
+    /// stopping there ends the search (measured: (a+)+b on 40 a's stopped at 50 ms, 14 Nov 2026).
+    package static let timeLimit: TimeInterval = 0.05
+    package static func sizeLimit(_ length: Int) -> Int { max(length * 4, length + 10_000) }
+
+    /// Replaced outside the IPA marks (a word given its sounds isn't changed again: an "anywhere" entry for "a" would
+    /// otherwise change the sounds themselves); nil when the guard stopped it.
+    package static func replaceOutsideMarks(_ s: String, _ re: NSRegularExpression, _ template: String,
+                                            timeLimit: TimeInterval = PronunciationDictionary.timeLimit) -> String? {
+        let ns = s as NSString
+        let limit = sizeLimit(ns.length)
+        let started = Date()
+        var out = ""
+        var tooSlow = false
+        var outside: [NSRange] = []
+        var at = 0
+        while at < ns.length {
+            let open = ns.range(of: "\u{F8F5}", range: NSRange(location: at, length: ns.length - at))
+            guard open.location != NSNotFound else { break }
+            let close = ns.range(of: "\u{F8F7}", range: NSRange(location: open.location, length: ns.length - open.location))
+            guard close.location != NSNotFound else { break }
+            outside.append(NSRange(location: at, length: open.location - at))
+            outside.append(NSRange(location: open.location, length: NSMaxRange(close) - open.location))   // the mark, kept
+            at = NSMaxRange(close)
+        }
+        outside.append(NSRange(location: at, length: ns.length - at))
+        for (n, range) in outside.enumerated() {
+            if n % 2 == 1 { out += ns.substring(with: range); continue }
+            var last = range.location
+            re.enumerateMatches(in: s, options: [.reportProgress, .withTransparentBounds], range: range) { m, _, stop in
+                if Date().timeIntervalSince(started) > timeLimit { tooSlow = true; stop.pointee = true; return }
+                guard let m else { return }
+                out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
+                out += re.replacementString(for: m, in: s, offset: 0, template: template)
+                last = NSMaxRange(m.range)
+                if (out as NSString).length > limit { tooSlow = true; stop.pointee = true }
+            }
+            if tooSlow { return nil }
+            out += ns.substring(with: NSRange(location: last, length: NSMaxRange(range) - last))
+        }
+        return out
     }
 }

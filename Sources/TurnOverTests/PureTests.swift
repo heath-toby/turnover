@@ -161,17 +161,79 @@ func pureTests() {
         check(TurnOverObject.labelSide(left: CGRect(x: 200, y: 102, width: 90, height: 17), hasAbove: true, of: field) == .left, "a near label on the row beats one above")
         check(TurnOverObject.labelSide(left: nil, hasAbove: false, of: field) == .none, "no text: no label")
     }
-    test("pronunciations: whole words, any case, longest first, comments skipped") {
-        let list = PronunciationDictionary.parse("# mine\nTurnOver = turn over\nNew York = new york\nNew York City = big apple\nbad line\nLBRF = L B R F")
+    test("pronunciations: whole words, any case, in the order listed, comments skipped") {
+        let list = PronunciationDictionary.parse("# mine\nTurnOver = turn over\nNew York City = big apple\nNew York = new york\nbad line\nLBRF = L B R F")
         expect(list.count, 4, "four entries; the comment and the line without = left out")
         expect(PronunciationDictionary.apply("turnover reads LBRF files", list), "turn over reads L B R F files", "replaced whole, whatever the case")
         expect(PronunciationDictionary.apply("TurnOvers and xLBRF", list), "TurnOvers and xLBRF", "not inside another word")
-        expect(PronunciationDictionary.apply("New York City at night", list), "big apple at night", "the longer entry first")
+        expect(PronunciationDictionary.apply("New York City at night", list), "big apple at night", "the first listed applies first")
+        let reversed = PronunciationDictionary.parse("New York = NY\nNew York City = big apple")
+        expect(PronunciationDictionary.apply("New York City", reversed), "NY City", "NVDA's order: as listed, not longest first")
         let ipaList = PronunciationDictionary.parse("Siobhan = /ʃɪˈvɔːn/")
         let marked = PronunciationDictionary.apply("Hello Siobhan, hi", ipaList)
         let (plain, marks) = PronunciationDictionary.phonemes(in: marked)
         expect(plain, "Hello Siobhan, hi", "an IPA pronunciation keeps the word in the text")
         expect(marks, [PronunciationDictionary.IPAMark(location: 6, length: 7, ipa: "ʃɪˈvɔːn")], "and marks it with its phonemes")
+    }
+    test("speech dictionary lines: old ones read as before, typed ones, comments, and written back the same") {
+        typealias E = SpeechDictionaries.Entry
+        expect(SpeechDictionaries.entry(fromLine: "LBRF = L B R F"), E(kind: .word, pattern: "LBRF", replacement: "L B R F"), "an old line is a whole word, any case")
+        expect(SpeechDictionaries.entry(fromLine: "Siobhan = /ʃɪˈvɔːn/"), E(kind: .phonemes, pattern: "Siobhan", replacement: "ʃɪˈvɔːn"), "an old line in slashes is phonemes")
+        expect(SpeechDictionaries.entry(fromLine: "@anywhere,case & = and"), E(kind: .anywhere, pattern: "&", replacement: "and", caseSensitive: true), "a type and case after an @")
+        expect(SpeechDictionaries.entry(fromLine: "@regex (\\d+)px = $1 pixels"), E(kind: .regex, pattern: "(\\d+)px", replacement: "$1 pixels"), "a regular expression, its backslash kept")
+        expect(SpeechDictionaries.entry(fromLine: "@phonemes tomato = təˈmɑːtəʊ"), E(kind: .phonemes, pattern: "tomato", replacement: "təˈmɑːtəʊ"), "phonemes without slashes too")
+        expect(SpeechDictionaries.entry(fromLine: "@home = at home"), E(kind: .word, pattern: "@home", replacement: "at home"), "an @ that isn't a type is part of the word, as before")
+        expect(SpeechDictionaries.entry(fromLine: "@word /x/ = /y/"), E(kind: .word, pattern: "/x/", replacement: "/y/"), "a typed word may be said with slashes")
+        expect(SpeechDictionaries.entry(fromLine: "@regex a\\=b = equals"), E(kind: .regex, pattern: "a=b", replacement: "equals"), "an escaped = is in the pattern")
+        expect(SpeechDictionaries.entry(fromLine: "x = a = b"), E(pattern: "x", replacement: "a = b"), "the replacement is the rest of the line")
+        expect(SpeechDictionaries.entry(fromLine: "# note"), nil, "a comment is no entry")
+        expect(SpeechDictionaries.entry(fromLine: " = nothing"), nil, "nor is a line without a pattern")
+        let file = "# header\n\n# says it slowly\nLBRF = L B R F\nbad line\n@regex,case (\\d+)px = $1 pixels\n"
+        let lines = SpeechDictionaries.lines(fromText: file)
+        expect(lines.compactMap(\.entry).map(\.comment), ["says it slowly", ""], "a comment goes with the entry just after it")
+        expect(SpeechDictionaries.text(of: lines), file, "and the file is written back as it was")
+        for e in [E(kind: .word, pattern: "@x", replacement: "y"), E(kind: .anywhere, pattern: "a=b", replacement: "c", caseSensitive: true),
+                  E(kind: .regex, pattern: "(?=x)\\\\=\\=", replacement: "$0"), E(kind: .word, pattern: "C:\\path", replacement: "/slashed/"),
+                  E(kind: .phonemes, pattern: "Siobhan", replacement: "ʃɪˈvɔːn", caseSensitive: true), E(kind: .word, pattern: "#tag", replacement: "hash tag")] {
+            expect(SpeechDictionaries.entry(fromLine: SpeechDictionaries.line(for: e)), e, "written and read back: \(SpeechDictionaries.line(for: e))")
+        }
+        expect(SpeechDictionaries.line(for: E(pattern: "LBRF", replacement: "L B R F")), "LBRF = L B R F", "a plain word is written the old way")
+        expect(SpeechDictionaries.line(for: E(kind: .phonemes, pattern: "Siobhan", replacement: "ʃɪˈvɔːn")), "Siobhan = /ʃɪˈvɔːn/", "and so are its sounds")
+    }
+    test("speech dictionaries: Wiktionary's pronunciations of a word, in the dictionary's language") {
+        let page = "===Pronunciation===\n* {{IPA|en|/təˈmɑː.təʊ/|a=RP,AU}}\n* {{IPA|en|/təˈmeɪ.toʊ/|a=US}}\n* {{IPA|en|[tʰəˈmeɪ̯ɾo]|[-ˈme(ː)tʰo(ː)]|a=CA}}\n{{IPA|cy|/tɔˈmatɔ/}}"
+        let found = SpeechDictionaries.wiktionaryPronunciations(inWikitext: page, language: "en-GB")
+        expect(found.map(\.ipa), ["təˈmɑːtəʊ", "təˈmeɪtoʊ", "tʰəˈmeɪ̯ɾo"], "the English ones, without slashes, brackets, dots or parts of words")
+        expect(found.first?.accent, "RP, AU", "with where they are said")
+        expect(SpeechDictionaries.wiktionaryPronunciations(inWikitext: page, language: "cy").map(\.ipa), ["tɔˈmatɔ"], "another language's own")
+    }
+    test("speech dictionary types: whole word, anywhere, regular expression, phonemes; case; a bad pattern skipped") {
+        @MainActor func say(_ text: String, _ dictionary: String) -> String { PronunciationDictionary.apply(text, PronunciationDictionary.parse(dictionary)) }
+        expect(say("LBRF and LBRFs", "LBRF = L B R F"), "L B R F and LBRFs", "a whole word only")
+        expect(say("LBRF and LBRFs", "@anywhere LBRF = L B R F"), "L B R F and L B R Fs", "anywhere: inside a word too")
+        expect(say("Tom & Jerry", "@anywhere & =  and "), "Tom and Jerry", "a symbol")
+        expect(say("us and US", "@case US = United States"), "us and United States", "case sensitive")
+        expect(say("us and US", "US = United States"), "United States and United States", "any case by default")
+        expect(say("ab AB", "@anywhere,case b = c"), "ac AB", "anywhere, case sensitive")
+        expect(say("12px and 3px", "@regex (\\d+)px = $1 pixels"), "12 pixels and 3 pixels", "a regular expression with its group")
+        expect(say("Mr Smith", "@regex,case M(r|s) (\\w+) = mister $2"), "mister Smith", "groups by number")
+        expect(say("mr smith", "@regex,case M(r|s) (\\w+) = mister $2"), "mr smith", "case sensitive regular expression")
+        expect(PronunciationDictionary.parse("@regex (unclosed = x\nok = fine").count, 1, "an invalid regular expression is skipped, the rest kept")
+        expect(SpeechDictionaries.Entry(kind: .regex, pattern: "(unclosed", replacement: "").problem, .invalidRegex, "and the editor is told it is invalid")
+        expect(SpeechDictionaries.Entry(kind: .regex, pattern: "x*", replacement: "y").problem, .matchesEmpty, "one that matches empty text is refused")
+        expect(SpeechDictionaries.Entry(kind: .phonemes, pattern: "x", replacement: "").problem, .noPhonemes, "phonemes need sounds")
+        let marked = say("Siobhan's tomato", "@phonemes,case Siobhan = ʃɪˈvɔːn\n@anywhere a = A")
+        let (plain, marks) = PronunciationDictionary.phonemes(in: marked)
+        expect(plain, "Siobhan's tomAto", "a later entry changes the text, not a word already given its sounds")
+        expect(marks.map(\.ipa), ["ʃɪˈvɔːn"], "whose sounds are kept")
+        expect(PronunciationDictionary.phonemes(in: say("siobhan", "@phonemes,case Siobhan = ʃɪˈvɔːn")).ipa, [], "phonemes, case sensitive")
+        // The guard: a pattern that backtracks without end is stopped and skipped, the text left as it was.
+        let slow = PronunciationDictionary.parse("@regex (a+)+b = x")
+        let text = String(repeating: "a", count: 40) + "c"
+        let started = Date()
+        expect(PronunciationDictionary.apply(text, slow), text, "a runaway pattern leaves the text")
+        check(Date().timeIntervalSince(started) < 1, "and stops within its time")
+        expect(PronunciationDictionary.apply("aab", slow), "aab", "and stays off until its dictionary changes")
     }
     test("speech dictionaries: file names, and NVDA's order: the voice's, the language's, then the default") {
         expect(SpeechDictionaries.fileName(.standard), "pronunciations.txt", "the default is the file there was before")

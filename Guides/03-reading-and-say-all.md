@@ -33,7 +33,7 @@ style (Caps Lock Down Arrow with the desktop keyboard layout). It moves the care
 ## The say all voice
 
 Say all can read in a natural voice made on your Mac, while everything else (moving, typing, menus) stays in your
-usual voice, which answers at once. The TurnOver menu, Settings, Speech, **Say all voice**: "Same as speech", or a
+usual voice, which answers at once. Settings, Speech, **Say all voice**: "Same as speech", or a
 natural voice. Natural voice speed is there too.
 
 The natural voice reads ahead: while one paragraph plays, the next ones are being made, so it never waits.
@@ -80,12 +80,31 @@ Settings has VoiceOver's and NVDA's choices for how text is read:
   There are three kinds: the default dictionary, for every voice and language; a language's, for any voice speaking
   it; and a voice's, for that voice only. Choose which to edit in **Dictionary** at the top; the list has the
   default, your main voice's language and the other languages with voices, then your main voice and the voices you
-  chose for other languages. Choose a word in the list to change or remove it, or type a word and how to say it and
-  Add. "LBRF" said as "L B R F", for instance. They apply in NVDA's order: the voice's dictionary first, then the
-  language's, then the default. It changes speech only; braille shows the word as written. For the exact sounds,
-  give them in IPA between slashes: Siobhan said as /ʃɪˈvɔːn/. The Mac's voices say IPA, which VoiceOver can't; a
-  natural voice says the word as written. The TurnOver menu, Settings, Speech dictionaries, opens the window on the
-  default dictionary, this language's or this voice's.
+  chose for other languages. The dictionaries apply in NVDA's order: the voice's first, then the language's, then
+  the default. They change speech only; braille shows the text as written.
+  - **Entries** lists the chosen dictionary's entries, each read as its pattern, its type and what it is said as:
+    "LBRF, whole word, said as L B R F". Within a dictionary they apply in the order listed, each to the text the one
+    before left; **Move up** and **Move down** change the order.
+  - To add one, choose its **Type**, fill in **Pattern** and **Replacement**, and press **Add**. To change one,
+    choose it in the list, change the fields and press **Change**; **Remove** takes it away. **Case sensitive**
+    makes it match only in the case typed; **Comment** is a note of your own.
+  - The types: **Whole word**, the pattern as a word on its own ("LBRF", not inside "LBRFs"); **Anywhere**, the
+    pattern wherever it is, inside words too, for a symbol such as "&" or letters inside longer words; **Regular
+    expression**, a pattern in which the replacement can use $1 for what the first group in brackets found, $2 for
+    the second ("(\d+)px" said as "$1 pixels"); and **Phonemes**, a whole word said with the sounds you give in IPA,
+    in **Phonemes (IPA)**: Siobhan as ʃɪˈvɔːn. A pattern that isn't a valid regular expression, or one that could
+    match no text at all, is refused, and the section says why; one that runs too long while speaking is left out
+    until the dictionary changes.
+  - For phonemes, three ways to find the sounds: **Use a pronunciation from System Settings** copies those of one
+    you made there; **Hear it** says the word with the sounds typed, in the dictionary's voice; and **Look up on
+    Wiktionary** sends the word in Pattern, and only that, to Wiktionary and lists its pronunciations to choose
+    from. The Mac's voices say IPA, which VoiceOver can't; a natural voice says the word as written.
+  - The TurnOver menu, Settings, Speech dictionaries, opens the window on the default dictionary, this language's
+    or this voice's.
+  - The dictionaries are text files in TurnOver's folder in Application Support (pronunciations.txt, and the
+    pronunciations folder), a line each: `LBRF = L B R F` is a whole word, `Siobhan = /ʃɪˈvɔːn/` phonemes, and
+    the other types start with an @: `@anywhere & = and`, `@regex,case (\d+)px = $1 pixels`. A comment line, starting
+    with `#`, just before an entry is that entry's comment.
 - **Also use the pronunciations from System Settings** (Speech dictionaries, on unless you turn it off): the words
   you gave in System Settings, Accessibility, Read & Speak, Pronunciation, are said that way too, after TurnOver's
   own dictionaries, for the languages and voices they were given for. TurnOver only reads that list; change it in

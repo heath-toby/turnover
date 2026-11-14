@@ -1,7 +1,7 @@
 # Keyboard styles
 
 TurnOver speaks three screen readers' keys. Press Command Control Comma, then K, until you hear the one you want; the
-TurnOver menu, Settings, Keyboard, and the Settings window offer the same choice. The style changes which keys you
+Settings window's Keyboard section offers the same choice. The style changes which keys you
 press, never what TurnOver can do.
 
 ## VoiceOver keys (the Mac style)

@@ -489,82 +489,7 @@ struct OtherLanguage {
     let voices: [Voice]
 }
 
-/// Words said your way: a list of them, then the word and what to say, Add or change, and Remove. Written to the
-/// dictionary's file (`url`: pronunciations.txt for the default), which TurnOver reads again within a second of a change.
-struct PronunciationsEditor: View {
-    let url: URL
-    @State private var entries: [(word: String, say: String)] = []
-    @State private var selected: Int?
-    @State private var word = ""
-    @State private var say = ""
-    @State private var unreadable = false
-    /// The file's lines, or nil if it is there but can't be read (never then written over: a review).
-    private func lines() -> [String]? {
-        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-        return text.components(separatedBy: .newlines)
-    }
-    private static func entry(_ raw: String) -> (word: String, say: String)? {
-        let line = raw.trimmingCharacters(in: .whitespaces)
-        guard !line.hasPrefix("#"), let eq = line.range(of: "=") else { return nil }
-        let w = line[..<eq.lowerBound].trimmingCharacters(in: .whitespaces)
-        return w.isEmpty ? nil : (w, line[eq.upperBound...].trimmingCharacters(in: .whitespaces))
-    }
-    private func load() {
-        guard let l = lines() else { unreadable = true; return }
-        unreadable = false
-        entries = l.compactMap(Self.entry)
-    }
-    /// Read the file afresh, change it line by line (comments and order kept), and write it back.
-    private func change(_ edit: (inout [String]) -> Void) {
-        guard var l = lines() else { unreadable = true; return }
-        edit(&l)
-        while l.last?.isEmpty == true { l.removeLast() }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? (l.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
-        load()
-    }
-    private func same(_ raw: String, _ w: String) -> Bool { Self.entry(raw)?.word.caseInsensitiveCompare(w) == .orderedSame }
-    var body: some View {
-        Group {
-            if unreadable {
-                Text("The pronunciations file can't be read, so it isn't changed here.").font(.caption)
-            } else if entries.isEmpty {
-                Text("No words yet. Type a word and how to say it, then Add.").font(.caption)
-            } else {
-                List(entries.indices, id: \.self, selection: $selected) { i in
-                    Text(String(localized: "\(entries[i].word), said as \(entries[i].say)", comment: "A pronunciation in Speech settings")).tag(i)
-                }
-                .frame(minHeight: 80, maxHeight: 160)
-                .accessibilityLabel(String(localized: "Pronunciations", comment: "The list of pronunciations"))
-                .onChange(of: selected) { _, i in if let i, entries.indices.contains(i) { word = entries[i].word; say = entries[i].say } }
-            }
-            TextField(String(localized: "Word", comment: "A pronunciation's word"), text: $word)
-            TextField(String(localized: "Say it as", comment: "A pronunciation's replacement"), text: $say)
-            Text("To give the sounds themselves, put them in IPA between slashes, such as /ʃɪˈvɔːn/ for Siobhan. The Mac's voices say them; VoiceOver can't.").font(.caption)
-            Button(String(localized: "Add or change", comment: "Adds a pronunciation, or changes the one for that word")) {
-                let w = word.trimmingCharacters(in: .whitespaces), sy = say.trimmingCharacters(in: .whitespaces)
-                guard !w.isEmpty, !w.contains("="), !w.hasPrefix("#") else { return }
-                change { l in
-                    // The first line for the word changed where it is; any others for it go.
-                    if let i = l.firstIndex(where: { same($0, w) }) {
-                        l[i] = "\(w) = \(sy)"
-                        l = l.enumerated().filter { $0.offset == i || !same($0.element, w) }.map(\.element)
-                    } else { l.append("\(w) = \(sy)") }
-                }
-                word = ""; say = ""; selected = nil
-            }
-            Button(String(localized: "Remove", comment: "Removes the chosen pronunciation")) {
-                let w = selected.flatMap { entries.indices.contains($0) ? entries[$0].word : nil } ?? word.trimmingCharacters(in: .whitespaces)
-                guard !w.isEmpty else { return }
-                change { l in l.removeAll { same($0, w) } }
-                word = ""; say = ""; selected = nil
-            }
-        }
-        .onAppear { load() }
-        .onChange(of: url) { _, _ in word = ""; say = ""; selected = nil; load() }
-    }
-}
+// PronunciationsEditor, the entries of one dictionary, is in DictionaryEditor.swift (14 Nov 2026).
 
 /// Speech dictionaries (14 Nov 2026, NVDA's): which dictionary to edit, its words, and System Settings' pronunciations
 /// used as well. Plain controls in a form, a real list, no fold-outs.
@@ -572,8 +497,10 @@ struct SpeechDictionariesView: View {
     @EnvironmentObject var model: Model
     @ObservedObject private var voiceLists = VoiceLists.shared
     @State private var chosen = SpeechDictionaries.Scope.standard.id
-    /// System Settings' list, counted (never shown: the words can be names), read when the section appears.
+    /// System Settings' list, counted, read when the section appears; and those given as sounds, which the editor
+    /// offers to copy when an entry is phonemes (shown only there, in the user's own window; never logged).
     @State private var systemCount: (all: Int, on: Int)?
+    @State private var systemSounds: [(word: String, ipa: String)] = []
 
     private var mainVoice: String { model.get("speech", "voice") as? String ?? "" }
     private func languageName(_ code: String) -> String { Locale.current.localizedString(forLanguageCode: code) ?? code }
@@ -617,6 +544,25 @@ struct SpeechDictionariesView: View {
     private func countSystem() {
         let entries = (try? Data(contentsOf: SpeechDictionaries.systemPreferencesURL)).flatMap(SpeechDictionaries.systemEntries(fromPreferences:)) ?? []
         systemCount = (entries.count, entries.filter(\.active).count)
+        systemSounds = entries.compactMap { e in e.phonemes.map { (e.original, $0) } }
+    }
+    /// The voice that says the chosen dictionary's words, for Hear it: the voice's own (a Mac voice; a natural voice
+    /// can't say sounds, so the main voice stands in), the language's voice, or the main voice.
+    private var hearing: (voice: String?, language: String) {
+        let main = AVSpeechSynthesisVoice(identifier: mainVoice)
+        let mainLanguage = main.map { SpeechDictionaries.baseLanguage($0.language) } ?? "en"
+        switch SpeechDictionaries.Scope(id: chosen) ?? .standard {
+        case .voice(let id):
+            if let v = AVSpeechSynthesisVoice(identifier: id) { return (id, SpeechDictionaries.baseLanguage(v.language)) }
+            return (main?.identifier, mainLanguage)
+        case .language(let code):
+            if mainLanguage == code { return (main?.identifier, code) }
+            let chosenVoice = ((model.get("speech", "languageVoices") as? [String: String]) ?? [:])
+                .first { SpeechDictionaries.baseLanguage($0.key) == code }?.value
+            let v = chosenVoice.flatMap(AVSpeechSynthesisVoice.init(identifier:)) ?? AVSpeechSynthesisVoice(language: code)
+            return (v?.identifier, code)
+        case .standard: return (main?.identifier, mainLanguage)
+        }
     }
     var body: some View {
         Form {
@@ -624,7 +570,9 @@ struct SpeechDictionariesView: View {
                 ForEach(choices, id: \.id) { Text($0.title).tag($0.id) }
             }
             Text("A voice's dictionary applies first, then its language's, then the default.").font(.caption)
-            Section(String(localized: "Words", comment: "A group in Speech dictionaries: the chosen dictionary's words")) { PronunciationsEditor(url: url) }
+            Section(String(localized: "Entries", comment: "A group in Speech dictionaries: the chosen dictionary's entries")) {
+                PronunciationsEditor(url: url, voice: hearing.voice, language: hearing.language, systemSounds: systemSounds)
+            }
             Section(String(localized: "System Settings", comment: "A group in Speech dictionaries")) {
                 Toggle("Also use the pronunciations from System Settings", isOn: model.bool("speech", "systemPronunciations"))
                     .accessibilityHint(String(localized: "The words given in System Settings, Accessibility, Read & Speak, Pronunciation, said that way too, after TurnOver's own dictionaries. TurnOver only reads them.", comment: "Speech dictionaries"))
