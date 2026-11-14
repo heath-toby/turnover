@@ -201,6 +201,8 @@ public enum Speech {
     /// Said and kept as usual (speech history, the natural voice), but in the log only its length: notifications,
     /// whose words are someone's messages (a tester, 13 Nov 2026: "redact the notification contents").
     private static var redactNext = false
+    /// What is being said now is kept out of the log (braille's log follows it).
+    public static var isRedactedNow: Bool { redactNext || isPrivateNow }
     private static var redactLabel = ""
     public static func redactedInLog(_ label: String, _ speak: () -> Void) { redactNext = true; redactLabel = label; speak(); redactNext = false }
 

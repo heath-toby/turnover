@@ -64,7 +64,7 @@ public enum BrailleInput {
     }
 
     public static func chord(dots: Set<Int>, space: Bool, spaceLate: Bool = false) {
-        Braille.dismissMessage()
+        Braille.dismissMessage(leavingHistory: !(space && dots == [1, 3, 4, 5]))
         Speech.cancel()   // as a typed key does
         // Input help: the chord says what it does, except keyboard help itself (space with 1 3), which turns it off.
         if InputManager.isInputHelpActive, !(space && (dots == [1, 3] || dots == [1, 3, 7])) {

@@ -320,6 +320,8 @@ public enum Braille {
     // (Before, those items reached the display only as four-second messages, or not at all, and the display fell
     // back to the message box underneath, 7 Oct 2026.)
     private static var heldItem: (text: String, focus: AXUIElement?, caret: Int?)?
+    /// The item's words are kept out of the log, as speech's are (a notification, a chat message).
+    private static var itemRedacted = false
 
     public static func item(_ s: String) {
         // (Commas kept: a message or a chat's name has its own.)
@@ -328,8 +330,9 @@ public enum Braille {
         let caret = API.caretObject.flatMap { try? $0.makeTextInfo(.caret) }?.start
         let changed = heldItem?.text != t
         heldItem = (t, focus, caret)
-        // A new item replaces a message about the one before (as speech does).
-        messageUntil = nil
+        // A new item replaces a message about the one before (as speech does), and leaves the history.
+        messageUntil = nil; historyIndex = nil
+        itemRedacted = Speech.isRedactedNow
         if changed { windowStart = 0 }
         refresh()
     }
@@ -352,8 +355,10 @@ public enum Braille {
     }
 
     /// Typing on the braille keyboard: a message gives way, so the cells typed show (NVDA dismisses it at any key).
-    public static func dismissMessage() {
-        historyIndex = nil   // typing leaves the announcement history too
+    public static func dismissMessage(leavingHistory: Bool = true) {
+        // Typing leaves the announcement history too, except its own chord, which closes it itself (clearing it first
+        // made that chord reopen it: a review, 14 Nov 2026).
+        if leavingHistory { historyIndex = nil }
         guard messageUntil != nil else { return }
         messageUntil = nil
     }
@@ -379,7 +384,7 @@ public enum Braille {
         guard let d = display, !s.isEmpty, config.braille.showMessages != "off" else { return }
         source = .message
         plain()
-        messagePrivate = Speech.isPrivateNow   // a private notification or code: its length only in the log
+        messagePrivate = Speech.isRedactedNow   // a private notification or code, a redacted suggestion: its length only in the log
         text = displayed(s); cursor = nil; windowStart = 0; selection = nil
         layout()
         let widths = Double((cells.count + d.cellCount - 1) / max(d.cellCount, 1))
@@ -389,8 +394,9 @@ public enum Braille {
     }
 
     private static func holdMessage(_ seconds: Double) {
-        // Shown until a key: a date that never comes.
-        if config.braille.showMessages == "indefinitely" { messageUntil = .distantFuture; return }
+        // Shown until a key: a date that never comes. The history too: a pan in it timed out, the display went back
+        // and the history stayed half on, taking every key (a review, 14 Nov 2026).
+        if config.braille.showMessages == "indefinitely" || historyIndex != nil { messageUntil = .distantFuture; return }
         let until = Date().addingTimeInterval(seconds)
         messageUntil = until
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds + 0.05) {
@@ -438,6 +444,7 @@ public enum Braille {
             return
         }
         let oldLine: Int? = { if case .text(_, let s) = source { return s }; return nil }()
+        let oldElement: AXUIElement? = { if case .text(let i, _) = source { return i.obj.element }; return nil }()
         // Tethered to review: the review cursor's line (NVDA's "tether to review"); else the caret's.
         let reviewed = config.braille.tether == "review" ? TextReview.current() : nil
         if let caret = reviewed ?? API.caretObject.flatMap({ hasText($0) ? try? $0.makeTextInfo(.caret) : nil }) {
@@ -461,8 +468,10 @@ public enum Braille {
             layout()
             // The window follows the caret only when the caret moves (or typing grows the word): panning leaves the
             // caret behind on purpose, and an unrelated refresh must not pull the window back to it.
-            if oldLine != line.start || caret.start != lastCaret || !BrailleInput.pending.isEmpty {
-                if oldLine != line.start { windowStart = 0 }
+            // Another field (Tab from one long field to the next, both at 0): its own first window, not the pan's.
+            let sameElement = oldElement.map { line.obj.isSameElement(as: $0) } ?? false
+            if oldLine != line.start || !sameElement || caret.start != lastCaret || !BrailleInput.pending.isEmpty {
+                if oldLine != line.start || !sameElement { windowStart = 0 }
                 if let c = cursorCell, c < windowStart || c >= windowEnd(windowStart) { windowStart = window(containing: c) }
             }
             if !windows.contains(windowStart) { windowStart = window(containing: windowStart) }
@@ -586,7 +595,8 @@ public enum Braille {
             let a = start < cellMap.count ? cellMap[start] : 0
             let b = windowEnd(start) < cellMap.count ? cellMap[windowEnd(start)] : (text as NSString).length
             let shown = (text as NSString).substring(with: NSRange(location: min(a, (text as NSString).length), length: max(0, min(b, (text as NSString).length) - min(a, (text as NSString).length))))
-            if case .message = source, messagePrivate { Log.io("braille shows (\(kind)): (private, \(shown.count) cells)") }
+            if case .item = source, itemRedacted { Log.io("braille shows (\(kind)): (redacted, \(shown.count) cells)") }
+            else if case .message = source, messagePrivate { Log.io("braille shows (\(kind)): (private, \(shown.count) cells)") }
             // Typing in a password field (the pending cells), or speech's words in speech output mode (private echo
             // among them): only the length, even with developer logging (#61; a review, 14 Nov 2026).
             else if (!BrailleInput.pending.isEmpty && BrailleInput.typingSecret) || config.braille.mode == "speechOutput" {
@@ -675,8 +685,10 @@ public enum Braille {
                     case "activate": return "enter"
                     case "scrollBack", "scrollForward":
                         let next = keyMap[name] == "scrollForward" ? windows.first { $0 > windowStart } : windows.last { $0 < windowStart }
-                        if let next { windowStart = next; show(); holdMessage(Double(max(1, config.braille.messageSeconds)) + 2); return nil }
-                        return keyMap[name] == "scrollForward" ? "rightArrow" : "leftArrow"
+                        // Along a long item; at its end, on to the next item, as VoiceOver does (Right and Left changed
+                        // the item's setting: a review, 14 Nov 2026). No message is held for it.
+                        if let next { windowStart = next; show(); return nil }
+                        return keyMap[name] == "scrollForward" ? "downArrow" : "upArrow"
                     default: return nil
                     }
                 }
