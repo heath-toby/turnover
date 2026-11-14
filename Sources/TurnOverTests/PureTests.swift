@@ -495,6 +495,8 @@ func pureTests() {
         expect(Symbols.unicodeName("→"), "rightwards arrow", "an arrow the voice passes over: its Unicode name")
         expect(Symbols.unicodeName("😀"), nil, "an emoji: left to the voice, which names it")
         expect(Symbols.namedInText("→"), true, "an arrow is named inside text")
+        expect(Languages.pieces("Hello there. Ich bin hier, ja! Привет"), ["Hello there. ", "Ich bin hier, ", "ja! ", "Привет"], "split at sentence ends and commas, keeping them")
+        expect(Languages.pieces("3.5 and e.g. this"), ["3.5 and e.g. ", "this"], "a full stop inside a number or word doesn't split")
         expect(Symbols.namedInText("⎿"), false, "box drawing and technical signs only at level All (Claude Code in Terminal)")
         expect(Symbols.unicodeName("a"), nil, "a letter: itself")
         expect(Symbols.namingEmoticons("Great :-) see you"), "Great smiley see you", "an emoticon named")

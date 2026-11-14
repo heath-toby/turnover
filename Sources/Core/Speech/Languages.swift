@@ -62,7 +62,9 @@ public enum Languages {
         guard Double(otherScript) / Double(letters.count) > 0.5 else { return recognise(text, sticky: sticky) }
         let r = NLLanguageRecognizer()
         r.processString(text)
-        guard let (lang, p) = r.languageHypotheses(withMaximum: 1).first, p > 0.6, base(lang.rawValue) != base(main) else { return nil }
+        // Unsure (one word: "Привет"): the alphabet decides, as for a lone letter (14 Nov 2026).
+        guard let (lang, p) = r.languageHypotheses(withMaximum: 1).first, p > 0.6 else { return forCharacter(text, marked: nil) }
+        guard base(lang.rawValue) != base(main) else { return nil }
         return lang.rawValue
     }
 
@@ -197,13 +199,36 @@ public enum Languages {
 
     /// Speech made of parts joined by commas ("row 2, column 3, <Arabic text>"): each part's language (nil for the
     /// main voice's), neighbours in the same language joined again.
+    /// Split at commas, sentence ends and line breaks, each piece keeping what ended it: a selection running from an
+    /// English sentence into a German one and a Russian one was one piece, all in the German voice (14 Nov 2026).
     public static func splitByLanguage(_ text: String) -> [(text: String, language: String?)] {
         var out: [(text: String, language: String?)] = []
-        for part in text.components(separatedBy: ", ") {
-            let lang = detectUnmarked(part)
-            if let last = out.last, last.language == lang { out[out.count - 1].text += ", " + part }
+        for part in pieces(text) {
+            let lang = detectUnmarked(part.trimmingCharacters(in: .whitespacesAndNewlines))
+            if let last = out.last, last.language == lang { out[out.count - 1].text += part }
             else { out.append((part, lang)) }
         }
+        // A piece of nothing but spaces or punctuation goes with the one before.
+        return out.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+    /// The text in pieces, each ending with the comma, full stop, question or exclamation mark (and the spaces after)
+    /// or line break that ended it. Pure.
+    nonisolated public static func pieces(_ text: String) -> [String] {
+        var out: [String] = [], cur = ""
+        let chars = Array(text)
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            cur.append(c)
+            let next = i + 1 < chars.count ? chars[i + 1] : nil
+            let ends = c.isNewline || (",.!?;".contains(c) && (next == nil || next!.isWhitespace))
+            if ends {
+                while i + 1 < chars.count, chars[i + 1] == " " { i += 1; cur.append(" ") }
+                out.append(cur); cur = ""
+            }
+            i += 1
+        }
+        if !cur.isEmpty { out.append(cur) }
         return out
     }
 
