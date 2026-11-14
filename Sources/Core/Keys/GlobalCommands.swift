@@ -502,11 +502,20 @@ public final class GlobalCommands: ScriptableObject {
             let hours = h == 1 ? String(localized: "1 hour", comment: "A battery's time: hours") : String(localized: "\(h) hours", comment: "A battery's time: hours")
             return m > 0 ? String(localized: "\(hours) \(mins)", comment: "A battery's time: the hours, then the minutes") : hours
         }
+        // macOS 27 answers -1 ("no estimate") for both times, as the menu bar and pmset do: the battery's own firmware
+        // estimate is read instead, else worked out from its charge and current (the tester's recmon spoon does the
+        // same, 14 Nov 2026).
+        let firmware = SmartBattery.read()
+        func minutes(_ system: Int, charging: Bool) -> Int {
+            if system > 0 { return system }
+            guard let f = firmware else { return -1 }
+            return SmartBattery.minutes(charging: charging, avgToFull: f.avgToFull, avgToEmpty: f.avgToEmpty, remaining: f.remaining, full: f.full, amperage: f.amperage) ?? -1
+        }
         var parts = [String(localized: "battery \(max > 0 ? current * 100 / max : current) percent", comment: "The battery's charge: %lld is the percentage")]
         if charged, onPower { parts.append(String(localized: "charged, on power", comment: "The battery")) }
-        else if charging { parts.append(String(localized: "charging", comment: "The battery")); if let t = span(desc[kIOPSTimeToFullChargeKey] as? Int ?? -1) { parts.append(String(localized: "\(t) to full", comment: "The battery: %@ is how long until it is full")) } }
+        else if charging { parts.append(String(localized: "charging", comment: "The battery")); if let t = span(minutes(desc[kIOPSTimeToFullChargeKey] as? Int ?? -1, charging: true)) { parts.append(String(localized: "\(t) to full", comment: "The battery: %@ is how long until it is full")) } }
         else if onPower { parts.append(String(localized: "on power, not charging", comment: "The battery")) }
-        else { parts.append(String(localized: "on battery", comment: "The battery")); if let t = span(desc[kIOPSTimeToEmptyKey] as? Int ?? -1) { parts.append(String(localized: "\(t) left", comment: "The battery: %@ is how long it will last")) } }
+        else { parts.append(String(localized: "on battery", comment: "The battery")); if let t = span(minutes(desc[kIOPSTimeToEmptyKey] as? Int ?? -1, charging: false)) { parts.append(String(localized: "\(t) left", comment: "The battery: %@ is how long it will last")) } }
         return parts.joined(separator: ", ")
     }
 
