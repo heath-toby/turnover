@@ -311,6 +311,9 @@ extension AXHandler {
     /// The key press passed on for, and how many times (main thread).
     private var passedOn: (at: Date, n: Int) { get { Self._passedOn } set { Self._passedOn = newValue } }
     private static var _passedOn: (at: Date, n: Int) = (.distantPast, 0)
+    /// The element last passed on, and for which key press.
+    private var passedOnElement: (element: AXUIElement, at: Date)? { get { Self._passedOnElement } set { Self._passedOnElement = newValue } }
+    private static var _passedOnElement: (element: AXUIElement, at: Date)?
 
     /// Mail's Tab order stops on its message list's hidden scroll bar between the list and the message: a stop
     /// with nothing to say or do. Tab on past it, as the user meant.
@@ -343,10 +346,17 @@ extension AXHandler {
         // Tab is for what can be used, which a scroll bar is not from the keyboard.
         guard target.role == "AXScrollBar" || layout else { return .go(target) }
         let key = InputManager.lastKeyIdentifier
+        // The same scroll bar reporting its focus twice for one key press (an Open panel's file list, 14 Nov 2026):
+        // passed on once only, or the second Tab went past the next control (Cancel was never reached; the tester).
+        if let last = passedOnElement, last.at == InputManager.lastKeyDownAt, last.element.isSame(target) {
+            Log.io("focus on the same \(target.role) again for one key; already passed on")
+            return .done
+        }
         // At most twice for one key press: a Tab order of nothing but split views would go round for ever (a review).
         if Date().timeIntervalSince(InputManager.lastKeyDownAt) < 1.5, key == "kb:tab" || key == "kb:shift+tab", let g = KeyboardGesture(identifier: key),
            passedOn.at != InputManager.lastKeyDownAt || passedOn.n < 2 {
             passedOn = (InputManager.lastKeyDownAt, passedOn.at == InputManager.lastKeyDownAt ? passedOn.n + 1 : 1)
+            passedOnElement = (target, InputManager.lastKeyDownAt)
             Log.io("focus on a \(layout ? "nameless \(target.role)" : "scroll bar") after \(key); passing on")
             g.send()
             return .done
