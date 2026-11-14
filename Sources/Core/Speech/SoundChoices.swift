@@ -2,8 +2,8 @@
 // Sounds one by one (the public roadmap, "Soon": "each of TurnOver's sounds on or off, or your own; positional sound
 // with an off switch"). Every sound TurnOver plays has a name here; Tones, TurnOverSounds and VoiceOverSounds ask
 // this file first, so a sound turned off stays silent, and one given a file of your own plays that file, whichever
-// sound set is chosen. Positional sound pans each sound to where its item sits across the screen, as VoiceOver's
-// positional audio does.
+// sound set is chosen. Positional sound places each sound file where its item sits on the screen, as VoiceOver's
+// positional audio does: panned across it (Stereo), or across and up or down it (3D, SpatialSoundPlayer; 14 Nov 2026).
 //
 // A sound turned off is silent, never replaced by a tone. Where the caller has words for it (Quick Nav on and off),
 // VoiceOverSounds.play answers false so the words are said instead, as when VoiceOver's file is missing.
@@ -11,6 +11,7 @@ import Foundation
 import AVFoundation
 import ApplicationServices
 import AppKit
+import TurnOverSpeech
 
 @MainActor
 public enum SoundChoices {
@@ -160,6 +161,7 @@ public enum SoundChoices {
         }
         customPlayers[id] = nil
         failedFiles.remove(name)
+        SpatialSoundPlayer.shared.forget(.file(target))   // the engine's copy of the file it replaced
         config.sounds.custom[id] = name
         config.save()
         return true
@@ -169,7 +171,10 @@ public enum SoundChoices {
     public static func clearCustom(_ id: String) {
         let file = customFile(id)
         guard config.sounds.custom.removeValue(forKey: id) != nil else { return }
-        if let file { try? FileManager.default.removeItem(at: folder.appendingPathComponent(file)); failedFiles.remove(file) }
+        if let file {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(file)); failedFiles.remove(file)
+            SpatialSoundPlayer.shared.forget(.file(folder.appendingPathComponent(file)))
+        }
         customPlayers[id] = nil
         config.save()
     }
@@ -177,9 +182,9 @@ public enum SoundChoices {
     /// The sound as it plays now, for the Settings window's Play button: your file, the set's file, or the tone.
     /// Played even while the sound is off, so you can hear what you are turning on.
     public static func preview(_ id: String) {
-        let savedPan = placementPan
-        placementPan = 0   // a preview plays in the middle
-        defer { placementPan = savedPan }
+        let saved = placement
+        placement = .middle   // a preview plays in the middle
+        defer { placement = saved }
         if playCustom(id, volume: 0.8) { return }
         let wasOff = config.sounds.off.contains(id)
         if wasOff { config.sounds.off.removeAll { $0 == id } }
@@ -219,32 +224,42 @@ public enum SoundChoices {
 
     // MARK: Positional sound
 
-    /// The pan for the next sound, from -1 (left edge of the screen) to 1 (right edge); set as TurnOver moves onto an
-    /// item (the focus, the review cursor, a line read in browse mode).
-    private static var placementPan: Float = 0
+    /// Where an item sits on its screen: x from -1 (left edge) to 1 (right edge), y from -1 (bottom) to 1 (top).
+    nonisolated public struct Placement: Equatable, Sendable {
+        public var x: Float
+        public var y: Float
+        public init(x: Float, y: Float) { self.x = x; self.y = y }
+        public static let middle = Placement(x: 0, y: 0)
+        /// The stereo pan: across alone, kept within ±0.8 so nothing is heard in one ear only.
+        public var pan: Float { max(-0.8, min(0.8, x * 0.8)) }
+    }
 
-    /// TurnOver is now on this element: later sounds are panned to its middle across its screen. Its frame is read
-    /// here, once per move, rather than as each sound plays (a sound may play off a timer, after the focus has gone).
-    /// Reading position and size is the same cost as reading the item to speak it; a hung app answers within the
-    /// one-second messaging timeout every observed process has. Nothing is read while positional sound is off.
+    /// Where the next sound comes from; set as TurnOver moves onto an item (the focus, the review cursor, a line read
+    /// in browse mode).
+    private static var placement = Placement.middle
+
+    /// TurnOver is now on this element: later sounds come from its middle on its screen. Its frame is read here, once
+    /// per move, rather than as each sound plays (a sound may play off a timer, after the focus has gone). Reading
+    /// position and size is the same cost as reading the item to speak it; a hung app answers within the one-second
+    /// messaging timeout every observed process has. Nothing is read while positional sound is off.
     public static func place(at element: AXUIElement?) {
-        placementPan = pan(of: element) ?? 0
+        placement = self.placement(of: element) ?? .middle
     }
 
-    /// The pan for an element, or nil when positional sound is off or the element gives no frame.
-    public static func pan(of element: AXUIElement?) -> Float? {
+    /// Where an element sits, or nil when positional sound is off or the element gives no frame.
+    public static func placement(of element: AXUIElement?) -> Placement? {
         guard config.sounds.positional, let element, let frame = TurnOverObject.frame(element) else { return nil }
-        return pan(for: frame, screens: NSScreen.screens.map(accessibilityFrame))
+        return placement(for: frame, screens: NSScreen.screens.map(accessibilityFrame))
     }
 
-    /// Runs `body` with sounds at this pan, then puts the placement back: a sound queued while a line is read belongs
-    /// to its own piece of the line. Nil keeps the placement there is.
-    public static func at(_ pan: Float?, _ body: () -> Void) {
-        guard let pan else { body(); return }
-        let saved = placementPan
-        placementPan = pan
+    /// Runs `body` with sounds at this placement, then puts the placement back: a sound queued while a line is read
+    /// belongs to its own piece of the line. Nil keeps the placement there is.
+    public static func at(_ where: Placement?, _ body: () -> Void) {
+        guard let `where` else { body(); return }
+        let saved = placement
+        placement = `where`
         body()
-        placementPan = saved
+        placement = saved
     }
 
     /// A screen's frame in accessibility points (origin at the top left of the main display, y down).
@@ -254,14 +269,21 @@ public enum SoundChoices {
         return CGRect(x: f.minX, y: mainHeight - f.maxY, width: f.width, height: f.height)
     }
 
-    /// The pan for an item: where its middle sits across the screen it is on, kept within ±0.8 so nothing is heard
-    /// in one ear only. On no known screen, the middle.
-    nonisolated package static func pan(for frame: CGRect, screens: [CGRect]) -> Float {
+    /// Where an item's middle sits on the screen it is on (frames in accessibility points, y down). On no known
+    /// screen, the middle.
+    nonisolated package static func placement(for frame: CGRect, screens: [CGRect]) -> Placement {
         let mid = CGPoint(x: frame.midX, y: frame.midY)
         guard let screen = screens.first(where: { $0.contains(mid) }) ?? screens.first(where: { $0.intersects(frame) }),
-              screen.width > 0 else { return 0 }
-        let x = (mid.x - screen.minX) / screen.width   // 0 at the left edge, 1 at the right
-        return Float(max(-0.8, min(0.8, (x * 2 - 1) * 0.8)))
+              screen.width > 0, screen.height > 0 else { return .middle }
+        let across = (mid.x - screen.minX) / screen.width   // 0 at the left edge, 1 at the right
+        let down = (mid.y - screen.minY) / screen.height    // 0 at the top, 1 at the bottom
+        func clamp(_ v: CGFloat) -> Float { Float(max(-1, min(1, v))) }
+        return Placement(x: clamp(across * 2 - 1), y: clamp(1 - down * 2))
+    }
+
+    /// The stereo pan for an item: where its middle sits across the screen, within ±0.8.
+    nonisolated package static func pan(for frame: CGRect, screens: [CGRect]) -> Float {
+        placement(for: frame, screens: screens).pan
     }
 
     /// Sounds that belong to no item on screen (TurnOver itself, a display, a notification, a mode): always in the
@@ -271,11 +293,55 @@ public enum SoundChoices {
         "quicknav_on", "quicknav_off", "tracking_on", "tracking_off", "marked", "focus_mode", "browse_mode",
     ]
 
-    /// Starts a player at TurnOver's volume and the placement's pan: the one place a sound file starts.
-    static func start(_ p: AVAudioPlayer, volume: Float, id: String?) {
-        p.volume = volume * min(1.5, max(0.2, Float(config.speech.volume) / 100))   // with TurnOver's own volume
-        p.pan = config.sounds.positional && !(id.map(unplaced.contains) ?? false) ? placementPan : 0
+    /// How a sound file plays, from Settings, Sounds: through SpatialSoundPlayer for 3D or with reverb, otherwise
+    /// through its AVAudioPlayer as before (Off and Stereo without reverb are unchanged).
+    nonisolated package static func route(placement: String, reverb: Bool, at where: Placement, placed: Bool)
+        -> SpatialSoundPlayer.Placement? {
+        let p = placed && placement != "off" ? `where` : .middle
+        if placement == "3d" { return .threeD(x: p.x, y: p.y) }
+        if reverb { return .stereo(pan: p.pan) }
+        return nil
+    }
+
+    /// The engine didn't play a sound (no output, an unreadable file): AVAudioPlayer plays them for a while instead,
+    /// rather than trying the engine on every sound.
+    private static var engineRestingUntil = Date.distantPast
+    private static var engineUsed = false
+
+    /// Starts a player at TurnOver's volume and the placement: the one place a sound file starts. `key` names a
+    /// player made from data in memory (VoiceOver's levelled files), so the engine can keep its sound.
+    static func start(_ p: AVAudioPlayer, volume: Float, id: String?, key: String? = nil) {
+        let level = volume * min(1.5, max(0.2, Float(config.speech.volume) / 100))   // with TurnOver's own volume
+        let placed = !(id.map(unplaced.contains) ?? false)
+        let source: SpatialSoundPlayer.Source? = p.url.map { .file($0) } ?? key.flatMap { k in p.data.map { .wav(key: k, data: $0) } }
+        if let source, Date() >= engineRestingUntil,
+           let route = route(placement: config.sounds.placement, reverb: config.sounds.reverb, at: placement, placed: placed) {
+            engineUsed = true
+            SpatialSoundPlayer.shared.play(source, placement: route, volume: level, reverb: config.sounds.reverb) {
+                engineRestingUntil = Date().addingTimeInterval(30)
+                playPlainly(p, level: level, pan: route.pan)
+            }
+            return
+        }
+        // Back to Off or Stereo without reverb: the engine has nothing more to play, so it stops.
+        if engineUsed { engineUsed = false; SpatialSoundPlayer.shared.stop() }
+        playPlainly(p, level: level, pan: config.sounds.positional && placed ? placement.pan : 0)
+    }
+
+    private static func playPlainly(_ p: AVAudioPlayer, level: Float, pan: Float) {
+        p.volume = level
+        p.pan = pan
         p.currentTime = 0
         p.play()
+    }
+}
+
+extension SpatialSoundPlayer.Placement {
+    /// The pan to fall back to when AVAudioPlayer plays it instead.
+    var pan: Float {
+        switch self {
+        case .threeD(let x, _): return max(-0.8, min(0.8, x * 0.8))
+        case .stereo(let pan): return pan
+        }
     }
 }

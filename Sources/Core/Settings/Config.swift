@@ -919,19 +919,35 @@ public struct Config: Codable {
         public var off: [String] = []
         /// Your own files, by sound name: the file's name in TurnOver's Sounds folder.
         public var custom: [String: String] = [:]
-        /// Positional sound: each sound panned to where its item sits across the screen, as VoiceOver's positional audio.
-        public var positional = true
+        /// Where sounds come from (14 Nov 2026): "off", every sound in the middle; "stereo", panned to where its item sits
+        /// across the screen; "3d", from left or right and up or down by where it sits, as VoiceOver's positional audio
+        /// (SpatialSoundPlayer). Before it, a switch, `positional`: on is "stereo", off is "off".
+        public var placement = "stereo"
+        /// A touch of reverb: a small room behind the sound files (SpatialSoundPlayer). Off by default.
+        public var reverb = false
+        /// Sounds are placed at all, in stereo or 3D.
+        public var positional: Bool { placement != "off" }
+        nonisolated package static let placements = ["off", "stereo", "3d"]
+        /// The placement from a settings file: its own value if it knows it, or else the old switch's.
+        nonisolated package static func placement(_ raw: String?, positional: Bool?) -> String {
+            if let raw, placements.contains(raw) { return raw }
+            return positional ?? true ? "stereo" : "off"
+        }
         public init() {}
-        enum Keys: String, CodingKey { case off, custom, positional }
+        enum Keys: String, CodingKey { case off, custom, positional, placement, reverb }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
             off = (try? c.decodeIfPresent([String].self, forKey: .off)) ?? []
             custom = (try? c.decodeIfPresent([String: String].self, forKey: .custom)) ?? [:]
-            positional = (try? c.decodeIfPresent(Bool.self, forKey: .positional)) ?? true
+            placement = Self.placement((try? c.decodeIfPresent(String.self, forKey: .placement)) ?? nil,
+                                       positional: (try? c.decodeIfPresent(Bool.self, forKey: .positional)) ?? nil)
+            reverb = (try? c.decodeIfPresent(Bool.self, forKey: .reverb)) ?? false
         }
         public func encode(to encoder: Encoder) throws {
             var c = encoder.container(keyedBy: Keys.self)
-            try c.encode(off, forKey: .off); try c.encode(custom, forKey: .custom); try c.encode(positional, forKey: .positional)
+            try c.encode(off, forKey: .off); try c.encode(custom, forKey: .custom); try c.encode(placement, forKey: .placement)
+            try c.encode(reverb, forKey: .reverb)
+            try c.encode(positional, forKey: .positional)   // still written, for a TurnOver from before `placement`
         }
     }
     /// The mouse (14 Nov 2026): NVDA's Mouse settings and VoiceOver's pointer options (MouseTracking.swift). Everything

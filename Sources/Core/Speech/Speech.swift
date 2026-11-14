@@ -705,7 +705,7 @@ public enum Speech {
             // Positional sound: each tone panned to where its line sits, read as it plays (SoundChoices.at).
             // Worked out once, here, and only when there are tones and positional sound is on: asking the page where
             // the line is costs accessibility calls on every move (a review, 10 Nov 2026).
-            let pan = !info.pendingTones.isEmpty && config.sounds.positional ? SoundChoices.pan(of: info.soundElement) : nil
+            let pan = !info.pendingTones.isEmpty && config.sounds.positional ? SoundChoices.placement(of: info.soundElement) : nil
             let tones = info.pendingTones.map { tone in { SoundChoices.at(pan) { tone() } } }
             if reason == .sayAll { sayAllTones.append(contentsOf: tones) } else { tones.forEach { $0() } }
             info.pendingTones.removeAll()

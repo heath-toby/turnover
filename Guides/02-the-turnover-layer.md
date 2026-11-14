@@ -34,6 +34,9 @@ TurnOver Key, listens for it from login.
 - **This app:** who reads the app in front, and that app's own commands. Apps whose support is new say
   "experimental support".
 - **Settings:** speech (with the say all voice), keyboard, braille, documents, web pages, sounds, and Experimental.
+  In Sounds, "Where sounds come from" places each sound where its item is on the screen: in the middle, across the
+  screen in stereo, or in 3D, across and up or down it, as VoiceOver's positional audio does (best with headphones).
+  "A touch of reverb" adds a small room behind the sounds; speech is never changed.
 - **Apps:** which apps TurnOver reads.
 - **Keys:** every shortcut, keyboard help, and your own keys.
 - **Send feedback, About and updates, Quit.**

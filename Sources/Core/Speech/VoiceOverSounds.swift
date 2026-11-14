@@ -30,7 +30,7 @@ public enum VoiceOverSounds {
             players[name] = p
         }
         guard let p = players[name] else { return ownTone(for: name) }
-        SoundChoices.start(p, volume: volume, id: SoundChoices.id(forVoiceOverFile: name))
+        SoundChoices.start(p, volume: volume, id: SoundChoices.id(forVoiceOverFile: name), key: "voiceover/" + name)
         return true
     }
 
