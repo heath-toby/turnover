@@ -327,6 +327,7 @@ public struct Config: Codable {
         /// NVDA's maxLineLength: a browse mode line is at most this many characters.
         public var maxLineLength = 100
         /// NVDA's "Automatic say all on page load" (on by default in NVDA): a new page is read from where it starts.
+        /// Read only to give pageLoad its first value since 14 Nov 2026; pageLoad decides.
         public var autoSayAllOnPageLoad = true
         /// Quick navigation (H, K, F…) carries on from the other end of the page, and says so (7 Oct 2026).
         public var wrapQuickNav = true
@@ -339,8 +340,23 @@ public struct Config: Codable {
         /// A picture with no description is read by its file name ("graphic, sunset beach"), as JAWS can; off, just
         /// "graphic" (a tester, AppleVis, 9 Oct 2026).
         public var imageFileNames = false
+        // VoiceOver's Web category and NVDA's browse mode lines per page (14 Nov 2026). Each default is the behaviour
+        // before them.
+        /// VoiceOver's "When loading a new webpage": "read" (read it through: NVDA's automatic say all), "summary" (its
+        /// title and how many headings, links, tables, forms and landmarks), "line" (its title and the line the reading
+        /// starts on) or "nothing". A settings file from before keeps what its autoSayAllOnPageLoad switch did.
+        public var pageLoad = "read"
+        /// VoiceOver's "While a webpage loads": "nothing", "progress" (says how far it has got) or "tone" (a soft
+        /// repeating tone until it has loaded).
+        public var loadingFeedback = "nothing"
+        /// VoiceOver's "Navigate images": "always", "described" (pictures with a description only) or "never". A
+        /// picture inside a link is kept either way: it is often the link's only name.
+        public var navigateImages = "always"
+        /// NVDA's "Number of lines per page": how far Page Up and Page Down move in browse mode.
+        public var linesPerPage = 20
         public init() {}
-        enum Keys: String, CodingKey { case maxLineLength, autoSayAllOnPageLoad, wrapQuickNav, screenLayout, autoFocusMode, imageFileNames }
+        enum Keys: String, CodingKey { case maxLineLength, autoSayAllOnPageLoad, wrapQuickNav, screenLayout, autoFocusMode, imageFileNames,
+                                           pageLoad, loadingFeedback, navigateImages, linesPerPage }
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
             maxLineLength = (try? c.decodeIfPresent(Int.self, forKey: .maxLineLength)) ?? 100
@@ -349,6 +365,10 @@ public struct Config: Codable {
             screenLayout = (try? c.decodeIfPresent(Bool.self, forKey: .screenLayout)) ?? true
             autoFocusMode = (try? c.decodeIfPresent(Bool.self, forKey: .autoFocusMode)) ?? true
             imageFileNames = (try? c.decodeIfPresent(Bool.self, forKey: .imageFileNames)) ?? false
+            pageLoad = (try? c.decodeIfPresent(String.self, forKey: .pageLoad)).flatMap { $0 } ?? (autoSayAllOnPageLoad ? "read" : "line")
+            loadingFeedback = (try? c.decodeIfPresent(String.self, forKey: .loadingFeedback)).flatMap { $0 } ?? "nothing"
+            navigateImages = (try? c.decodeIfPresent(String.self, forKey: .navigateImages)).flatMap { $0 } ?? "always"
+            linesPerPage = (try? c.decodeIfPresent(Int.self, forKey: .linesPerPage)).flatMap { $0 } ?? 20
         }
         public func encode(to encoder: Encoder) throws {
             var c = encoder.container(keyedBy: Keys.self)
@@ -358,6 +378,8 @@ public struct Config: Codable {
             try c.encode(screenLayout, forKey: .screenLayout)
             try c.encode(autoFocusMode, forKey: .autoFocusMode)
             try c.encode(imageFileNames, forKey: .imageFileNames)
+            try c.encode(pageLoad, forKey: .pageLoad); try c.encode(loadingFeedback, forKey: .loadingFeedback)
+            try c.encode(navigateImages, forKey: .navigateImages); try c.encode(linesPerPage, forKey: .linesPerPage)
         }
     }
     /// Screen recognition (NVDA: the Windows OCR settings).

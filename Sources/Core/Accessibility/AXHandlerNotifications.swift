@@ -167,6 +167,7 @@ extension AXHandler {
                 // taken for the page finishing, read again under a say all (a review, 13 Nov 2026).
                 let pageLoaded = name == "AXLoadComplete" && element.isSame(d.webArea)
                 if pageLoaded { loadCompleteSeen = true }
+                LoadWatch.check(d)   // a page sending news may be loading (VoiceOver's "While a webpage loads")
                 // Back, Forward or a link: the page in this web area changed. Once it settles, resume where it was left.
                 if !navigationCheckPending { scheduleNavigationCheck(after: pageLoaded ? 0.1 : 0.6, name: name) }
             }

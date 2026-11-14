@@ -7,6 +7,20 @@ word. Single letters jump: in the Mac style, VoiceOver's Quick Nav letters (H he
 1 to 6 headings by level); in the Windows style, NVDA's. **TurnOver Space** switches between reading the page and
 typing into it. Enter activates a link or button.
 
+**TurnOver Shift Backslash** says the page's summary: its title and how many headings, links, tables, forms,
+landmarks and so on it has (VO Shift Vertical Line in the Mac style; Caps Lock Shift Backslash in the Windows styles).
+
+Settings, Web pages, has VoiceOver's and NVDA's choices for pages:
+
+- **When a new page opens:** read the page through (the standard), say its title and its summary (how many headings,
+  links, tables, forms and landmarks), say its title and first line, or say nothing.
+- **While a page loads:** say nothing (the standard), say how far it has got ("loading", then "30 percent" and so on),
+  or play a soft tone until it has loaded. This needs a browser that tells TurnOver how loading is going (Safari's
+  engine); elsewhere nothing is heard.
+- **Pictures on a page:** always read (the standard), read only those with a description, or skip them. A picture
+  inside a link is always read, as it is often the link's only name.
+- **Lines moved by Page Up and Page Down:** 20 unless you change it.
+
 ## Say all
 
 Say all reads from where you are to the end: **VO A** in the Mac style, **Caps Lock A** in the Windows

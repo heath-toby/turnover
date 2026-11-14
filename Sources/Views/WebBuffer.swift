@@ -94,6 +94,9 @@ public final class WebBuffer {
     public private(set) var segments: [Segment] = []
     /// Lists, tables, block quotes and landmarks, by the text they span: NVDA's comma and Shift comma.
     public private(set) var containers: [(start: Int, end: Int, element: AXUIElement)] = []
+    /// The headings, links, tables, forms, landmarks… the page has, each element once: its summary (PageSummary),
+    /// noted from the role and subrole the walk reads anyway, so a summary asks the page nothing (14 Nov 2026).
+    public private(set) var pageKinds: [ElementKey: PageSummary.Kind] = [:]
     public private(set) var builtAt = Date.distantPast
     public var isDirty = true
     /// How long the last build took: a page slow to read is not read again on every arrow.
@@ -130,6 +133,7 @@ public final class WebBuffer {
     private var newLines: [Line] = []
     private var newSegments: [Segment] = []
     private var newContainers: [(start: Int, end: Int, element: AXUIElement)] = []
+    private var newPageKinds: [ElementKey: PageSummary.Kind] = [:]
     private var visited = 0
     /// The elements one pass reads (a test sets it lower).
     nonisolated(unsafe) package static var maxElements = 6000
@@ -216,7 +220,7 @@ public final class WebBuffer {
         // The copy being replaced, kept if this read is cut short and is the same as far as it goes (below).
         let old = saved(), wasDirty = isDirty
         out = ""; outLength = 0; current = []; currentElement = nil; pendingEntering = []; containerStack = []; linkDepth = 0
-        newLines = []; newSegments = []; newContainers = []; visited = 0
+        newLines = []; newSegments = []; newContainers = []; newPageKinds = [:]; visited = 0
         frames = []; resumeFrames = []; stopped = false; resumeElement = nil; resumePending = []; edgeChain = []; textPieces = 0; passes = 1
         checkpoints = []
         // At most 2 s on the main thread (the watchdog trips at 4): a huge page is read only in part, rather than
@@ -357,6 +361,7 @@ public final class WebBuffer {
         lines = newLines
         segments = newSegments; emphasisCache = [:]
         containers = newContainers
+        pageKinds = newPageKinds
         isPartial = stopped
     }
 
@@ -417,6 +422,7 @@ public final class WebBuffer {
     /// What a copy is, kept while the page is read again.
     private struct Copy {
         let text: NSString; let lines: [Line]; let segments: [Segment]; let containers: [(start: Int, end: Int, element: AXUIElement)]
+        let pageKinds: [ElementKey: PageSummary.Kind]
         let out: String; let outLength: Int
         let resumeFrames: [Frame]; let stopped: Bool; let resumeElement: AXUIElement?; let resumePending: [AXUIElement]
         let checkpoints: [Checkpoint]
@@ -424,7 +430,7 @@ public final class WebBuffer {
         let docText: NSString; let docCursor: Int; let lastTextEnd: Int?
     }
     private func saved() -> Copy {
-        Copy(text: text, lines: lines, segments: segments, containers: containers, out: out, outLength: outLength,
+        Copy(text: text, lines: lines, segments: segments, containers: containers, pageKinds: pageKinds, out: out, outLength: outLength,
              resumeFrames: resumeFrames, stopped: stopped, resumeElement: resumeElement, resumePending: resumePending,
              checkpoints: checkpoints, passes: passes, textPieces: textPieces, elementCount: elementCount,
              docText: docText, docCursor: docCursor, lastTextEnd: lastTextEnd)
@@ -432,7 +438,7 @@ public final class WebBuffer {
     private func restore(_ c: Copy) {
         text = c.text; lines = c.lines; segments = c.segments; containers = c.containers; emphasisCache = [:]
         out = c.out; outLength = c.outLength
-        newLines = c.lines; newSegments = c.segments; newContainers = c.containers
+        newLines = c.lines; newSegments = c.segments; newContainers = c.containers; pageKinds = c.pageKinds; newPageKinds = c.pageKinds
         resumeFrames = c.resumeFrames; stopped = c.stopped; isPartial = c.stopped
         resumeElement = c.resumeElement; resumePending = c.resumePending; checkpoints = c.checkpoints
         passes = c.passes; textPieces = c.textPieces; elementCount = c.elementCount
@@ -452,6 +458,16 @@ public final class WebBuffer {
             steps += 1
         }
         return nil
+    }
+
+    /// Whether a picture outside a link is in the copy, by VoiceOver's "Navigate images": "always", "described" or
+    /// "never" (anything else is always, as before the setting).
+    package static func navigatesImage(described: Bool, setting: String) -> Bool {
+        switch setting {
+        case "never": return false
+        case "described": return described
+        default: return true
+        }
     }
 
     static let controlRoles: Set<String> = ["AXButton", "AXPopUpButton", "AXComboBox", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXMenuItem", "AXSlider", "AXMenuButton", "AXIncrementor", "AXDisclosureTriangle", "AXColorWell", "AXDateField", "AXTimeField"]
@@ -519,6 +535,7 @@ public final class WebBuffer {
         }
         let sub = el.string(kAXSubroleAttribute) ?? ""
         seenRoles[ElementKey(el)] = (role, sub)
+        if let k = PageSummary.kind(role: role, subrole: sub) { newPageKinds[ElementKey(el)] = k }
         switch role {
         case "AXStaticText":
             // An iOS app's text (Kindle's own screens, read as a document) carries its words as the description.
@@ -558,6 +575,9 @@ public final class WebBuffer {
             break   // an app whose pictures are only icons (Shortcuts: "graphic Stack of rectangles" before every folder)
         case "AXImage":
             var d = el.string(kAXDescriptionAttribute) ?? el.string(kAXTitleAttribute) ?? ""
+            // VoiceOver's "Navigate images" (14 Nov 2026): never, or only with a description of their own (a file
+            // name is not one). A picture in a link stays: it is often all the link has to say.
+            if linkDepth == 0, !Self.navigatesImage(described: !d.isEmpty, setting: config.virtualBuffers.navigateImages) { break }
             if d.isEmpty, config.virtualBuffers.imageFileNames { d = ImageNames.fromFile(el) }
             if !d.isEmpty || linkDepth == 0 { append(d.isEmpty ? Role.graphic.displayString : "\(Role.graphic.displayString) \(d)", el) }
         case "AXLink":

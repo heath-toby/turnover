@@ -208,6 +208,8 @@ public enum SettingsBridge {
             if before.applications.swapWithVoiceOver != next.applications.swapWithVoiceOver { onSwapChanged?(next.applications.swapWithVoiceOver) }
             // Steam's switches from the window do what the menu's do.
             if before.games.readBigPicture != next.games.readBigPicture { Games.restartBigPicture() }
+            // Pictures in or out of the page's copy: read again at the next key (VoiceOver's "Navigate images").
+            if before.virtualBuffers.navigateImages != next.virtualBuffers.navigateImages { API.focusTreeInterceptor?.buffer.isDirty = true }
             // The EQ heard as it is set: a short sample once the slider stops.
             for (name, was, now) in [("Bass", before.speech.bass, next.speech.bass), ("Middle", before.speech.middle, next.speech.middle), ("Treble", before.speech.treble, next.speech.treble)] where was != now {
                 previewSoon(String(localized: "\(Self.eqName(name)) \(String(Int(now))). The harbour opens at nine.", comment: "The EQ changed: %1$@ is bass, middle or treble, %2$@ the decibels"))

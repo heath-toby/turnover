@@ -169,7 +169,7 @@ extension VoiceOverKeysPlugin {
         add("previousGroup", String(localized: "The previous group, without going into it (VO-Shift-Left)", comment: "A command, as the key list and keyboard help say it"), ["kb:turnover+shift+leftArrow"]) { _ in ObjectNavigator.shared.groupStep(forward: false) }
         add("nextWindowSpot", String(localized: "The next part of the window: sidebar, toolbar, content (VO-Right Bracket)", comment: "A command, as the key list and keyboard help say it"), ["kb:turnover+]"]) { _ in Self.windowSpot(forward: true) }
         add("previousWindowSpot", String(localized: "The previous part of the window (VO-Left Bracket)", comment: "A command, as the key list and keyboard help say it"), ["kb:turnover+["]) { _ in Self.windowSpot(forward: false) }
-        add("pageStatistics", String(localized: "On a page, how many headings, links, tables…; in a table, the column's sort button (VO-Shift-Vertical Line)", comment: "A command, as the key list and keyboard help say it"), ["kb:turnover+shift+\\"]) { _ in
+        add("pageStatistics", String(localized: "On a page, its title and how many headings, links, tables, forms…; in a table, the column's sort button (VO-Shift-Vertical Line)", comment: "A command, as the key list and keyboard help say it"), ["kb:turnover+shift+\\"]) { _ in
             if let (cell, table) = Self.tableCell(), let sort = Self.sortButton(cell, table) { ObjectNavigator.shared.moveTo(sort); return }
             Speech.speakMessage(Self.pageStatistics() ?? String(localized: "not on a page", comment: "Spoken message"))
         }
@@ -458,21 +458,20 @@ extension VoiceOverKeysPlugin {
         ObjectNavigator.shared.jumpTo(spots[next], within: spots[next])   // the reading and the keyboard go with the cursor
     }
 
+    /// The page's summary: its title, then how many headings, links, tables, forms, landmarks, lists, pictures, text
+    /// fields and buttons, each element once (PageSummary, from what the copy noted as it read the page). Counting by
+    /// lines missed every link inside a line of text (14 Nov 2026).
     static func pageStatistics() -> String? {
         guard let d = API.focusTreeInterceptor else { return nil }
-        var counts: [String: Int] = [:]
-        // A heading wrapped over three lines is one heading: the lines that end an element, not every line (code review, 16 Oct 2026).
-        for (j, l) in d.buffer.lines.enumerated() where !d.buffer.lineContinues(j) { if let r = l.element?.role { counts[r, default: 0] += 1 } }
-        let kinds: [(String, (Int) -> String)] = [
-            ("AXHeading", { $0 == 1 ? String(localized: "1 heading", comment: "A count on a page") : String(localized: "\(String($0)) headings", comment: "A count on a page") }),
-            ("AXLink", { $0 == 1 ? String(localized: "1 link", comment: "A count on a page") : String(localized: "\(String($0)) links", comment: "A count on a page") }),
-            ("AXTable", { $0 == 1 ? String(localized: "1 table", comment: "A count on a page") : String(localized: "\(String($0)) tables", comment: "A count on a page") }),
-            ("AXList", { $0 == 1 ? String(localized: "1 list", comment: "A count on a page") : String(localized: "\(String($0)) lists", comment: "A count on a page") }),
-            ("AXImage", { $0 == 1 ? String(localized: "1 image", comment: "A count on a page") : String(localized: "\(String($0)) images", comment: "A count on a page") }),
-            ("AXTextField", { $0 == 1 ? String(localized: "1 text field", comment: "A count on a page") : String(localized: "\(String($0)) text fields", comment: "A count on a page") }),
-            ("AXButton", { $0 == 1 ? String(localized: "1 button", comment: "A count on a page") : String(localized: "\(String($0)) buttons", comment: "A count on a page") })]
-        let parts = kinds.compactMap { k, words in counts[k].map(words) }
-        return parts.isEmpty ? String(localized: "nothing to count", comment: "A page with no headings, links or tables") : parts.joined(separator: ", ")
+        d.refreshIfNavigated()
+        d.rebuildIfCheap()
+        let counts = PageSummary.counts(d.buffer.pageKinds.values)
+        let title = d.pageTitle()
+        guard !PageSummary.countsText(counts, kinds: PageSummary.allKinds).isEmpty else {
+            let nothing = String(localized: "nothing to count", comment: "A page with no headings, links or tables")
+            return title.isEmpty ? nothing : "\(title), \(nothing)"
+        }
+        return PageSummary.text(title: title, counts: counts, kinds: PageSummary.allKinds)
     }
 
     // MARK: Finding by kind (WebKit's search keys, as VoiceOver uses them)
