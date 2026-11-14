@@ -51,7 +51,9 @@ public enum StatusMenus {
         }
         let found = Locked([[Extra]](repeating: [], count: apps.count))
         DispatchQueue.concurrentPerform(iterations: apps.count) { i in
-            found.value[i] = extras(of: apps[i])
+            // Asked outside the lock, stored under it: `found.value[i] =` was a racy get then set (a review, 14 Nov 2026).
+            let mine = extras(of: apps[i])
+            found.withLock { $0[i] = mine }
         }
         return found.value.flatMap { $0 }.sorted { $0.x < $1.x }
     }

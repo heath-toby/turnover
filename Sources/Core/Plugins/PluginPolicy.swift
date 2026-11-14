@@ -15,7 +15,10 @@ public enum PluginPolicy {
         "com.bitwarden.desktop": "Bitwarden", "com.lastpass.LastPass": "LastPass", "com.dashlane.dashlanephonefinal": "Dashlane",
         "com.apple.keychainaccess": "Keychain Access", "com.apple.systempreferences": "System Settings",
         "com.apple.SecurityAgent": "macOS security dialogs", "com.apple.LocalAuthentication.UIAgent": "macOS security dialogs",
-        "com.apple.CoreServicesUIAgent": "macOS dialogs", "com.apple.UserNotificationCenter": "macOS dialogs",
+        // The real identifier is com.apple.coreservices.uiagent; CoreLocationAgent asks for the location (a review,
+        // 14 Nov 2026: the old "com.apple.CoreServicesUIAgent" never matched, and CoreLocationAgent was missing).
+        "com.apple.coreservices.uiagent": "macOS dialogs", "com.apple.CoreLocationAgent": "macOS dialogs",
+        "com.apple.UserNotificationCenter": "macOS dialogs",
         "com.apple.Terminal": "Terminal", "com.googlecode.iterm2": "iTerm", "dev.warp.Warp-Stable": "Warp",
         "net.kovidgoyal.kitty": "kitty", "com.github.wez.wezterm": "WezTerm", "com.mitchellh.ghostty": "Ghostty",
         "com.turnover.reader": "TurnOver", "com.turnover.reader.developer": "TurnOver Developer",
@@ -23,6 +26,12 @@ public enum PluginPolicy {
         "com.microsoft.edgemac": "Edge", "com.brave.Browser": "Brave", "company.thebrowser.Browser": "Arc",
         "com.operasoftware.Opera": "Opera", "com.vivaldi.Vivaldi": "Vivaldi",
     ]
+    /// The closed app's name for a bundle identifier, ignoring case: macOS matches identifiers without regard to
+    /// case, so a plugin listing one in another case must not slip past (a review, 14 Nov 2026).
+    public static func closedAppName(_ bundle: String) -> String? {
+        closedApps[bundle] ?? closedApps.first { $0.key.caseInsensitiveCompare(bundle) == .orderedSame }?.value
+    }
+
     /// Keys a plugin may never send: they reach outside its app (switching apps, Spotlight, Spaces, screenshots,
     /// Force Quit, locking) or use the clipboard behind the user's back (Paste).
     nonisolated public static let refusedSentKeys: [String] = [
@@ -122,7 +131,7 @@ public enum PluginPolicy {
         }
         // The library's rules.
         guard level != .official else { return f }
-        for b in m.apps { if let name = closedApps[b] { f.libraryOnly.append("\(name) is open to official plugins only (passwords, security, settings, terminals, browsers)") } }
+        for b in m.apps { if let name = closedAppName(b) { f.libraryOnly.append("\(name) is open to official plugins only (passwords, security, settings, terminals, browsers)") } }
         for (i, l) in (p?.labels ?? []).enumerated() {
             if l.match.unnamed != true, level == .community { f.libraryOnly.append("label \(i + 1) can rename an item the app already names: add \"unnamed\": true (renaming needs Verified)") }
             if isCatchAll(l.match) { f.libraryOnly.append("label \(i + 1) matches nearly everything: narrow it") }

@@ -211,6 +211,12 @@ package enum NotificationCentreNavigator {
     /// navigation move them, not the remembered place: Delete closed, and Command-Delete cleared, the app last arrowed
     /// to, a review, 13 Nov 2026), else the remembered app and place, else the first notification's app.
     private static func place(in gs: [Group], useCursor: Bool = true) -> (Int, Int) {
+        let p = heardPlace(in: gs, useCursor: useCursor)
+        return (p.0, p.1)
+    }
+
+    /// The place, and whether it is one the user heard: the cursor is on it, or the remembered app and words match it.
+    private static func heardPlace(in gs: [Group], useCursor: Bool = true) -> (Int, Int, Bool) {
         var hit: (Int, Int)?
         if useCursor {
             let centre = NotificationCentrePanel.centrePid()
@@ -225,10 +231,23 @@ package enum NotificationCentreNavigator {
                 }
             }
         }
-        return resolvePlace(groupNames: gs.map(\.name), itemWords: gs.map { $0.items.map(\.words) }, hit: hit,
-                            group: groupName, index: itemIndex, words: itemWords,
-                            defaultGroup: min(gs.count - 1, gs.count > 1 && gs[0].items.first?.kind == .button ? 1 : 0),
-                            firstNotifications: gs.map { firstNotification($0) })
+        let names = gs.map(\.name), words = gs.map { $0.items.map(\.words) }
+        let (g, i) = resolvePlace(groupNames: names, itemWords: words, hit: hit,
+                                  group: groupName, index: itemIndex, words: itemWords,
+                                  defaultGroup: min(gs.count - 1, gs.count > 1 && gs[0].items.first?.kind == .button ? 1 : 0),
+                                  firstNotifications: gs.map { firstNotification($0) })
+        return (g, i, placeWasHeard(groupNames: names, itemWords: words, hit: hit, group: groupName, words: itemWords, at: (g, i)))
+    }
+
+    /// The resolved place is one the user heard (pure, for the tests): the cursor's item, or the remembered app's
+    /// remembered words. resolvePlace falls back to an app's first notification, which Delete or Return must not act
+    /// on unheard (a review, 14 Nov 2026).
+    package nonisolated static func placeWasHeard(groupNames: [String], itemWords words: [[String]], hit: (Int, Int)?, group: String?,
+                                                  words remembered: String?, at p: (Int, Int)) -> Bool {
+        if let hit, hit == p { return true }
+        guard let name = group, let remembered, groupNames.indices.contains(p.0), groupNames[p.0] == name,
+              words.indices.contains(p.0), words[p.0].indices.contains(p.1) else { return false }
+        return words[p.0][p.1] == remembered
     }
 
     /// The place from what's known (pure, for the tests): the cursor's item; else in the remembered app, the remembered
@@ -330,7 +349,9 @@ package enum NotificationCentreNavigator {
         if let w = widget { if DesktopNavigator.pressLine(w.lines[w.index].element) { widget = nil } else { Tones.edge() }; return }
         let gs = groups()
         guard !gs.isEmpty else { return }
-        let (g, i) = place(in: gs)
+        let (g, i, heard) = heardPlace(in: gs)
+        // Not what was heard (the remembered one gone): say where TurnOver is instead of opening it (a review, 14 Nov 2026).
+        guard heard else { land(gs, g, i, announceGroup: groupName != gs[g].name); Tones.edge(); return }
         let item = gs[g].items[min(i, gs[g].items.count - 1)]
         if item.kind == .widget, enterWidget(item, name: gs[g].name) { return }
         press(item)
@@ -348,7 +369,10 @@ package enum NotificationCentreNavigator {
             Log.io("notification centre: Delete before the landing was said; not closed")
             Tones.edge(); return
         }
-        let (g, i) = place(in: gs, useCursor: !landing)
+        let (g, i, heard) = heardPlace(in: gs, useCursor: !landing)
+        // Not what was heard (the remembered one gone, resolvePlace fell back to an app's first): say where TurnOver
+        // is instead of closing it (a review, 14 Nov 2026).
+        guard heard else { land(gs, g, i, announceGroup: groupName != gs[g].name); Tones.edge(); return }
         let item = gs[g].items[min(i, gs[g].items.count - 1)]
         let action = item.kind == .stack ? "Clear All" : "Close"
         guard item.kind == .notification || item.kind == .stack, let full = customAction(item.element, named: action) else { Tones.edge(); return }

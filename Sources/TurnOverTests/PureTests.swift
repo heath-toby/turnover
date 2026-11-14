@@ -625,6 +625,11 @@ func pureTests() {
         let fine = PluginPolicy.check(plugin(["com.example.a"], #"{"labels":[{"match":{"role":"button","unnamed":true,"identifier":"home"},"name":"Home"}],"keys":[{"key":"turnover+h","description":"Home","action":"say","say":"Home page"}]}"#))
         check(fine.refused.isEmpty && fine.libraryOnly.isEmpty, "an ordinary plugin: \(fine.refused + fine.libraryOnly)")
     }
+    test("plugin policy: the system prompt agents are closed apps, by their real ids in any case") {
+        for id in SystemPrompts.agents { check(PluginPolicy.closedAppName(id) != nil, "\(id) open to community plugins") }
+        check(PluginPolicy.closedAppName("com.apple.CoreServices.UIAgent") != nil, "another case still closed")
+        check(PluginPolicy.closedAppName("com.example.a") == nil, "an ordinary app stays open")
+    }
     test("languages: a single Arabic letter has its language by its script (typing echo)") {
         let saved = config.speech.voice
         defer { config.speech.voice = saved }
@@ -1760,6 +1765,18 @@ func browseTextNavTests() {
         expect(place(group: "Messages", index: 7, words: nil), [1, 2], "closed at the end: the last")
         expect(place(group: "Gone", index: 1, words: "x"), [1, 0], "the app gone: the default app's first")
         expect(place(hit: (5, 0), group: nil, index: nil, words: nil), [1, 0], "a hit outside the groups is ignored")
+    }
+    test("notification centre: Delete and Return act only on a place that was heard") {
+        let names = ["Notification Centre", "Messages", "Mail"]
+        let words = [["Clear All"], ["Messages, Hi", "Messages, Bye"], ["Mail, News"]]
+        func heard(hit: (Int, Int)? = nil, group: String?, words w: String?, at p: (Int, Int)) -> Bool {
+            NotificationCentreNavigator.placeWasHeard(groupNames: names, itemWords: words, hit: hit, group: group, words: w, at: p)
+        }
+        check(heard(hit: (2, 0), group: nil, words: nil, at: (2, 0)), "the cursor's item")
+        check(heard(group: "Messages", words: "Messages, Bye", at: (1, 1)), "the remembered words")
+        check(!heard(group: "Gone", words: "Gone, x", at: (1, 0)), "the app gone: the default app's first was never heard")
+        check(!heard(group: "Messages", words: "Messages, Gone", at: (1, 0)), "the words gone: the app's first was never heard")
+        check(!heard(group: nil, words: nil, at: (1, 0)), "nothing remembered")
     }
     test("notification centre: Delete before the landing doesn't close the default app's first when the app is gone") {
         let names = ["Notification Centre", "Messages"]

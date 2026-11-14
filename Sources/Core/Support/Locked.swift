@@ -11,6 +11,12 @@ nonisolated public final class Locked<T>: @unchecked Sendable {
         get { lock.lock(); defer { lock.unlock() }; return _value }
         set { lock.lock(); _value = newValue; lock.unlock() }
     }
+    /// A read and a write as one step under the lock: `value[i] = x` through the property is a get then a set, and
+    /// two threads doing it at once lost each other's writes (StatusMenus.gather, a review, 14 Nov 2026).
+    public func withLock<R>(_ body: (inout T) throws -> R) rethrows -> R {
+        lock.lock(); defer { lock.unlock() }
+        return try body(&_value)
+    }
     /// The value with `lock` already held by the caller (a read and a write that must be one step).
     public var unsafeValue: T { get { _value } set { _value = newValue } }
 }
