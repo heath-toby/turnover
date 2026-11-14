@@ -83,8 +83,9 @@ Settings, Keyboard, **Keys and speech**, as VoiceOver's and NVDA's options:
 - Say a modifier key's name (shift, right command) when it is pressed and let go on its own. The TurnOver key is
   never named while you use it. Control, which stops speech, is named only when nothing was being said. With NVDA
   keys, Command and Option alone open menus and aren't named, and Shift, which pauses speech, is like Control.
-- Whether a typed character, and Return, stop what is being said. Off, the echo waits its turn.
-- A beep for a lowercase letter typed while Caps Lock is on, and a sound when a word you just typed is misspelt.
+- Whether a typed character, and Return, stop what is being said. Off, the echo waits its turn. Any key still
+  stops reading all, and what it was saying with it.
+- A sound when a word you just typed into a text field is misspelt.
 
 Settings, Item details, **Announcements**, as VoiceOver's: when the text under the cursor changes (a status line, a
 timer), when the table or list you are in gains or loses rows, and a sound when a dialog appears (whether its text

@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // VoiceOver's Verbosity > Announcements, and the NVDA keyboard options that go with them (14 Nov 2026): what TurnOver
 // says or sounds when status text changes under the review cursor, when the focused table or outline gains or loses
-// rows, when a dialog appears (a sound; its text is Presentation.speakDialogText's), and while typing (a lowercase letter with Caps Lock on, a word just typed misspelt).
-// The settings are Config.Presentation's statusTextChanges, rowCountChanges and dialogSound, and Config.Keyboard's
-// beepForLowercaseWithCapsLock and spellingErrorSoundWhileTyping. Every default keeps what TurnOver did before.
+// rows, when a dialog appears (a sound; its text is Presentation.speakDialogText's), and while typing (a word just
+// typed misspelt). The settings are Config.Presentation's statusTextChanges, rowCountChanges and dialogSound, and
+// Config.Keyboard's spellingErrorSoundWhileTyping. Every default keeps what TurnOver did before.
+// NVDA's beep for a lowercase letter with Caps Lock on was here and went (14 Nov 2026): on the Mac Shift with Caps
+// Lock on still types capitals, so the beep could never sound.
 import Foundation
 import AppKit
 import ApplicationServices
@@ -24,10 +26,19 @@ public enum Announcements {
         role == "AXStaticText" || ["AXApplicationStatus", "AXApplicationTimer", "AXApplicationLog"].contains(subrole ?? "")
     }
 
-    /// NVDA's caps lock beep: a lowercase letter typed while Caps Lock is on (Shift held turns Caps Lock's capitals back
-    /// to lowercase, usually by mistake).
-    nonisolated public static func lowercaseWithCapsLock(_ ch: Character, capsLockOn: Bool) -> Bool {
-        capsLockOn && ch.isLetter && ch.isLowercase && ch.uppercased() != String(ch)
+    /// The spelling checker's language for a typed word: the checker's own, unless the keyboard layout is for another
+    /// language the checker has (a Turkish layout, Turkish words). Never left to the checker to guess: from one word it
+    /// can't, and calls every word right (SpellingCorrections, 19 Oct 2026; the sound never played, a review, 14 Nov 2026).
+    nonisolated public static func spellingLanguage(typing: String?, available: [String], checkers: String) -> String {
+        func code(_ s: String) -> String { String(s.split(whereSeparator: { $0 == "_" || $0 == "-" }).first ?? "") }
+        guard let typing, !typing.isEmpty, code(typing) != code(checkers) else { return checkers }
+        if available.contains(typing) { return typing }
+        return available.first { code($0) == code(typing) } ?? checkers
+    }
+
+    /// Whether a word just typed is worth checking: two letters or more, no digits.
+    nonisolated public static func checksSpelling(of word: String) -> Bool {
+        word.count > 1 && word.contains(where: \.isLetter) && !word.contains(where: \.isNumber)
     }
 
     /// Whether a key cuts what is being said (NVDA's two speech interrupt options). Return and Enter follow their own
@@ -115,19 +126,30 @@ public enum Announcements {
 
     // MARK: Typing
 
-    /// A typed letter: NVDA's beep for a lowercase letter while Caps Lock is on.
-    static func typed(_ ch: Character, flags: CGEventFlags) {
-        guard config.keyboard.beepForLowercaseWithCapsLock, lowercaseWithCapsLock(ch, capsLockOn: flags.contains(.maskAlphaShift)) else { return }
-        Tones.beep(3000, 40, volume: 0.15)   // NVDA's: 3000 Hz, 40 ms
+    /// A word just typed into editable text: the spelling error sound when the system's spelling checker doesn't
+    /// know it. The checker, not the app's own marking: apps mark a misspelling some time after the word ends, or not
+    /// at all to accessibility, and the sound has to come as the word ends to mean anything. Checked after the echo
+    /// is queued, never before it: the check held the word's echo back (a review, 14 Nov 2026).
+    static func typedWord(_ word: String) {
+        guard config.keyboard.spellingErrorSoundWhileTyping, checksSpelling(of: word) else { return }
+        let typing = Symbols.typingLocale?.identifier
+        DispatchQueue.main.async {
+            let checker = NSSpellChecker.shared
+            let language = spellingLanguage(typing: typing, available: checker.availableLanguages, checkers: checker.language())
+            let miss = checker.checkSpelling(of: word, startingAt: 0, language: language, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil)
+            if miss.location != NSNotFound { Tones.spellingError() }
+        }
     }
 
-    /// A word just typed and echoed: the spelling error sound when the system's spelling checker doesn't know it.
-    /// The checker, not the app's own marking: apps mark a misspelling some time after the word ends, or not at all
-    /// to accessibility, and the sound has to come as the word ends to mean anything.
-    static func typedWord(_ word: String) {
-        guard config.keyboard.spellingErrorSoundWhileTyping, word.count > 1, word.contains(where: \.isLetter),
-              !word.contains(where: \.isNumber) else { return }
-        let miss = NSSpellChecker.shared.checkSpelling(of: word, startingAt: 0)
-        if miss.location != NSNotFound { Tones.spellingError() }
+    /// The spelling checker loads its dictionaries on its first use, a noticeable wait: done once, as the setting is
+    /// on, rather than at the first word typed.
+    private static var spellCheckerWarmed = false
+    static func warmSpellChecker() {
+        guard config.keyboard.spellingErrorSoundWhileTyping, !spellCheckerWarmed else { return }
+        spellCheckerWarmed = true
+        DispatchQueue.main.async {
+            let checker = NSSpellChecker.shared
+            _ = checker.checkSpelling(of: "warm", startingAt: 0, language: checker.language(), wrap: false, inSpellDocumentWithTag: 0, wordCount: nil)
+        }
     }
 }

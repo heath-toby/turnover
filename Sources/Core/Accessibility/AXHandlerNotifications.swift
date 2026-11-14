@@ -131,7 +131,9 @@ extension AXHandler {
                     Speech.speakMessage(t)
                 }
             }
-            if pid == activePid, element.role != "AXWindow" { Announcements.statusTextChanged(element) }
+            // (No role check here: it cost a round trip on every title change with the setting off; statusTextChanged
+            // returns at once when off, and isStatusText never takes a window. A review, 14 Nov 2026.)
+            if pid == activePid { Announcements.statusTextChanged(element) }
             guard let f = API.focusObject, f.isSameElement(as: element) else { return }
             EventHandler.queue(Event(.nameChange, f))
         case kAXMenuOpenedNotification:

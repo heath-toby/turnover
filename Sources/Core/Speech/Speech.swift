@@ -908,6 +908,7 @@ public enum Speech {
             typedWord.removeAll()
             backspacedSinceWord = false
             Log.io("typed word (\(word.count) characters)")
+            // (Its check waits for main to be free, so the echo below goes first.)
             if editable, !(API.focusObject is TerminalText) { Announcements.typedWord(word) }
             lastTypedWordSpoken = nil
             if echoesTypedWords(editable: editable) {
@@ -1001,9 +1002,11 @@ public enum Speech {
         let word = String(typedWord)
         typedWord.removeAll()
         Log.io("typed word (\(word.count) characters)")
-        if !(API.focusObject is TerminalText) { Announcements.typedWord(word) }
         let mode = config.keyboard.speakTypedWords
         if mode != .off { echo(typedWordSpeech(word, locale: Symbols.typingLocale)) }
+        // Editable text only, as speakTypedCharacter's: Return or Tab after Finder's type-select letters sounded a
+        // misspelling (a review, 14 Nov 2026).
+        if let f = API.focusObject, !(f is TerminalText), f.hasNavigableText, !f.states.contains(.readOnly) { Announcements.typedWord(word) }
     }
 
     // MARK: - Selection

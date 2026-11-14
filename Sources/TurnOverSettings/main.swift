@@ -800,7 +800,6 @@ struct KeyboardView: View {
                 Toggle("Say a modifier key's name when it is pressed and let go on its own", isOn: model.bool("keyboard", "announceModifierKeys"))
                 Toggle("Typing a character stops speech", isOn: model.bool("keyboard", "interruptSpeechForTypedCharacters"))
                 Toggle("Return stops speech", isOn: model.bool("keyboard", "interruptSpeechForEnter"))
-                Toggle("Beep when typing a lowercase letter with Caps Lock on", isOn: model.bool("keyboard", "beepForLowercaseWithCapsLock"))
                 Toggle("Play a sound when a word just typed is misspelt", isOn: model.bool("keyboard", "spellingErrorSoundWhileTyping"))
                 Toggle("Line and paragraph keys skim through say all, which carries on", isOn: model.bool("keyboard", "allowSkimReading"))
             }
