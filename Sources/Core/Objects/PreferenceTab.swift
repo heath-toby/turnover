@@ -76,6 +76,9 @@ open class PreferenceTab: TurnOverObject {
     /// While a switch is in progress, the focus events it causes (the app re-focuses the pressed button,
     /// sometimes by way of the old one) say nothing: the switch speaks its target once.
     static var quietUntil = Date.distantPast
+    /// The app switching: the quiet is its alone. Focus in every app was set aside for 1.2 s, and Command Tab just
+    /// after a switch left the new app unread (a review, 14 Nov 2026).
+    static var quietPid: pid_t = 0
     static var lastTabFocusAt = Date.distantPast
     /// Each switch, and each Tab into the pane, moves this on: a switch's late "back to the tab" checks stand down.
     nonisolated static var switchGeneration: Int {
@@ -93,6 +96,7 @@ open class PreferenceTab: TurnOverObject {
         guard !all.isEmpty else { return }
         let target = all[max(0, min(all.count - 1, index))]
         PreferenceTab.quietUntil = Date().addingTimeInterval(1.2)   // the switch starts 0.12 s later; panes load late
+        PreferenceTab.quietPid = target.pid
         PreferenceTab.lastTabFocusAt = Date()
         PreferenceTab.switchGeneration += 1
         let generation = PreferenceTab.switchGeneration
@@ -129,7 +133,7 @@ open class PreferenceTab: TurnOverObject {
     open override func event_gainFocus() {
         let fromTab = Date().timeIntervalSince(PreferenceTab.lastTabFocusAt) < 1.0
         PreferenceTab.lastTabFocusAt = Date()
-        if Date() < PreferenceTab.quietUntil { return }
+        if Date() < PreferenceTab.quietUntil, element.pid == PreferenceTab.quietPid { return }
         // Shift+Tab from the pane lands on the toolbar's last button on macOS; Windows returns to the
         // selected tab. Send the focus there instead, and let that focus event speak.
         if !fromTab, !states.contains(.selected), let window = element.element(kAXWindowAttribute), let title = window.string(kAXTitleAttribute),
