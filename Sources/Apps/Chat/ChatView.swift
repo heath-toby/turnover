@@ -146,6 +146,9 @@ public final class ChatView {
         if let m = spec.partMatch[id] { return m(e) }
         return e.string(kAXIdentifierAttribute) == id
     }
+    /// The window holds the conversations list: a window that doesn't (Messages Settings, a standard window, not a
+    /// sheet) isn't a chat with none open (a review, 14 Nov 2026).
+    public var hasConversations: Bool { find(spec.conversationsID) != nil }
     private func find(_ id: String) -> AXUIElement? {
         if spec.partMatch[id] != nil { return findByMatch(id) }
         guard let w = window else { found = [:]; return nil }
