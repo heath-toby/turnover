@@ -25,8 +25,13 @@ func mouseTests() {
     test("mouse: NVDA's left and right volumes become TurnOver's volume and pan") {
         let centre = MouseMath.volumeAndPan(left: 42.5, right: 42.5)
         expect(centre.pan, 0, "the middle: both speakers")
-        expect((centre.volume * 1000).rounded(), 179, "85 together: a little under NVDA's ordinary beep (0.21 for 100)")
-        expect(MouseMath.volumeAndPan(left: 85, right: 0).pan, -1, "all left")
+        expect((centre.volume * 1000).rounded(), 179, "42.5 a side: a little under NVDA's ordinary beep (0.21 for 50 a side)")
+        let edge = MouseMath.volumeAndPan(left: 85, right: 0)
+        expect((edge.volume * 1000).rounded(), 357, "at the edge the near ear has NVDA's 85, louder than the middle")
+        expect(edge.pan, -1, "all left")
+        let quarter = MouseMath.volumeAndPan(left: 21.25, right: 63.75)
+        expect((quarter.volume * 1000).rounded(), 268, "the louder side sets the volume")
+        expect((quarter.pan * 1000).rounded(), 667, "the quieter side a third of the louder, as NVDA's")
         expect(MouseMath.volumeAndPan(left: 0, right: 85).pan, 1, "all right")
         expect(MouseMath.volumeAndPan(left: 0, right: 0).volume, 0, "silent")
     }

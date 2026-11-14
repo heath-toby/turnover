@@ -91,7 +91,10 @@ Settings, Mouse, has NVDA's and VoiceOver's mouse choices. All are off until you
   Screen Recording permission.
 - **Mouse pointer and the cursor:** as VoiceOver's. The pointer ignores the cursor (as before); the pointer follows
   the cursor, going to each item it reaches; or moving the pointer moves the cursor to the item under it, which is
-  read, so VO Space then presses it. The keyboard focus stays where it is.
+  read, so VO Space then presses it. The keyboard focus stays where it is. (Keyboard, Review cursor follows the
+  mouse, moves the cursor the same way but silently.)
+- While trackpad control is on, the mouse settings are silent: the trackpad is TurnOver's then.
+- Over a password field, only "password edit" is said, never what is typed in it.
 
 ## Documents
 

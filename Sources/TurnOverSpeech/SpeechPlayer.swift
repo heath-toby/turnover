@@ -64,6 +64,10 @@ public final class SpeechPlayer: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private let toneNode = AVAudioPlayerNode()
+    /// Panned beeps (NVDA's audio coordinates) on a node of their own (a review, 14 Nov 2026): each one replaces the
+    /// last, as NVDA's beep stops the one before, instead of queueing behind it and falling behind the pointer; and a
+    /// node's pan is the whole node's, so on the shared tone node a panned beep re-panned tones already queued there.
+    private let pannedNode = AVAudioPlayerNode()
     private let queue = DispatchQueue(label: "turnover.speech", qos: .userInteractive)
     private var synth = AVSpeechSynthesizer()   // the speech queue's; replaced when it stops giving sound (freshSynth)
     /// Every call into a synthesizer runs on that synthesizer's own queue, never on the speech queue: its write and its
@@ -163,6 +167,8 @@ public final class SpeechPlayer: @unchecked Sendable {
         engine.connect(player, to: engine.mainMixerNode, format: format)
         engine.attach(toneNode)
         engine.connect(toneNode, to: engine.mainMixerNode, format: format)
+        engine.attach(pannedNode)
+        engine.connect(pannedNode, to: engine.mainMixerNode, format: format)
         if let unit = engine.outputNode.audioUnit {
             var frames = bufferFrames
             let status = AudioUnitSetProperty(unit, kAudioDevicePropertyBufferFrameSize, kAudioUnitScope_Global, 0, &frames, UInt32(MemoryLayout<UInt32>.size))
@@ -171,6 +177,7 @@ public final class SpeechPlayer: @unchecked Sendable {
         try engine.start()
         play(player)
         play(toneNode)
+        play(pannedNode)
         engineDevice = Self.defaultOutputDevice()
         watchDefaultOutput()
         // The engine stops itself when the output changes (AirPods or a USB headset connect, a sample-rate change):
@@ -419,14 +426,14 @@ public final class SpeechPlayer: @unchecked Sendable {
                 }
             }
             doing("tone buffer")
-            toneNode.pan = 0   // (a panned beep before it left its pan: a review)
             toneNode.scheduleBuffer(buf, completionHandler: nil)
             play(toneNode)
         }
     }
 
     /// `nvda`: NVDA's beep: a sine doubled and clipped (brighter), a whole number of cycles so it starts and ends at
-    /// zero with no fade (as the tester's IndentBeeper models it). `pan`: -1 left to 1 right (NVDA's audio coordinates).
+    /// zero with no fade (as the tester's IndentBeeper models it). `pan`: -1 left to 1 right (NVDA's audio coordinates):
+    /// a panned tone plays on its own node and cuts off the panned tone before it; unpanned tones stay centred and queue.
     public func playTone(frequency: Double, durationMs: Int, volume: Float = 0.25, nvda: Bool = false, pan: Float? = nil) {
         guard frequency > 0, durationMs > 0 else { return }
         queue.async { [self] in
@@ -443,9 +450,14 @@ public final class SpeechPlayer: @unchecked Sendable {
                 let w = sin(2 * Double.pi * frequency * Double(i) / rate)
                 data[i] = a * Float(nvda ? max(-1, min(1, w * 2)) : w)
             }
-            toneNode.pan = max(-1, min(1, pan ?? 0))
-            toneNode.scheduleBuffer(buf, completionHandler: nil)
-            play(toneNode)
+            if let pan {
+                pannedNode.pan = max(-1, min(1, pan))
+                pannedNode.scheduleBuffer(buf, at: nil, options: .interrupts, completionHandler: nil)
+                play(pannedNode)
+            } else {
+                toneNode.scheduleBuffer(buf, completionHandler: nil)
+                play(toneNode)
+            }
         }
     }
 
@@ -832,6 +844,7 @@ public final class SpeechPlayer: @unchecked Sendable {
             try engine.start()
             play(player)
             play(toneNode)
+            play(pannedNode)
             NSLog("speech: audio engine restarted (%@)", reason)
         } catch {
             NSLog("speech: audio engine would not restart (%@): %@", reason, "\(error)")
